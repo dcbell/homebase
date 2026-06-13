@@ -52,6 +52,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
+	s.mux.HandleFunc("GET /openapi.yaml", s.openapi)
+	s.mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	s.mux.HandleFunc("GET /auth/google/start", s.googleStart)
 	s.mux.HandleFunc("GET /auth/google/callback", s.googleCallback)
 	s.mux.HandleFunc("GET /auth/dev-login", s.devLogin)

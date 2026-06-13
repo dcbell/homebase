@@ -166,6 +166,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /docs", s.swaggerDocs)
+	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
+	mux.HandleFunc("GET /openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /", s.dashboard)
 	mux.HandleFunc("GET /calendar", s.calendar)
 	mux.HandleFunc("GET /search", s.search)
@@ -286,6 +289,61 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("web shutdown", "error", err)
 	}
+}
+
+func (s *webServer) swaggerDocs(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Homebase API Docs</title>
+	<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+	<style>
+		body { margin:0; background:#f6f7fb; }
+		.swagger-ui .topbar { display:none; }
+	</style>
+</head>
+<body>
+	<div id="swagger-ui"></div>
+	<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+	<script>
+		window.addEventListener("load", function () {
+			SwaggerUIBundle({
+				url: "/docs/openapi.yaml",
+				dom_id: "#swagger-ui",
+				deepLinking: true,
+				presets: [SwaggerUIBundle.presets.apis],
+				layout: "BaseLayout"
+			});
+		});
+	</script>
+</body>
+</html>`))
+}
+
+func (s *webServer) openapi(w http.ResponseWriter, r *http.Request) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.cfg.APIInternalURL+"/openapi.yaml", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		s.logger.Error("load openapi", "error", err)
+		http.Error(w, "failed to load OpenAPI document", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "failed to load OpenAPI document", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,1833 @@
+openapi: 3.0.3
+info:
+  title: Homebase API
+  version: 0.1.0
+  description: >
+    API for Homebase household operations. Most `/api/v1` routes require a valid
+    `homebase_session` cookie created by the auth flow.
+servers:
+  - url: /
+tags:
+  - name: Health
+  - name: Auth
+  - name: Dashboard
+  - name: Members
+  - name: Projects
+  - name: Tasks
+  - name: Events
+  - name: Routines
+  - name: Lists
+  - name: Contacts
+  - name: Assets
+  - name: Documents
+  - name: Modules
+  - name: Integrations
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: API is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /openapi.yaml:
+    get:
+      tags: [Health]
+      summary: OpenAPI document
+      operationId: openapiYaml
+      security: []
+      responses:
+        "200":
+          description: OpenAPI document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /docs/openapi.yaml:
+    get:
+      tags: [Health]
+      summary: OpenAPI document
+      operationId: docsOpenapiYaml
+      security: []
+      responses:
+        "200":
+          description: OpenAPI document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /auth/google/start:
+    get:
+      tags: [Auth]
+      summary: Start Google OAuth login
+      operationId: googleStart
+      security: []
+      responses:
+        "302":
+          description: Redirects to Google OAuth.
+
+  /auth/google/callback:
+    get:
+      tags: [Auth]
+      summary: Complete Google OAuth login
+      operationId: googleCallback
+      security: []
+      responses:
+        "302":
+          description: Sets the session cookie and redirects to the web app.
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /auth/dev-login:
+    get:
+      tags: [Auth]
+      summary: Development login
+      operationId: devLogin
+      security: []
+      responses:
+        "302":
+          description: Sets a development session cookie when enabled.
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      operationId: logout
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/me:
+    get:
+      tags: [Dashboard]
+      summary: Current user and household
+      operationId: getMe
+      responses:
+        "200":
+          description: Current session context.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+                  household:
+                    $ref: "#/components/schemas/Household"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/households/current:
+    get:
+      tags: [Dashboard]
+      summary: Current household
+      operationId: getCurrentHousehold
+      responses:
+        "200":
+          description: Current household.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Household"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Dashboard data
+      operationId: getDashboard
+      responses:
+        "200":
+          description: Household dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/calendar:
+    get:
+      tags: [Dashboard]
+      summary: Calendar month
+      operationId: getCalendar
+      parameters:
+        - name: month
+          in: query
+          description: Month to load in `YYYY-MM` format.
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+      responses:
+        "200":
+          description: Calendar month.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarMonth"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/dashboard/tiles/move:
+    post:
+      tags: [Dashboard]
+      summary: Move a dashboard tile
+      operationId: moveDashboardTile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tile, direction]
+              properties:
+                tile:
+                  type: string
+                direction:
+                  type: string
+                  enum: [up, down]
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/dashboard/tiles/order:
+    post:
+      tags: [Dashboard]
+      summary: Replace dashboard tile order
+      operationId: setDashboardTileOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tiles]
+              properties:
+                tiles:
+                  type: array
+                  items:
+                    type: string
+                  example: [calendar, tasks, projects, appointments, list]
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/members:
+    get:
+      tags: [Members]
+      summary: List household members
+      operationId: listMembers
+      responses:
+        "200":
+          $ref: "#/components/responses/UserList"
+    post:
+      tags: [Members]
+      summary: Add a household member
+      operationId: addMember
+      requestBody:
+        $ref: "#/components/requestBodies/MemberInput"
+      responses:
+        "201":
+          description: Member created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/members/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Members]
+      summary: Update a household member
+      operationId: updateMember
+      requestBody:
+        $ref: "#/components/requestBodies/MemberInput"
+      responses:
+        "200":
+          description: Member updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Members]
+      summary: Remove a household member
+      operationId: removeMember
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      operationId: listProjects
+      responses:
+        "200":
+          $ref: "#/components/responses/ProjectList"
+    post:
+      tags: [Projects]
+      summary: Create a project
+      operationId: createProject
+      requestBody:
+        $ref: "#/components/requestBodies/ProjectInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Project"
+
+  /api/v1/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Projects]
+      summary: Get a project
+      operationId: getProject
+      responses:
+        "200":
+          $ref: "#/components/responses/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Projects]
+      summary: Update a project
+      operationId: updateProject
+      requestBody:
+        $ref: "#/components/requestBodies/ProjectInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/projects/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Projects]
+      summary: Archive a project
+      operationId: archiveProject
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/projects/{id}/folders:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Projects]
+      summary: List project folders
+      operationId: listProjectFolders
+      responses:
+        "200":
+          $ref: "#/components/responses/ProjectFolderList"
+    post:
+      tags: [Projects]
+      summary: Create a project folder
+      operationId: createProjectFolder
+      requestBody:
+        $ref: "#/components/requestBodies/ProjectFolderInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/ProjectFolder"
+
+  /api/v1/project-folders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Projects]
+      summary: Update a project folder
+      operationId: updateProjectFolder
+      requestBody:
+        $ref: "#/components/requestBodies/ProjectFolderInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/ProjectFolder"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/project-folders/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Projects]
+      summary: Archive a project folder
+      operationId: archiveProjectFolder
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      operationId: listTasks
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskList"
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      operationId: createTask
+      requestBody:
+        $ref: "#/components/requestBodies/TaskInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Task"
+
+  /api/v1/tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Tasks]
+      summary: Get a task
+      operationId: getTask
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Tasks]
+      summary: Update a task
+      operationId: updateTask
+      requestBody:
+        $ref: "#/components/requestBodies/TaskInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/tasks/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Tasks]
+      summary: Complete a task
+      operationId: completeTask
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+
+  /api/v1/tasks/{id}/reopen:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Tasks]
+      summary: Reopen a task
+      operationId: reopenTask
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+
+  /api/v1/tasks/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Tasks]
+      summary: Archive a task
+      operationId: archiveTask
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      summary: List appointments/events
+      operationId: listEvents
+      responses:
+        "200":
+          $ref: "#/components/responses/EventList"
+    post:
+      tags: [Events]
+      summary: Create an appointment/event
+      operationId: createEvent
+      requestBody:
+        $ref: "#/components/requestBodies/EventInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Event"
+
+  /api/v1/events/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Events]
+      summary: Get an appointment/event
+      operationId: getEvent
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+    patch:
+      tags: [Events]
+      summary: Update an appointment/event
+      operationId: updateEvent
+      requestBody:
+        $ref: "#/components/requestBodies/EventInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+    delete:
+      tags: [Events]
+      summary: Delete an appointment/event
+      operationId: deleteEvent
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/routines:
+    get:
+      tags: [Routines]
+      summary: List routines
+      operationId: listRoutines
+      responses:
+        "200":
+          $ref: "#/components/responses/RoutineList"
+    post:
+      tags: [Routines]
+      summary: Create a routine
+      operationId: createRoutine
+      requestBody:
+        $ref: "#/components/requestBodies/RoutineInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Routine"
+
+  /api/v1/routines/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Routines]
+      summary: Get a routine
+      operationId: getRoutine
+      responses:
+        "200":
+          $ref: "#/components/responses/Routine"
+    patch:
+      tags: [Routines]
+      summary: Update a routine
+      operationId: updateRoutine
+      requestBody:
+        $ref: "#/components/requestBodies/RoutineInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Routine"
+
+  /api/v1/routines/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Routines]
+      summary: Archive a routine
+      operationId: archiveRoutine
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/routines/{id}/generate-task:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Routines]
+      summary: Generate a task from a routine
+      operationId: generateRoutineTask
+      responses:
+        "201":
+          $ref: "#/components/responses/Task"
+
+  /api/v1/lists:
+    get:
+      tags: [Lists]
+      summary: List household lists
+      operationId: listHouseholdLists
+      responses:
+        "200":
+          $ref: "#/components/responses/HouseholdListList"
+    post:
+      tags: [Lists]
+      summary: Create a household list
+      operationId: createHouseholdList
+      requestBody:
+        $ref: "#/components/requestBodies/HouseholdListInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/HouseholdList"
+
+  /api/v1/lists/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Lists]
+      summary: Get a household list
+      operationId: getHouseholdList
+      responses:
+        "200":
+          $ref: "#/components/responses/HouseholdList"
+    patch:
+      tags: [Lists]
+      summary: Update a household list
+      operationId: updateHouseholdList
+      requestBody:
+        $ref: "#/components/requestBodies/HouseholdListInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/HouseholdList"
+
+  /api/v1/lists/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Lists]
+      summary: Archive a household list
+      operationId: archiveHouseholdList
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/lists/{id}/items:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Lists]
+      summary: List items in a household list
+      operationId: listListItems
+      responses:
+        "200":
+          $ref: "#/components/responses/ListItemList"
+    post:
+      tags: [Lists]
+      summary: Create a list item
+      operationId: createListItem
+      requestBody:
+        $ref: "#/components/requestBodies/ListItemInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/ListItem"
+
+  /api/v1/list-items/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Lists]
+      summary: Update a list item
+      operationId: updateListItem
+      requestBody:
+        $ref: "#/components/requestBodies/ListItemInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/ListItem"
+
+  /api/v1/list-items/{id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Lists]
+      summary: Complete a list item
+      operationId: completeListItem
+      responses:
+        "200":
+          $ref: "#/components/responses/ListItem"
+
+  /api/v1/list-items/{id}/reopen:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Lists]
+      summary: Reopen a list item
+      operationId: reopenListItem
+      responses:
+        "200":
+          $ref: "#/components/responses/ListItem"
+
+  /api/v1/list-items/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Lists]
+      summary: Archive a list item
+      operationId: archiveListItem
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/contacts:
+    get:
+      tags: [Contacts]
+      summary: List contacts
+      operationId: listContacts
+      responses:
+        "200":
+          $ref: "#/components/responses/ContactList"
+    post:
+      tags: [Contacts]
+      summary: Create a contact
+      operationId: createContact
+      requestBody:
+        $ref: "#/components/requestBodies/ContactInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Contact"
+
+  /api/v1/contacts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Contacts]
+      summary: Get a contact
+      operationId: getContact
+      responses:
+        "200":
+          $ref: "#/components/responses/Contact"
+    patch:
+      tags: [Contacts]
+      summary: Update a contact
+      operationId: updateContact
+      requestBody:
+        $ref: "#/components/requestBodies/ContactInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Contact"
+
+  /api/v1/contacts/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Contacts]
+      summary: Archive a contact
+      operationId: archiveContact
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/related-contacts:
+    get:
+      tags: [Contacts]
+      summary: List contacts linked to a project, task, or asset
+      operationId: listRelatedContacts
+      parameters:
+        - $ref: "#/components/parameters/EntityType"
+        - $ref: "#/components/parameters/EntityID"
+      responses:
+        "200":
+          $ref: "#/components/responses/RelatedContactList"
+    post:
+      tags: [Contacts]
+      summary: Link a contact to a project, task, or asset
+      operationId: linkRelatedContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RelatedItemInput"
+                - type: object
+                  required: [contact_id]
+                  properties:
+                    contact_id:
+                      type: integer
+                      format: int64
+      responses:
+        "201":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/contact-links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    delete:
+      tags: [Contacts]
+      summary: Remove a contact link
+      operationId: unlinkContact
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/assets:
+    get:
+      tags: [Assets]
+      summary: List assets
+      operationId: listAssets
+      responses:
+        "200":
+          $ref: "#/components/responses/AssetList"
+    post:
+      tags: [Assets]
+      summary: Create an asset
+      operationId: createAsset
+      requestBody:
+        $ref: "#/components/requestBodies/AssetInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Asset"
+
+  /api/v1/assets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Assets]
+      summary: Get an asset
+      operationId: getAsset
+      responses:
+        "200":
+          $ref: "#/components/responses/Asset"
+    patch:
+      tags: [Assets]
+      summary: Update an asset
+      operationId: updateAsset
+      requestBody:
+        $ref: "#/components/requestBodies/AssetInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Asset"
+
+  /api/v1/assets/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Assets]
+      summary: Archive an asset
+      operationId: archiveAsset
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/assets/{id}/maintenance:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Assets]
+      summary: List asset maintenance items
+      operationId: listAssetMaintenanceItems
+      responses:
+        "200":
+          $ref: "#/components/responses/AssetMaintenanceItemList"
+    post:
+      tags: [Assets]
+      summary: Create an asset maintenance item
+      operationId: createAssetMaintenanceItem
+      requestBody:
+        $ref: "#/components/requestBodies/AssetMaintenanceInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/AssetMaintenanceItem"
+
+  /api/v1/asset-maintenance/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Assets]
+      summary: Update an asset maintenance item
+      operationId: updateAssetMaintenanceItem
+      requestBody:
+        $ref: "#/components/requestBodies/AssetMaintenanceInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/AssetMaintenanceItem"
+
+  /api/v1/asset-maintenance/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Assets]
+      summary: Archive an asset maintenance item
+      operationId: archiveAssetMaintenanceItem
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/asset-maintenance/{id}/generate-task:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Assets]
+      summary: Generate a task from an asset maintenance item
+      operationId: generateAssetMaintenanceTask
+      responses:
+        "201":
+          $ref: "#/components/responses/Task"
+
+  /api/v1/related-assets:
+    get:
+      tags: [Assets]
+      summary: List assets linked to a project or task
+      operationId: listRelatedAssets
+      parameters:
+        - $ref: "#/components/parameters/EntityType"
+        - $ref: "#/components/parameters/EntityID"
+      responses:
+        "200":
+          $ref: "#/components/responses/RelatedAssetList"
+    post:
+      tags: [Assets]
+      summary: Link an asset to a project or task
+      operationId: linkRelatedAsset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RelatedItemInput"
+                - type: object
+                  required: [asset_id]
+                  properties:
+                    asset_id:
+                      type: integer
+                      format: int64
+      responses:
+        "201":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/asset-links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    delete:
+      tags: [Assets]
+      summary: Remove an asset link
+      operationId: unlinkAsset
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/documents:
+    get:
+      tags: [Documents]
+      summary: List documents
+      operationId: listDocuments
+      responses:
+        "200":
+          $ref: "#/components/responses/DocumentList"
+    post:
+      tags: [Documents]
+      summary: Create a document
+      operationId: createDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentInput"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/DocumentUploadInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Document"
+
+  /api/v1/documents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Documents]
+      summary: Get a document
+      operationId: getDocument
+      responses:
+        "200":
+          $ref: "#/components/responses/Document"
+    patch:
+      tags: [Documents]
+      summary: Update a document
+      operationId: updateDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentInput"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/DocumentUploadInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Document"
+
+  /api/v1/documents/{id}/download:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Documents]
+      summary: Download or preview an uploaded document file
+      operationId: downloadDocument
+      responses:
+        "200":
+          description: Document file stream.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/documents/{id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Documents]
+      summary: Archive a document
+      operationId: archiveDocument
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/documents/{id}/related-items:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Documents]
+      summary: List items related to a document
+      operationId: listRelatedItemsForDocument
+      responses:
+        "200":
+          $ref: "#/components/responses/RelatedItemList"
+    post:
+      tags: [Documents]
+      summary: Link a document to a project, task, or asset
+      operationId: linkRelatedItemToDocument
+      requestBody:
+        $ref: "#/components/requestBodies/RelatedItemInput"
+      responses:
+        "201":
+          description: Related item link created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedItem"
+
+  /api/v1/related-documents:
+    get:
+      tags: [Documents]
+      summary: List documents linked to a project, task, or asset
+      operationId: listRelatedDocuments
+      parameters:
+        - $ref: "#/components/parameters/EntityType"
+        - $ref: "#/components/parameters/EntityID"
+      responses:
+        "200":
+          $ref: "#/components/responses/RelatedDocumentList"
+    post:
+      tags: [Documents]
+      summary: Link a document to a project, task, or asset
+      operationId: linkRelatedDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RelatedItemInput"
+                - type: object
+                  required: [document_id]
+                  properties:
+                    document_id:
+                      type: integer
+                      format: int64
+      responses:
+        "201":
+          description: Document link created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelatedItem"
+
+  /api/v1/document-links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    delete:
+      tags: [Documents]
+      summary: Remove a document link
+      operationId: unlinkDocument
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/modules/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [routines, lists, contacts, assets, documents]
+    get:
+      tags: [Modules]
+      summary: List module summary items
+      operationId: listModule
+      responses:
+        "200":
+          description: Module items.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModuleItem"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/integrations/google/calendar/connect:
+    post:
+      tags: [Integrations]
+      summary: Connect Google Calendar
+      operationId: googleCalendarConnect
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+  /api/v1/integrations/google/calendar/sync:
+    post:
+      tags: [Integrations]
+      summary: Sync Google Calendar
+      operationId: googleCalendarSync
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: homebase_session
+
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    EntityType:
+      name: entity_type
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [project, task, asset]
+    EntityID:
+      name: entity_id
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  requestBodies:
+    MemberInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/MemberInput"
+    ProjectInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProjectInput"
+    ProjectFolderInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProjectFolderInput"
+    TaskInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TaskInput"
+    EventInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/EventInput"
+    RoutineInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RoutineInput"
+    HouseholdListInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HouseholdListInput"
+    ListItemInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ListItemInput"
+    ContactInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ContactInput"
+    AssetInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AssetInput"
+    AssetMaintenanceInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AssetMaintenanceInput"
+    RelatedItemInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RelatedItemInput"
+
+  responses:
+    Ok:
+      description: Operation succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Ok"
+    Error:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UserList:
+      description: Users.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/User"
+    Project:
+      description: Project.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Project"
+    ProjectList:
+      description: Projects.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Project"
+    ProjectFolder:
+      description: Project folder.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProjectFolder"
+    ProjectFolderList:
+      description: Project folders.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ProjectFolder"
+    Task:
+      description: Task.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Task"
+    TaskList:
+      description: Tasks.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Task"
+    Event:
+      description: Event.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Event"
+    EventList:
+      description: Events.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Event"
+    Routine:
+      description: Routine.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Routine"
+    RoutineList:
+      description: Routines.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Routine"
+    HouseholdList:
+      description: Household list.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HouseholdList"
+    HouseholdListList:
+      description: Household lists.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/HouseholdList"
+    ListItem:
+      description: List item.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ListItem"
+    ListItemList:
+      description: List items.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ListItem"
+    Contact:
+      description: Contact.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Contact"
+    ContactList:
+      description: Contacts.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Contact"
+    RelatedContactList:
+      description: Related contacts.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/RelatedContact"
+    Asset:
+      description: Asset.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Asset"
+    AssetList:
+      description: Assets.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Asset"
+    AssetMaintenanceItem:
+      description: Asset maintenance item.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AssetMaintenanceItem"
+    AssetMaintenanceItemList:
+      description: Asset maintenance items.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/AssetMaintenanceItem"
+    RelatedAssetList:
+      description: Related assets.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/RelatedAsset"
+    Document:
+      description: Document.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Document"
+    DocumentList:
+      description: Documents.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Document"
+    RelatedDocumentList:
+      description: Related documents.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/RelatedDocument"
+    RelatedItemList:
+      description: Related items.
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/RelatedItem"
+
+  schemas:
+    Ok:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2026-06-13T12:00:00Z"
+    User:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        name: { type: string }
+        avatar_url: { type: string }
+        role: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    Household:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        role: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    ProjectInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        status: { type: string, example: active }
+        priority: { type: string, example: normal }
+        due_date: { $ref: "#/components/schemas/Timestamp" }
+    Project:
+      allOf:
+        - $ref: "#/components/schemas/ProjectInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+    ProjectFolderInput:
+      type: object
+      properties:
+        title: { type: string }
+        sort_order: { type: integer }
+    ProjectFolder:
+      allOf:
+        - $ref: "#/components/schemas/ProjectFolderInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            project_id: { type: integer, format: int64 }
+            status: { type: string }
+    TaskInput:
+      type: object
+      properties:
+        project_id: { type: integer, format: int64, nullable: true }
+        project_folder_id: { type: integer, format: int64, nullable: true }
+        routine_id: { type: integer, format: int64, nullable: true }
+        asset_id: { type: integer, format: int64, nullable: true }
+        asset_maintenance_item_id: { type: integer, format: int64, nullable: true }
+        assigned_to: { type: integer, format: int64, nullable: true }
+        title: { type: string }
+        notes: { type: string }
+        status: { type: string, example: open }
+        priority: { type: string, example: normal }
+        due_at: { $ref: "#/components/schemas/Timestamp" }
+    Task:
+      allOf:
+        - $ref: "#/components/schemas/TaskInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            assigned_name: { type: string }
+            completed_at: { $ref: "#/components/schemas/Timestamp" }
+    EventInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        starts_at: { $ref: "#/components/schemas/Timestamp" }
+        ends_at: { $ref: "#/components/schemas/Timestamp" }
+        location: { type: string }
+    Event:
+      allOf:
+        - $ref: "#/components/schemas/EventInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            source: { type: string }
+            external_id: { type: string }
+            sync_status: { type: string }
+    RoutineInput:
+      type: object
+      properties:
+        assigned_to: { type: integer, format: int64, nullable: true }
+        title: { type: string }
+        notes: { type: string }
+        cadence: { type: string, example: monthly }
+        status: { type: string, example: active }
+        next_due_at: { $ref: "#/components/schemas/Timestamp" }
+    Routine:
+      allOf:
+        - $ref: "#/components/schemas/RoutineInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            assigned_name: { type: string }
+            last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+    HouseholdListInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        kind: { type: string }
+        status: { type: string, example: active }
+    HouseholdList:
+      allOf:
+        - $ref: "#/components/schemas/HouseholdListInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+    ListItemInput:
+      type: object
+      properties:
+        assigned_to: { type: integer, format: int64, nullable: true }
+        title: { type: string }
+        notes: { type: string }
+        status: { type: string, example: open }
+        due_at: { $ref: "#/components/schemas/Timestamp" }
+    ListItem:
+      allOf:
+        - $ref: "#/components/schemas/ListItemInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            list_id: { type: integer, format: int64 }
+            assigned_name: { type: string }
+            completed_at: { $ref: "#/components/schemas/Timestamp" }
+    ContactInput:
+      type: object
+      properties:
+        name: { type: string }
+        kind: { type: string }
+        email: { type: string }
+        phone: { type: string }
+        notes: { type: string }
+        status: { type: string, example: active }
+    Contact:
+      allOf:
+        - $ref: "#/components/schemas/ContactInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+    AssetInput:
+      type: object
+      properties:
+        name: { type: string }
+        kind: { type: string }
+        serial_number: { type: string }
+        warranty_expires_at: { $ref: "#/components/schemas/Timestamp" }
+        purchase_date: { $ref: "#/components/schemas/Timestamp" }
+        purchase_cost: { type: number, format: double, nullable: true }
+        vendor: { type: string }
+        model: { type: string }
+        maintenance_cadence: { type: string }
+        maintenance_next_due_at: { $ref: "#/components/schemas/Timestamp" }
+        notes: { type: string }
+        status: { type: string, example: active }
+    Asset:
+      allOf:
+        - $ref: "#/components/schemas/AssetInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            maintenance_last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+    AssetMaintenanceInput:
+      type: object
+      properties:
+        title: { type: string }
+        notes: { type: string }
+        cadence: { type: string, example: monthly }
+        status: { type: string, example: active }
+        next_due_at: { $ref: "#/components/schemas/Timestamp" }
+    AssetMaintenanceItem:
+      allOf:
+        - $ref: "#/components/schemas/AssetMaintenanceInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+            asset_id: { type: integer, format: int64 }
+            last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+    DocumentInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        url: { type: string }
+        kind: { type: string }
+        status: { type: string, example: active }
+        file_name: { type: string }
+        content_type: { type: string }
+        file_size: { type: integer, format: int64 }
+    DocumentUploadInput:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        url: { type: string }
+        kind: { type: string }
+        status: { type: string }
+        file:
+          type: string
+          format: binary
+    Document:
+      allOf:
+        - $ref: "#/components/schemas/DocumentInput"
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            household_id: { type: integer, format: int64 }
+    RelatedItemInput:
+      type: object
+      required: [entity_type, entity_id]
+      properties:
+        entity_type:
+          type: string
+          enum: [project, task, asset]
+        entity_id:
+          type: integer
+          format: int64
+    RelatedItem:
+      type: object
+      properties:
+        link_id: { type: integer, format: int64 }
+        type: { type: string }
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        subtitle: { type: string }
+        url: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    RelatedDocument:
+      type: object
+      properties:
+        link_id: { type: integer, format: int64 }
+        document:
+          $ref: "#/components/schemas/Document"
+    RelatedContact:
+      type: object
+      properties:
+        link_id: { type: integer, format: int64 }
+        contact:
+          $ref: "#/components/schemas/Contact"
+    RelatedAsset:
+      type: object
+      properties:
+        link_id: { type: integer, format: int64 }
+        asset:
+          $ref: "#/components/schemas/Asset"
+    MemberInput:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, example: member }
+    ModuleItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        name: { type: string }
+        kind: { type: string }
+        cadence: { type: string }
+        next_due_at: { $ref: "#/components/schemas/Timestamp" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    DashboardTile:
+      type: object
+      properties:
+        key: { type: string }
+        name: { type: string }
+    RoutineNotice:
+      type: object
+      properties:
+        routine:
+          $ref: "#/components/schemas/Routine"
+        kind: { type: string }
+        message: { type: string }
+    Dashboard:
+      type: object
+      properties:
+        household:
+          $ref: "#/components/schemas/Household"
+        current_user:
+          $ref: "#/components/schemas/User"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        routines:
+          type: array
+          items:
+            $ref: "#/components/schemas/Routine"
+        notices:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutineNotice"
+        tile_order:
+          type: array
+          items:
+            type: string
+        available_tiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardTile"
+        budget_app_url:
+          type: string
+        google_configured:
+          type: boolean
+    CalendarEntry:
+      type: object
+      properties:
+        type: { type: string }
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        url: { type: string }
+        time: { $ref: "#/components/schemas/Timestamp" }
+        meta: { type: string }
+        status: { type: string }
+        priority: { type: string }
+    CalendarDay:
+      type: object
+      properties:
+        date: { $ref: "#/components/schemas/Timestamp" }
+        in_month: { type: boolean }
+        is_today: { type: boolean }
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarEntry"
+    CalendarMonth:
+      type: object
+      properties:
+        month: { $ref: "#/components/schemas/Timestamp" }
+        prev_month: { type: string }
+        next_month: { type: string }
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarDay"
+    AuditFields:
+      type: object
+      properties:
+        created_by: { type: integer, format: int64 }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+
+security:
+  - sessionCookie: []
