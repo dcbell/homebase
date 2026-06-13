@@ -20,21 +20,40 @@ const appTemplate = `
 		* { box-sizing: border-box; }
 		[hidden] { display:none !important; }
 		body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--paper); color:var(--ink); }
-		header { border-bottom:1px solid var(--line); background:var(--panel); }
+		header { border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:30; }
 		.shell { width:min(1180px, calc(100% - 32px)); margin:0 auto; }
-		.topbar { min-height:64px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 0; }
-		.topbar-left { display:flex; align-items:center; gap:10px; min-width:0; }
-		.brand { font-weight:800; font-size:22px; color:var(--ink); text-decoration:none; }
-		.brand:hover { color:var(--ink); }
+		main.shell { width:min(1180px, calc(100% - 104px)); max-width:none; margin-left:calc(72px + max(16px, (100% - 72px - 1180px) / 2)); margin-right:auto; }
+		.topbar { min-height:64px; padding:10px 16px; position:relative; }
+		.topbar-brand { position:absolute; left:12px; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:10px; min-width:0; }
+		.topbar-brand-name { color:var(--ink); text-decoration:none; font-weight:800; font-size:18px; line-height:1; white-space:nowrap; }
+		.topbar-brand-name:hover { color:var(--ink); }
+		.topbar-content { width:min(1180px, calc(100% - 208px)); min-height:44px; margin-left:calc(72px + max(104px, (100% - 72px - 1180px) / 2)); margin-right:auto; max-width:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+		.topbar-left { display:flex; align-items:center; gap:10px; min-width:0; flex:0 1 auto; }
+		.header-page-title { font-weight:800; font-size:20px; line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 		.menu-button { width:38px; height:38px; min-height:38px; padding:0; }
-		.nav-drawer { position:fixed; inset:0 auto 0 0; z-index:30; width:min(320px, calc(100vw - 44px)); padding:18px; background:var(--panel); border-right:1px solid var(--line); box-shadow:var(--shadow); transform:translateX(-105%); transition:transform .16s ease; display:grid; grid-template-rows:auto minmax(0, 1fr); gap:16px; }
-		.nav-drawer.open { transform:translateX(0); }
-		.nav-backdrop { position:fixed; inset:0; z-index:29; display:none; background:rgba(0,0,0,.42); }
-		.nav-backdrop.open { display:block; }
-		.nav-drawer-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-		.nav-links { display:grid; gap:8px; align-content:start; overflow:auto; }
-		.nav-links a { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; color:var(--ink); text-decoration:none; background:var(--panel-soft); }
-		.nav-links a:hover { border-color:var(--accent); color:var(--ink); }
+		.app-sidebar { position:fixed; inset:64px auto 0 0; z-index:19; width:72px; padding:12px; background:var(--panel); border-right:1px solid var(--line); box-shadow:var(--shadow); transition:width .16s ease; overflow:hidden; display:grid; }
+		.app-sidebar.open { width:244px; }
+		.sidebar-nav { display:grid; gap:8px; align-content:start; overflow:auto; }
+		.sidebar-nav a { display:grid; grid-template-columns:38px minmax(0, 1fr) auto; align-items:center; gap:10px; min-height:42px; padding:0 10px 0 0; border:1px solid transparent; border-radius:6px; color:var(--ink); text-decoration:none; background:transparent; }
+		.sidebar-nav a:hover { border-color:var(--accent); background:var(--panel-soft); color:var(--ink); }
+		.sidebar-icon { width:38px; height:38px; display:grid; place-items:center; color:var(--accent); }
+		.sidebar-nav .icon { width:19px; height:19px; }
+		.sidebar-label, .sidebar-chevron { white-space:nowrap; overflow:hidden; opacity:0; transform:translateX(-6px); transition:opacity .12s ease, transform .12s ease; }
+		.app-sidebar.open .sidebar-label, .app-sidebar.open .sidebar-chevron { opacity:1; transform:translateX(0); }
+		.app-sidebar:not(.open) .sidebar-nav { overflow:hidden auto; }
+		.app-sidebar:not(.open) .sidebar-nav a { grid-template-columns:38px; width:42px; padding:0; justify-self:center; justify-content:center; }
+		.app-sidebar:not(.open) .sidebar-label, .app-sidebar:not(.open) .sidebar-chevron { display:none; }
+		.topbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; margin-left:auto; min-width:0; }
+		.universal-search { position:relative; width:min(360px, 34vw); min-width:220px; }
+		.universal-search input { min-height:36px; padding-left:34px; padding-right:34px; }
+		.search-leading-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+		.search-leading-icon .icon { width:16px; height:16px; }
+		.universal-results { position:absolute; right:0; top:calc(100% + 6px); z-index:32; width:min(440px, calc(100vw - 32px)); display:none; gap:6px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); box-shadow:var(--shadow); }
+		.universal-results.open { display:grid; }
+		.universal-result { display:grid; gap:2px; padding:9px 10px; border:1px solid transparent; border-radius:6px; text-decoration:none; color:var(--ink); background:var(--panel-soft); }
+		.universal-result:hover { border-color:var(--accent); color:var(--ink); }
+		.universal-result strong { overflow-wrap:anywhere; }
+		.result-type { color:var(--accent); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0; }
 		nav { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 		a, button { color:var(--accent); }
 		button, .button { border:1px solid var(--accent); background:var(--accent); color:var(--accent-ink); min-height:36px; padding:0 12px; border-radius:6px; font:inherit; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; }
@@ -69,6 +88,7 @@ const appTemplate = `
 		.dashboard-masonry { display:block; position:relative; }
 		.full-width { grid-column:1 / -1; }
 		.dashboard-masonry .dashboard-tile { position:absolute; left:0; top:0; transition:transform .12s ease, opacity .12s ease; }
+		.dashboard-masonry:not(.dashboard-ready) .dashboard-tile { transition:none; }
 		.dashboard-tile.dragging { opacity:.55; z-index:2; }
 		.dashboard-edit-control { display:none; }
 		.dashboard-shell.editing .dashboard-edit-control { display:inline-flex; }
@@ -171,7 +191,7 @@ const appTemplate = `
 		.stat-link { display:grid; gap:4px; min-height:86px; align-content:center; border:1px solid var(--line); border-radius:6px; padding:12px; text-decoration:none; background:var(--panel-soft); color:var(--ink); }
 		.stat-link:hover { border-color:var(--accent); color:var(--ink); }
 		.stat-link strong { font-size:28px; line-height:1; }
-		.dashboard-list-select { min-width:190px; }
+		.dashboard-list-select { min-width:190px; width:100%; margin-bottom:12px; }
 		.detail-with-sidebar { display:grid; grid-template-columns:minmax(0, 1fr) minmax(280px, 340px); gap:20px; align-items:start; }
 		.detail-main, .detail-sidebar { display:grid; gap:16px; min-width:0; }
 		.info-panel-section + .info-panel-section { border-top:1px solid var(--line); padding-top:14px; margin-top:14px; }
@@ -188,8 +208,11 @@ const appTemplate = `
 		.hero .month-title, .detail-hero .month-title { font-size:32px; line-height:1.1; }
 		.view-tabs { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 		.view-tabs .active { background:var(--accent); color:var(--accent-ink); }
-		.calendar-grid { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--line); gap:1px; }
+		.calendar-grid { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--panel); }
 		.weekday { min-height:34px; padding:8px; background:var(--panel); color:var(--muted); font-size:12px; font-weight:700; text-align:center; }
+		.weekday, .calendar-day { border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+		.weekday:nth-child(7n), .calendar-day:nth-child(7n) { border-right:0; }
+		.calendar-day:nth-last-child(-n+7) { border-bottom:0; }
 		.calendar-day { min-height:138px; padding:8px; background:var(--panel); display:grid; align-content:start; gap:6px; min-width:0; }
 		.calendar-day.outside { background:var(--panel-soft); }
 		.calendar-day.today { box-shadow:inset 0 0 0 2px var(--accent); }
@@ -242,7 +265,15 @@ const appTemplate = `
 		.switch input:checked + span { background:var(--accent); }
 		.switch input:checked + span::before { transform:translateX(22px); }
 		@media (max-width: 860px) {
-			.dashboard-tiles, .modules, .form-row { grid-template-columns:1fr; }
+			.app-sidebar { width:60px; padding:10px; }
+			.app-sidebar.open { width:224px; }
+			.app-sidebar:not(.open) .sidebar-nav a { width:38px; }
+			main.shell { margin-left:76px; margin-right:12px; width:auto; }
+			.topbar { display:grid; gap:10px; }
+			.topbar-brand { position:static; transform:none; }
+			.topbar-content { width:100%; margin-left:0; margin-right:0; max-width:none; min-height:0; flex-wrap:wrap; }
+			.dashboard-tiles { grid-template-columns:1fr; }
+			.modules, .form-row { grid-template-columns:1fr; }
 			.detail-with-sidebar { grid-template-columns:1fr; }
 			.info-strip { grid-template-columns:1fr; }
 			.modal-columns { grid-template-columns:1fr; }
@@ -256,7 +287,10 @@ const appTemplate = `
 			.month-switch { width:100%; justify-content:flex-start; }
 			.month-title { min-width:0; }
 			.hero, .detail-hero { align-items:flex-start; flex-direction:column; }
-			.topbar { align-items:flex-start; }
+			.topbar-left { width:100%; }
+			.topbar-right { width:100%; justify-content:flex-start; }
+			.universal-search { width:100%; min-width:0; }
+			.universal-results { left:0; right:auto; width:100%; }
 			.detail-actions { justify-content:flex-start; }
 			.task-table-wrap { overflow-x:auto; }
 			.dashboard-masonry { display:grid; position:static; }
@@ -265,14 +299,42 @@ const appTemplate = `
 	</style>
 </head>
 <body>
+	{{ if .Dashboard.CurrentUser.Email }}
+	<aside class="app-sidebar" aria-label="Main menu">
+		<nav class="sidebar-nav">
+			<a href="/" title="Dashboard"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path><path d="M9 20v-6h6v6"></path></svg></span><span class="sidebar-label">Dashboard</span><span class="sidebar-chevron">›</span></a>
+			<a href="/tasks" title="Tasks"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></span><span class="sidebar-label">Tasks</span><span class="sidebar-chevron">›</span></a>
+			<a href="/projects" title="Projects"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h5l2 3h11v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7V5a2 2 0 0 1 2-2h4l2 4"></path></svg></span><span class="sidebar-label">Projects</span><span class="sidebar-chevron">›</span></a>
+			<a href="/calendar" title="Calendar"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path></svg></span><span class="sidebar-label">Calendar</span><span class="sidebar-chevron">›</span></a>
+			<a href="/routines" title="Routines"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.7-2.7L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12a9 9 0 0 1 15.7-6.3L21 8"></path><path d="M16 8h5V3"></path></svg></span><span class="sidebar-label">Routines</span><span class="sidebar-chevron">›</span></a>
+			<a href="/lists" title="Lists"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span><span class="sidebar-label">Lists</span><span class="sidebar-chevron">›</span></a>
+			<a href="/contacts" title="Contacts"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-8 0v2"></path><circle cx="12" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span><span class="sidebar-label">Contacts</span><span class="sidebar-chevron">›</span></a>
+			<a href="/assets" title="Assets"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.5-3.5a6 6 0 0 1-7.9 7.9l-6.1 6.1a2.1 2.1 0 0 1-3-3l6.1-6.1a6 6 0 0 1 7.9-7.9z"></path></svg></span><span class="sidebar-label">Assets</span><span class="sidebar-chevron">›</span></a>
+			<a href="/documents" title="Documents"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></span><span class="sidebar-label">Documents</span><span class="sidebar-chevron">›</span></a>
+			<a href="/members" title="Users"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path></svg></span><span class="sidebar-label">Users</span><span class="sidebar-chevron">›</span></a>
+			{{ if .Dashboard.BudgetAppURL }}<a href="{{ .Dashboard.BudgetAppURL }}" title="Budget"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg></span><span class="sidebar-label">Budget</span><span class="sidebar-chevron">›</span></a>{{ end }}
+		</nav>
+	</aside>
+	{{ end }}
 	<header>
-		<div class="shell topbar">
-			<div class="topbar-left">
-				{{ if .Dashboard.CurrentUser.Email }}<button class="secondary menu-button" type="button" data-menu-toggle title="Open menu" aria-label="Open menu"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>{{ end }}
-				<a class="brand" href="/">Homebase</a>
+		<div class="topbar">
+			{{ if .Dashboard.CurrentUser.Email }}
+			<div class="topbar-brand">
+				<button class="secondary menu-button" type="button" data-menu-toggle title="Toggle menu" aria-label="Toggle menu" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+				<a class="topbar-brand-name" href="/">Homebase</a>
 			</div>
-			<nav>
+			{{ end }}
+			<div class="topbar-content">
+				<div class="topbar-left">
+					<span class="header-page-title">{{ headerTitle . }}</span>
+				</div>
+				<nav class="topbar-right">
 				{{ if .Dashboard.CurrentUser.Email }}
+					<div class="universal-search" role="search">
+						<span class="search-leading-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
+						<input type="search" autocomplete="off" placeholder="Search tasks, projects, docs..." aria-label="Search" data-universal-search>
+						<div class="universal-results" data-universal-search-results></div>
+					</div>
 					<span class="meta">{{ .Dashboard.CurrentUser.Name }} · {{ .Dashboard.Household.Name }}</span>
 					{{ if .Dashboard.BudgetAppURL }}<a class="button secondary" href="{{ .Dashboard.BudgetAppURL }}">Budget</a>{{ end }}
 					<details class="floating-menu">
@@ -314,31 +376,10 @@ const appTemplate = `
 				{{ else }}
 					<a class="button" href="{{ .LoginURL }}">Login with Google</a>
 				{{ end }}
-			</nav>
+				</nav>
+			</div>
 		</div>
 	</header>
-	{{ if .Dashboard.CurrentUser.Email }}
-	<div class="nav-backdrop" data-menu-close></div>
-	<aside class="nav-drawer" aria-label="Main menu">
-		<div class="nav-drawer-head">
-			<strong>{{ .Dashboard.Household.Name }}</strong>
-			<button class="secondary compact" type="button" data-menu-close title="Close menu" aria-label="Close menu">X</button>
-		</div>
-		<div class="nav-links">
-			<a href="/"><span>Dashboard</span><span>›</span></a>
-			<a href="/projects"><span>Projects</span><span>›</span></a>
-			<a href="/tasks"><span>Tasks</span><span>›</span></a>
-			<a href="/calendar"><span>Calendar</span><span>›</span></a>
-			<a href="/routines"><span>Routines</span><span>›</span></a>
-			<a href="/lists"><span>Lists</span><span>›</span></a>
-			<a href="/contacts"><span>Contacts</span><span>›</span></a>
-			<a href="/assets"><span>Assets</span><span>›</span></a>
-			<a href="/documents"><span>Documents</span><span>›</span></a>
-			<a href="/members"><span>Users</span><span>›</span></a>
-			{{ if .Dashboard.BudgetAppURL }}<a href="{{ .Dashboard.BudgetAppURL }}"><span>Budget</span><span>›</span></a>{{ end }}
-		</div>
-	</aside>
-	{{ end }}
 	{{ if .DashboardPage }}
 		{{ template "dashboard" . }}
 	{{ else if .ProjectIndex }}
@@ -415,21 +456,90 @@ const appTemplate = `
 					if (event.target === modal) closeModal(modal);
 				});
 			});
-			var drawer = document.querySelector(".nav-drawer");
-			var backdrop = document.querySelector(".nav-backdrop");
+			var drawer = document.querySelector(".app-sidebar");
 			function setMenu(open) {
 				if (drawer) drawer.classList.toggle("open", open);
-				if (backdrop) backdrop.classList.toggle("open", open);
+				document.querySelectorAll("[data-menu-toggle]").forEach(function (button) {
+					button.setAttribute("aria-expanded", open ? "true" : "false");
+				});
+				localStorage.setItem("homebase-sidebar-open", open ? "true" : "false");
 			}
+			if (drawer && localStorage.getItem("homebase-sidebar-open") === "true") setMenu(true);
 			document.querySelectorAll("[data-menu-toggle]").forEach(function (button) {
-				button.addEventListener("click", function () { setMenu(true); });
+				button.addEventListener("click", function () {
+					setMenu(!(drawer && drawer.classList.contains("open")));
+				});
 			});
 			document.querySelectorAll("[data-menu-close]").forEach(function (button) {
 				button.addEventListener("click", function () { setMenu(false); });
 			});
-			document.querySelectorAll(".nav-links a").forEach(function (link) {
-				link.addEventListener("click", function () { setMenu(false); });
-			});
+			var universalSearch = document.querySelector("[data-universal-search]");
+			var universalResults = document.querySelector("[data-universal-search-results]");
+			var universalSearchTimer = null;
+			var universalSearchAbort = null;
+			function closeUniversalSearch() {
+				if (!universalResults) return;
+				universalResults.classList.remove("open");
+				universalResults.innerHTML = "";
+			}
+			function renderUniversalResults(results) {
+				if (!universalResults) return;
+				universalResults.innerHTML = "";
+				if (!results.length) {
+					var empty = document.createElement("div");
+					empty.className = "item meta";
+					empty.textContent = "No matches";
+					universalResults.appendChild(empty);
+					universalResults.classList.add("open");
+					return;
+				}
+				results.forEach(function (result) {
+					var link = document.createElement("a");
+					link.className = "universal-result";
+					link.href = result.url;
+					var type = document.createElement("span");
+					type.className = "result-type";
+					type.textContent = result.type || "Result";
+					var title = document.createElement("strong");
+					title.textContent = result.title || "Untitled";
+					link.appendChild(type);
+					link.appendChild(title);
+					if (result.subtitle) {
+						var subtitle = document.createElement("span");
+						subtitle.className = "meta";
+						subtitle.textContent = result.subtitle;
+						link.appendChild(subtitle);
+					}
+					universalResults.appendChild(link);
+				});
+				universalResults.classList.add("open");
+			}
+			if (universalSearch && universalResults) {
+				universalSearch.addEventListener("input", function () {
+					window.clearTimeout(universalSearchTimer);
+					var query = universalSearch.value.trim();
+					if (query.length < 2) {
+						closeUniversalSearch();
+						return;
+					}
+					universalSearchTimer = window.setTimeout(function () {
+						if (universalSearchAbort) universalSearchAbort.abort();
+						universalSearchAbort = new AbortController();
+						fetch("/search?q=" + encodeURIComponent(query), { signal: universalSearchAbort.signal })
+							.then(function (response) {
+								if (!response.ok) throw new Error("Search failed");
+								return response.json();
+							})
+							.then(renderUniversalResults)
+							.catch(function (error) {
+								if (error.name !== "AbortError") closeUniversalSearch();
+							});
+					}, 160);
+				});
+				document.addEventListener("click", function (event) {
+					if (!event.target.closest(".universal-search")) closeUniversalSearch();
+				});
+			}
 			var dashboardListSelect = document.querySelector("[data-dashboard-list-select]");
 			if (dashboardListSelect) {
 				var storedList = localStorage.getItem("homebase-dashboard-list-id");
@@ -448,6 +558,7 @@ const appTemplate = `
 				if (event.key !== "Escape") return;
 				document.querySelectorAll(".modal.open").forEach(closeModal);
 				setMenu(false);
+				closeUniversalSearch();
 			});
 			document.querySelectorAll(".action-menu").forEach(function (menu) {
 				menu.addEventListener("toggle", function () {
@@ -908,7 +1019,11 @@ const appTemplate = `
 			updateAddTile();
 			window.addEventListener("resize", layoutTiles);
 			window.addEventListener("load", layoutTiles);
+			layoutTiles();
+			grid.classList.add("dashboard-ready");
 			window.requestAnimationFrame(layoutTiles);
+			window.setTimeout(layoutTiles, 80);
+			window.setTimeout(layoutTiles, 250);
 		})();
 
 		(function () {
@@ -928,10 +1043,8 @@ const appTemplate = `
 {{ end }}
 
 {{ define "tileControls" }}
-<div class="tile-actions">
-	<button class="secondary compact dashboard-edit-control drag-handle" type="button" title="Move tile" aria-label="Move tile" draggable="true"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.5"></circle><circle cx="15" cy="6" r="1.5"></circle><circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="12" r="1.5"></circle><circle cx="9" cy="18" r="1.5"></circle><circle cx="15" cy="18" r="1.5"></circle></svg></button>
-	<button class="danger compact dashboard-edit-control" type="button" title="Remove tile" aria-label="Remove tile" data-dashboard-remove-tile>X</button>
-</div>
+<button class="secondary compact dashboard-edit-control drag-handle" type="button" title="Move tile" aria-label="Move tile" draggable="true"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.5"></circle><circle cx="15" cy="6" r="1.5"></circle><circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="12" r="1.5"></circle><circle cx="9" cy="18" r="1.5"></circle><circle cx="15" cy="18" r="1.5"></circle></svg></button>
+<button class="danger compact dashboard-edit-control" type="button" title="Remove tile" aria-label="Remove tile" data-dashboard-remove-tile>X</button>
 {{ end }}
 
 {{ define "pageHeader" }}
@@ -984,7 +1097,7 @@ const appTemplate = `
 		<section class="panel dashboard-tile full-width" data-tile="calendar"{{ if not (tileActive .Dashboard.TileOrder "calendar") }} hidden{{ end }} style="order:{{ order .Dashboard.TileOrder "calendar" }}">
 			<div class="tile-head">
 				<h2>Calendar</h2>
-				{{ template "tileControls" "calendar" }}
+				<div class="tile-actions">{{ template "tileControls" "calendar" }}</div>
 			</div>
 			{{ template "dashboardCalendarControls" . }}
 			{{ if eq .CalendarView "day" }}
@@ -1000,7 +1113,10 @@ const appTemplate = `
 		<section id="tasks" class="panel dashboard-tile" data-tile="tasks"{{ if not (tileActive .Dashboard.TileOrder "tasks") }} hidden{{ end }} style="order:{{ order .Dashboard.TileOrder "tasks" }}">
 			<div class="tile-head">
 				<h2>Tasks</h2>
-				{{ template "tileControls" "tasks" }}
+				<div class="tile-actions">
+					<button class="button compact" type="button" data-modal-open="add-task" title="Add task" aria-label="Add task">+</button>
+					{{ template "tileControls" "tasks" }}
+				</div>
 			</div>
 			<div class="stat-grid">
 				<a class="stat-link" href="/tasks?due=past"><strong>{{ taskStatCount .Dashboard.Tasks .Now "past" }}</strong><span class="meta">Past due</span></a>
@@ -1012,7 +1128,10 @@ const appTemplate = `
 		<section id="projects" class="panel dashboard-tile" data-tile="projects"{{ if not (tileActive .Dashboard.TileOrder "projects") }} hidden{{ end }} style="order:{{ order .Dashboard.TileOrder "projects" }}">
 			<div class="tile-head">
 				<h2>Projects</h2>
-				{{ template "tileControls" "projects" }}
+				<div class="tile-actions">
+					<button class="button compact" type="button" data-modal-open="add-project" title="Add project" aria-label="Add project">+</button>
+					{{ template "tileControls" "projects" }}
+				</div>
 			</div>
 			<div class="stat-grid">
 				<a class="stat-link" href="/projects?due=past"><strong>{{ projectStatCount .Dashboard.Projects .Now "past" }}</strong><span class="meta">Past due</span></a>
@@ -1024,7 +1143,10 @@ const appTemplate = `
 		<section class="panel dashboard-tile" data-tile="appointments"{{ if not (tileActive .Dashboard.TileOrder "appointments") }} hidden{{ end }} style="order:{{ order .Dashboard.TileOrder "appointments" }}">
 			<div class="tile-head">
 				<h2>Appointments</h2>
-				{{ template "tileControls" "appointments" }}
+				<div class="tile-actions">
+					<button class="button compact" type="button" data-modal-open="add-appointment" title="Add appointment" aria-label="Add appointment">+</button>
+					{{ template "tileControls" "appointments" }}
+				</div>
 			</div>
 			<div class="cards">
 				<h3>Today</h3>
@@ -1052,14 +1174,14 @@ const appTemplate = `
 			<div class="tile-head">
 				<h2>List</h2>
 				<div class="tile-actions">
-					{{ if .Lists }}
-					<select class="dashboard-list-select" data-dashboard-list-select>
-						{{ range .Lists }}<option value="{{ .ID }}" {{ if eq $.List.ID .ID }}selected{{ end }}>{{ .Title }}</option>{{ end }}
-					</select>
-					{{ end }}
 					{{ template "tileControls" "list" }}
 				</div>
 			</div>
+			{{ if .Lists }}
+			<select class="dashboard-list-select" data-dashboard-list-select>
+				{{ range .Lists }}<option value="{{ .ID }}" {{ if eq $.List.ID .ID }}selected{{ end }}>{{ .Title }}</option>{{ end }}
+			</select>
+			{{ end }}
 			<div class="checklist">
 				{{ if .List.ID }}
 				{{ range .ListItems }}

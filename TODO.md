@@ -14,20 +14,6 @@
 - Publish the Swagger document somewhere accessible for reference by developers and future agentic integrations.
 - Keep the API document updated as endpoints, payloads, and auth requirements change.
 
-## Navigation And Header
-
-- Move the hamburger menu and main app identity to the left side of the header.
-- Put the current page title in the header where the app title currently sits.
-- Explore a dropdown/slide-down menu from the title/header area instead of the current side drawer.
-- Add clear icons for each menu item.
-- Add a universal search control in the top right for tasks, projects, documents, contacts, assets, and other primary records.
-
-## Dashboard Quick Actions
-
-- Add a `+` action in the top-right of the Tasks dashboard module that opens or jumps directly to adding a task.
-- Add a `+` action in the top-right of the Projects dashboard module that opens or jumps directly to adding a project.
-- Add a `+` action in the top-right of the Appointments dashboard module that opens or jumps directly to adding an appointment.
-
 ## Authentication
 
 - Replace the current Google-specific authentication flow with generic OAuth/OIDC support.

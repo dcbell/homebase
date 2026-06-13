@@ -158,6 +158,7 @@ func main() {
 		"documentSourceLabel":   documentSourceLabel,
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
+		"headerTitle":           headerTitle,
 	}).Parse(appTemplate))
 
 	mux := http.NewServeMux()
@@ -167,6 +168,7 @@ func main() {
 	})
 	mux.HandleFunc("GET /", s.dashboard)
 	mux.HandleFunc("GET /calendar", s.calendar)
+	mux.HandleFunc("GET /search", s.search)
 	mux.HandleFunc("POST /dashboard/tiles/move", s.moveDashboardTile)
 	mux.HandleFunc("POST /dashboard/tiles/order", s.setDashboardTileOrder)
 	mux.HandleFunc("POST /members", s.addMember)
@@ -430,6 +432,145 @@ func (s *webServer) setDashboardTileOrder(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+type searchResult struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	URL      string `json:"url"`
+}
+
+func (s *webServer) search(w http.ResponseWriter, r *http.Request) {
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	results := []searchResult{}
+	if query == "" {
+		writeSearchResults(w, results)
+		return
+	}
+
+	var dashboard store.Dashboard
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	for _, project := range dashboard.Projects {
+		subtitle := project.Status
+		if project.DueDate != nil {
+			subtitle = compactMeta(subtitle, "due "+formatDate(project.DueDate))
+		}
+		results = appendSearchResult(results, query, "Project", project.Title, subtitle, "/projects/"+strconv.FormatInt(project.ID, 10))
+	}
+	for _, task := range dashboard.Tasks {
+		subtitle := task.Status
+		if task.DueAt != nil {
+			subtitle = compactMeta(subtitle, "due "+formatDate(task.DueAt))
+		}
+		if task.AssignedName != "" {
+			subtitle = compactMeta(subtitle, task.AssignedName)
+		}
+		results = appendSearchResult(results, query, "Task", task.Title, subtitle, "/tasks/"+strconv.FormatInt(task.ID, 10))
+	}
+	for _, event := range dashboard.Events {
+		subtitle := compactMeta(formatDateTime(event.StartsAt), event.Location)
+		results = appendSearchResult(results, query, "Appointment", event.Title, subtitle, "/events/"+strconv.FormatInt(event.ID, 10))
+	}
+	for _, routine := range dashboard.Routines {
+		subtitle := routine.Cadence
+		if routine.NextDueAt != nil {
+			subtitle = compactMeta(subtitle, "next "+formatDate(routine.NextDueAt))
+		}
+		results = appendSearchResult(results, query, "Routine", routine.Title, subtitle, "/routines/"+strconv.FormatInt(routine.ID, 10))
+	}
+
+	var documents []store.Document
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents", nil, &documents); err != nil {
+		s.logger.Error("load search documents", "error", err)
+	} else {
+		for _, document := range documents {
+			subtitle := compactMeta(document.Kind, document.FileName)
+			results = appendSearchResult(results, query, "Document", document.Title, subtitle, "/documents/"+strconv.FormatInt(document.ID, 10))
+		}
+	}
+
+	var contacts []store.Contact
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts", nil, &contacts); err != nil {
+		s.logger.Error("load search contacts", "error", err)
+	} else {
+		for _, contact := range contacts {
+			subtitle := compactMeta(contact.Kind, contact.Email, contact.Phone)
+			results = appendSearchResult(results, query, "Contact", contact.Name, subtitle, "/contacts/"+strconv.FormatInt(contact.ID, 10))
+		}
+	}
+
+	var assets []store.Asset
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets", nil, &assets); err != nil {
+		s.logger.Error("load search assets", "error", err)
+	} else {
+		for _, asset := range assets {
+			subtitle := compactMeta(asset.Kind, asset.Model, asset.SerialNumber)
+			results = appendSearchResult(results, query, "Asset", asset.Name, subtitle, "/assets/"+strconv.FormatInt(asset.ID, 10))
+		}
+	}
+
+	var lists []store.HouseholdList
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/lists", nil, &lists); err != nil {
+		s.logger.Error("load search lists", "error", err)
+	} else {
+		for _, list := range lists {
+			subtitle := compactMeta(list.Kind, list.Description)
+			results = appendSearchResult(results, query, "List", list.Title, subtitle, "/lists/"+strconv.FormatInt(list.ID, 10))
+		}
+	}
+
+	if len(results) > 12 {
+		results = results[:12]
+	}
+	writeSearchResults(w, results)
+}
+
+func appendSearchResult(results []searchResult, query, kind, title, subtitle, href string) []searchResult {
+	if !searchMatches(query, kind, title, subtitle) {
+		return results
+	}
+	return append(results, searchResult{
+		Type:     kind,
+		Title:    title,
+		Subtitle: subtitle,
+		URL:      href,
+	})
+}
+
+func searchMatches(query string, values ...string) bool {
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactMeta(parts ...string) string {
+	kept := []string{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, " · ")
+}
+
+func writeSearchResults(w http.ResponseWriter, results []searchResult) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *webServer) addMember(w http.ResponseWriter, r *http.Request) {
@@ -1966,6 +2107,35 @@ func (s *webServer) render(w http.ResponseWriter, status int, data pageData) {
 	w.WriteHeader(status)
 	if err := s.templates.ExecuteTemplate(w, "layout", data); err != nil {
 		s.logger.Error("render template", "error", err)
+	}
+}
+
+func headerTitle(data pageData) string {
+	switch {
+	case data.DashboardPage:
+		return "Dashboard"
+	case data.ProjectIndex || data.Project.ID != 0:
+		return "Projects"
+	case data.TaskIndex || data.Task.ID != 0:
+		return "Tasks"
+	case data.CalendarPage || data.Event.ID != 0:
+		return "Calendar"
+	case data.RoutineIndex || data.Routine.ID != 0:
+		return "Routines"
+	case data.ListIndex || data.List.ID != 0:
+		return "Lists"
+	case data.ContactIndex || data.Contact.ID != 0:
+		return "Contacts"
+	case data.AssetIndex || data.Asset.ID != 0:
+		return "Assets"
+	case data.DocumentIndex || data.Document.ID != 0:
+		return "Documents"
+	case data.MemberIndex:
+		return "Users"
+	case strings.TrimSpace(data.Title) != "":
+		return data.Title
+	default:
+		return "Dashboard"
 	}
 }
 
