@@ -138,6 +138,7 @@ func main() {
 		"dashboardCalendarURL":  dashboardCalendarURL,
 		"calendarPageURL":       calendarPageURL,
 		"dictRelated":           dictRelated,
+		"dict":                  dict,
 		"dictRelatedPrefix":     dictRelatedPrefix,
 		"dictDocumentInfo":      dictDocumentInfo,
 		"dictRelatedContacts":   dictRelatedContacts,
@@ -2153,6 +2154,21 @@ func calendarPageURL(date time.Time) string {
 
 func dictRelated(docs []store.RelatedDocument, entityType string, entityID int64) map[string]any {
 	return dictRelatedPrefix(docs, "/"+entityType+"s/"+strconv.FormatInt(entityID, 10)+"/documents")
+}
+
+func dict(values ...any) (map[string]any, error) {
+	if len(values)%2 != 0 {
+		return nil, errors.New("dict requires key-value pairs")
+	}
+	result := make(map[string]any, len(values)/2)
+	for i := 0; i < len(values); i += 2 {
+		key, ok := values[i].(string)
+		if !ok {
+			return nil, errors.New("dict keys must be strings")
+		}
+		result[key] = values[i+1]
+	}
+	return result, nil
 }
 
 func dictRelatedPrefix(docs []store.RelatedDocument, removePrefix string) map[string]any {

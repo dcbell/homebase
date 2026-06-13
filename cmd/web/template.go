@@ -934,6 +934,31 @@ const appTemplate = `
 </div>
 {{ end }}
 
+{{ define "pageHeader" }}
+<section class="detail-hero">
+	<div class="title-row">
+		<div class="title-copy">
+			<div class="page-title-line">
+				<a class="button secondary back-icon" href="{{ .BackURL }}" title="Back" aria-label="Back">‹</a>
+				<h1>{{ .Title }}</h1>
+			</div>
+		</div>
+	</div>
+</section>
+{{ end }}
+
+{{ define "titleActionMenu" }}
+<details class="action-menu left">
+	<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
+	<div class="action-menu-panel">
+		{{ if .EditModal }}<button class="secondary compact" type="button" data-modal-open="{{ .EditModal }}">Edit</button>{{ end }}
+		{{ if .ReopenForm }}<button class="secondary compact" type="submit" form="{{ .ReopenForm }}">Reopen</button>{{ end }}
+		{{ if .DeleteForm }}<button class="danger compact" type="submit" form="{{ .DeleteForm }}">{{ if .DeleteLabel }}{{ .DeleteLabel }}{{ else }}Delete{{ end }}</button>{{ end }}
+		{{ if .ArchiveForm }}<button class="danger compact" type="submit" form="{{ .ArchiveForm }}">Archive</button>{{ end }}
+	</div>
+</details>
+{{ end }}
+
 {{ define "login" }}
 <main class="shell login">
 	<section class="login-box">
@@ -1336,16 +1361,7 @@ const appTemplate = `
 
 {{ define "projectIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Projects</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Projects") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -1411,16 +1427,7 @@ const appTemplate = `
 
 {{ define "taskIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Tasks</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Tasks") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -1495,16 +1502,7 @@ const appTemplate = `
 
 {{ define "routineIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Routines</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Routines") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -1576,16 +1574,7 @@ const appTemplate = `
 
 {{ define "memberIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Users</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Users") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -1666,16 +1655,7 @@ const appTemplate = `
 
 {{ define "documentIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Documents</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Documents") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -1727,13 +1707,7 @@ const appTemplate = `
 				<div class="project-title-line">
 					<a class="button secondary back-icon" href="/documents" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Document.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="secondary compact" type="button" data-modal-open="edit-document">Edit</button>
-							<button class="danger compact" type="submit" form="document-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "EditModal" "edit-document" "ArchiveForm" "document-archive") }}
 					<span class="pill active">{{ .Document.Kind }}</span>
 				</div>
 				<div class="info-strip">
@@ -2151,16 +2125,7 @@ const appTemplate = `
 
 {{ define "listIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Lists</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Lists") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -2211,16 +2176,7 @@ const appTemplate = `
 
 {{ define "contactIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Contacts</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Contacts") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -2283,13 +2239,7 @@ const appTemplate = `
 				<div class="project-title-line">
 					<a class="button secondary back-icon" href="/contacts" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Contact.Name }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="secondary compact" type="button" data-modal-open="edit-contact">Edit</button>
-							<button class="danger compact" type="submit" form="contact-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "EditModal" "edit-contact" "ArchiveForm" "contact-archive") }}
 					<span class="pill active">{{ .Contact.Kind }}</span>
 				</div>
 				<div class="info-strip">
@@ -2345,16 +2295,7 @@ const appTemplate = `
 
 {{ define "assetIndex" }}
 <main class="shell">
-	<section class="detail-hero">
-		<div class="title-row">
-			<div class="title-copy">
-				<div class="page-title-line">
-					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
-					<h1>Assets</h1>
-				</div>
-			</div>
-		</div>
-	</section>
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Assets") }}
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
@@ -2417,13 +2358,7 @@ const appTemplate = `
 				<div class="project-title-line">
 					<a class="button secondary back-icon" href="/assets" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Asset.Name }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="secondary compact" type="button" data-modal-open="edit-asset">Edit</button>
-							<button class="danger compact" type="submit" form="asset-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "EditModal" "edit-asset" "ArchiveForm" "asset-archive") }}
 					<span class="pill active">{{ .Asset.Kind }}</span>
 				</div>
 				{{ if .Asset.Notes }}<p>{{ .Asset.Notes }}</p>{{ end }}
@@ -2628,13 +2563,7 @@ const appTemplate = `
 				<div class="project-title-line">
 					<a class="button secondary back-icon" href="/lists" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .List.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="secondary compact" type="button" data-modal-open="edit-list">Edit</button>
-							<button class="danger compact" type="submit" form="list-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "EditModal" "edit-list" "ArchiveForm" "list-archive") }}
 					<span class="pill active">{{ .List.Kind }}</span>
 				</div>
 				<div class="summary-strip">
@@ -2775,13 +2704,7 @@ const appTemplate = `
 				<div class="project-title-line">
 					<a class="button secondary back-icon" href="/projects" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Project.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="secondary compact" type="button" data-modal-open="edit-project">Edit</button>
-							<button class="danger compact" type="submit" form="project-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "EditModal" "edit-project" "ArchiveForm" "project-archive") }}
 					<form id="project-status-form" class="status-inline" method="post" action="/projects/{{ .Project.ID }}">
 						<input type="hidden" name="title" value="{{ .Project.Title }}">
 						<textarea name="description" hidden>{{ .Project.Description }}</textarea>
@@ -3151,13 +3074,11 @@ const appTemplate = `
 				<div class="page-title-line">
 					<a class="button secondary back-icon" href="/tasks" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Task.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							{{ if eq .Task.Status "done" }}<button class="secondary compact" type="submit" form="task-reopen">Reopen</button>{{ end }}
-							<button class="danger compact" type="submit" form="task-archive">Archive</button>
-						</div>
-					</details>
+					{{ if eq .Task.Status "done" }}
+						{{ template "titleActionMenu" (dict "ReopenForm" "task-reopen" "ArchiveForm" "task-archive") }}
+					{{ else }}
+						{{ template "titleActionMenu" (dict "ArchiveForm" "task-archive") }}
+					{{ end }}
 				</div>
 			</div>
 		</div>
@@ -3245,12 +3166,7 @@ const appTemplate = `
 				<div class="page-title-line">
 					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Event.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="danger compact" type="submit" form="event-delete">Delete</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "DeleteForm" "event-delete" "DeleteLabel" "Delete") }}
 				</div>
 			</div>
 		</div>
@@ -3283,12 +3199,7 @@ const appTemplate = `
 				<div class="page-title-line">
 					<a class="button secondary back-icon" href="/routines" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Routine.Title }}</h1>
-					<details class="action-menu left">
-						<summary class="button secondary title-icon-button" title="Actions" aria-label="Actions">⋯</summary>
-						<div class="action-menu-panel">
-							<button class="danger compact" type="submit" form="routine-archive">Archive</button>
-						</div>
-					</details>
+					{{ template "titleActionMenu" (dict "ArchiveForm" "routine-archive") }}
 				</div>
 			</div>
 		</div>
