@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: homebase
+      POSTGRES_USER: homebase
+      POSTGRES_PASSWORD: homebase
+    ports:
+      - "5432:5432"
+    volumes:
+      - homebase_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homebase -d homebase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      APP_ENV: development
+      API_ADDR: :8081
+      WEB_BASE_URL: http://localhost:8080
+      API_BASE_URL: http://localhost:8081
+      DATABASE_URL: postgres://homebase:homebase@db:5432/homebase?sslmode=disable
+      SESSION_SECRET: dev-change-me
+      SESSION_COOKIE_NAME: homebase_session
+      BUDGET_APP_URL: ${BUDGET_APP_URL:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL:-http://localhost:8081/auth/google/callback}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      BOOTSTRAP_OWNER_NAME: ${BOOTSTRAP_OWNER_NAME:-}
+      BOOTSTRAP_HOUSEHOLD_NAME: ${BOOTSTRAP_HOUSEHOLD_NAME:-My Household}
+      ROUTINE_CHECK_INTERVAL_SECONDS: ${ROUTINE_CHECK_INTERVAL_SECONDS:-900}
+      DOCUMENT_UPLOAD_DIR: /var/lib/homebase/uploads
+      DOCUMENT_MAX_UPLOAD_MB: ${DOCUMENT_MAX_UPLOAD_MB:-25}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    volumes:
+      - homebase_uploads:/var/lib/homebase/uploads
+
+  web:
+    build:
+      context: .
+      target: web
+    environment:
+      APP_ENV: development
+      WEB_ADDR: :8080
+      WEB_BASE_URL: http://localhost:8080
+      API_BASE_URL: http://localhost:8081
+      API_INTERNAL_URL: http://api:8081
+      SESSION_COOKIE_NAME: homebase_session
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+
+volumes:
+  homebase_pgdata:
+  homebase_uploads:
