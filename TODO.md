@@ -2,7 +2,6 @@
 
 ## Authentication
 
-- Add API authentication suitable for mobile apps and disconnected front-end servers, such as bearer tokens or OAuth/OIDC access token validation.
 - Add live-provider test coverage for OAuth/OIDC login, callback, logout, session setup, and documentation around the generic provider configuration.
 
 ## Archive Recovery

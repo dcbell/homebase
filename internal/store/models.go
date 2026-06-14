@@ -25,6 +25,23 @@ type Session struct {
 	ExpiresAt   time.Time
 }
 
+type APIToken struct {
+	ID          int64      `json:"id"`
+	UserID      int64      `json:"user_id"`
+	HouseholdID int64      `json:"household_id"`
+	Name        string     `json:"name"`
+	Prefix      string     `json:"prefix"`
+	Scope       string     `json:"scope"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type APITokenWithSecret struct {
+	APIToken
+	Token string `json:"token"`
+}
+
 type Project struct {
 	ID          int64      `json:"id"`
 	HouseholdID int64      `json:"household_id"`
@@ -365,4 +382,9 @@ type MemberInput struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Role  string `json:"role"`
+}
+
+type APITokenInput struct {
+	Name  string `json:"name"`
+	Scope string `json:"scope"`
 }

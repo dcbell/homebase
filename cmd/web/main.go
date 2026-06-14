@@ -52,6 +52,7 @@ type pageData struct {
 	ContactIndex          bool
 	AssetIndex            bool
 	DocumentIndex         bool
+	SettingsPage          bool
 	DashboardPage         bool
 	Calendar              *store.CalendarMonth
 	CalendarPage          bool
@@ -67,6 +68,8 @@ type pageData struct {
 	Documents             []store.Document
 	Assets                []store.Asset
 	AssetMaintenanceItems []store.AssetMaintenanceItem
+	APITokens             []store.APIToken
+	CreatedAPIToken       store.APITokenWithSecret
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
 	RelatedContacts       []store.RelatedContact
@@ -172,6 +175,9 @@ func main() {
 	mux.HandleFunc("GET /", s.dashboard)
 	mux.HandleFunc("GET /calendar", s.calendar)
 	mux.HandleFunc("GET /search", s.search)
+	mux.HandleFunc("GET /settings", s.settings)
+	mux.HandleFunc("POST /settings/api-tokens", s.createAPIToken)
+	mux.HandleFunc("POST /settings/api-tokens/{id}/revoke", s.revokeAPIToken)
 	mux.HandleFunc("POST /dashboard/tiles/move", s.moveDashboardTile)
 	mux.HandleFunc("POST /dashboard/tiles/order", s.setDashboardTileOrder)
 	mux.HandleFunc("POST /members", s.addMember)
@@ -693,6 +699,66 @@ func (s *webServer) memberIndex(w http.ResponseWriter, r *http.Request) {
 		Members:     dashboard.Members,
 		MemberIndex: true,
 		Now:         time.Now(),
+	})
+}
+
+func (s *webServer) settings(w http.ResponseWriter, r *http.Request) {
+	s.renderSettings(w, r, "", store.APITokenWithSecret{})
+}
+
+func (s *webServer) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.renderSettings(w, r, "The form could not be read.", store.APITokenWithSecret{})
+		return
+	}
+	payload := map[string]any{
+		"name":  r.FormValue("name"),
+		"scope": defaultValue(r.FormValue("scope"), "read"),
+	}
+	var created store.APITokenWithSecret
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/api-tokens", payload, &created); err != nil {
+		s.renderSettings(w, r, err.Error(), store.APITokenWithSecret{})
+		return
+	}
+	s.renderSettings(w, r, "", created)
+}
+
+func (s *webServer) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/api-tokens/"+url.PathEscape(id), nil, nil); err != nil {
+		http.Redirect(w, r, "/settings?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
+}
+
+func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageError string, created store.APITokenWithSecret) {
+	var dashboard store.Dashboard
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
+		if errors.Is(err, errUnauthorized) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		s.render(w, http.StatusBadGateway, pageData{Title: "Settings", Error: err.Error(), Now: time.Now()})
+		return
+	}
+	var tokens []store.APIToken
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/api-tokens", nil, &tokens); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
+	if pageError == "" {
+		pageError = userFacingError(r.URL.Query().Get("error"))
+	}
+	s.render(w, http.StatusOK, pageData{
+		Title:           "Settings",
+		Error:           pageError,
+		Dashboard:       dashboard,
+		APITokens:       tokens,
+		CreatedAPIToken: created,
+		SettingsPage:    true,
+		Now:             time.Now(),
 	})
 }
 
@@ -2190,6 +2256,8 @@ func headerTitle(data pageData) string {
 		return "Documents"
 	case data.MemberIndex:
 		return "Users"
+	case data.SettingsPage:
+		return "Settings"
 	case strings.TrimSpace(data.Title) != "":
 		return data.Title
 	default:

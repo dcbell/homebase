@@ -5,6 +5,9 @@ info:
   description: >
     API for Homebase household operations. Most `/api/v1` routes require a valid
     `homebase_session` cookie created by the auth flow.
+    API clients may also authenticate with an API token using
+    `Authorization: Bearer <token>`. Read-only tokens may only call read
+    endpoints.
 servers:
   - url: /
 tags:
@@ -135,6 +138,62 @@ paths:
                   household:
                     $ref: "#/components/schemas/Household"
         "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/api-tokens:
+    get:
+      tags: [Auth]
+      summary: List API tokens
+      operationId: listApiTokens
+      description: Requires a browser session.
+      responses:
+        "200":
+          description: API tokens.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/APIToken"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Auth]
+      summary: Create API token
+      operationId: createApiToken
+      description: Requires a browser session. The plaintext token is returned only once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/APITokenInput"
+      responses:
+        "201":
+          description: Created API token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APITokenWithSecret"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/api-tokens/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke API token
+      operationId: revokeApiToken
+      description: Requires a browser session.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
 
   /api/v1/households/current:
@@ -1114,6 +1173,9 @@ components:
       type: apiKey
       in: cookie
       name: homebase_session
+    bearerToken:
+      type: http
+      scheme: bearer
 
   parameters:
     ID:
@@ -1712,6 +1774,33 @@ components:
         email: { type: string, format: email }
         name: { type: string }
         role: { type: string, example: member }
+    APIToken:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        household_id: { type: integer, format: int64 }
+        name: { type: string }
+        prefix: { type: string }
+        scope:
+          type: string
+          enum: [read, write]
+        last_used_at: { $ref: "#/components/schemas/Timestamp" }
+        revoked_at: { $ref: "#/components/schemas/Timestamp" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    APITokenWithSecret:
+      allOf:
+        - $ref: "#/components/schemas/APIToken"
+        - type: object
+          properties:
+            token: { type: string }
+    APITokenInput:
+      type: object
+      properties:
+        name: { type: string }
+        scope:
+          type: string
+          enum: [read, write]
     ModuleItem:
       type: object
       properties:
@@ -1815,3 +1904,4 @@ components:
 
 security:
   - sessionCookie: []
+  - bearerToken: []

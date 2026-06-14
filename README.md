@@ -95,6 +95,18 @@ BOOTSTRAP_OWNER_NAME="Your Name"
 BOOTSTRAP_HOUSEHOLD_NAME="Home"
 ```
 
+## API Tokens
+
+Signed-in users can create API tokens from the profile menu under Settings. Tokens inherit the user's current household access and can be created as read-only or full-access tokens. The plaintext token is shown only once.
+
+Use tokens with API requests:
+
+```sh
+curl -H "Authorization: Bearer hb_..." https://homebase.example.com/api/v1/me
+```
+
+Read-only tokens can call read endpoints only. Full-access tokens can call write endpoints, but token management itself still requires a browser session.
+
 ## Architecture Notes
 
 - The frontend contains display and form forwarding only; business rules stay in the API.

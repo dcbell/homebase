@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    household_id BIGINT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     id BIGSERIAL PRIMARY KEY,
     household_id BIGINT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
@@ -139,3 +152,4 @@ CREATE INDEX IF NOT EXISTS idx_projects_household ON projects(household_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_household_due ON tasks(household_id, due_at);
 CREATE INDEX IF NOT EXISTS idx_events_household_start ON events(household_id, starts_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user_household ON api_tokens(user_id, household_id);

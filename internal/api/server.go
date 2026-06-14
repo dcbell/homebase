@@ -26,6 +26,13 @@ type contextKey string
 const (
 	userKey      contextKey = "user"
 	householdKey contextKey = "household"
+	authKindKey  contextKey = "auth_kind"
+	apiTokenKey  contextKey = "api_token"
+)
+
+const (
+	authKindSession = "session"
+	authKindToken   = "token"
 )
 
 type Server struct {
@@ -68,6 +75,12 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && path == "/me":
 		s.me(w, r)
+	case r.Method == http.MethodGet && path == "/api-tokens":
+		s.listAPITokens(w, r)
+	case r.Method == http.MethodPost && path == "/api-tokens":
+		s.createAPIToken(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/api-tokens/"):
+		s.revokeAPIToken(w, r, strings.TrimPrefix(path, "/api-tokens/"))
 	case r.Method == http.MethodGet && path == "/households/current":
 		s.currentHousehold(w, r)
 	case r.Method == http.MethodGet && path == "/dashboard":
@@ -265,24 +278,50 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(s.cfg.SessionCookieName)
-		if err != nil || cookie.Value == "" {
+		if err == nil && cookie.Value != "" {
+			user, household, err := s.store.SessionContext(r.Context(), cookie.Value)
+			if errors.Is(err, store.ErrNotFound) {
+				writeError(w, http.StatusUnauthorized, "session expired")
+				return
+			}
+			if err != nil {
+				s.logger.Error("load session", "error", err)
+				writeError(w, http.StatusInternalServerError, "failed to load session")
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), userKey, user)
+			ctx = context.WithValue(ctx, householdKey, household)
+			ctx = context.WithValue(ctx, authKindKey, authKindSession)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		rawToken := bearerToken(r)
+		if rawToken == "" {
 			writeError(w, http.StatusUnauthorized, "login required")
 			return
 		}
 
-		user, household, err := s.store.SessionContext(r.Context(), cookie.Value)
+		user, household, token, err := s.store.SessionContextByAPIToken(r.Context(), rawToken)
 		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusUnauthorized, "session expired")
+			writeError(w, http.StatusUnauthorized, "invalid API token")
 			return
 		}
 		if err != nil {
-			s.logger.Error("load session", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to load session")
+			s.logger.Error("load api token", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load API token")
+			return
+		}
+		if token.Scope == "read" && !readOnlyMethod(r.Method) {
+			writeError(w, http.StatusForbidden, "API token is read-only")
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), userKey, user)
 		ctx = context.WithValue(ctx, householdKey, household)
+		ctx = context.WithValue(ctx, authKindKey, authKindToken)
+		ctx = context.WithValue(ctx, apiTokenKey, token)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -295,11 +334,86 @@ func householdFrom(r *http.Request) store.Household {
 	return r.Context().Value(householdKey).(store.Household)
 }
 
+func authKindFrom(r *http.Request) string {
+	if kind, ok := r.Context().Value(authKindKey).(string); ok {
+		return kind
+	}
+	return ""
+}
+
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if header == "" {
+		return ""
+	}
+	kind, value, ok := strings.Cut(header, " ")
+	if !ok || !strings.EqualFold(kind, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func readOnlyMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":      userFrom(r),
 		"household": householdFrom(r),
 	})
+}
+
+func (s *Server) listAPITokens(w http.ResponseWriter, r *http.Request) {
+	if authKindFrom(r) != authKindSession {
+		writeError(w, http.StatusForbidden, "API token management requires a browser session")
+		return
+	}
+	tokens, err := s.store.ListAPITokens(r.Context(), userFrom(r).ID, householdFrom(r).ID)
+	if err != nil {
+		s.logger.Error("list api tokens", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list API tokens")
+		return
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (s *Server) createAPIToken(w http.ResponseWriter, r *http.Request) {
+	if authKindFrom(r) != authKindSession {
+		writeError(w, http.StatusForbidden, "API token management requires a browser session")
+		return
+	}
+	var input store.APITokenInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	token, err := s.store.CreateAPIToken(r.Context(), userFrom(r).ID, householdFrom(r).ID, input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, token)
+}
+
+func (s *Server) revokeAPIToken(w http.ResponseWriter, r *http.Request, rawID string) {
+	if authKindFrom(r) != authKindSession {
+		writeError(w, http.StatusForbidden, "API token management requires a browser session")
+		return
+	}
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	if err := s.store.RevokeAPIToken(r.Context(), userFrom(r).ID, householdFrom(r).ID, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "API token not found")
+			return
+		}
+		s.logger.Error("revoke api token", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to revoke API token")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) currentHousehold(w http.ResponseWriter, r *http.Request) {

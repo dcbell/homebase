@@ -103,6 +103,7 @@ const appTemplate = `
 		.dashboard-add-tile.empty { display:none !important; }
 		.dashboard-add-options [hidden] { display:none !important; }
 		.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; }
+		.code-block { margin:12px 0 0; padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--field); color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 		.tile-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 		.tile-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 		.tile-actions form { display:block; }
@@ -370,6 +371,7 @@ const appTemplate = `
 								<span>Dark mode</span>
 								<span class="switch"><input id="theme-toggle" type="checkbox"><span></span></span>
 							</label>
+							<a class="button secondary" href="/settings">Settings</a>
 							<form method="post" action="/logout"><button class="secondary" type="submit">Logout</button></form>
 						</div>
 					</details>
@@ -390,6 +392,8 @@ const appTemplate = `
 		{{ template "routineIndex" . }}
 	{{ else if .MemberIndex }}
 		{{ template "memberIndex" . }}
+	{{ else if .SettingsPage }}
+		{{ template "settings" . }}
 	{{ else if .Project.ID }}
 		{{ template "projectDetail" . }}
 	{{ else if .Task.ID }}
@@ -1772,6 +1776,59 @@ const appTemplate = `
 	</section>
 	{{ end }}
 	{{ end }}
+</main>
+{{ end }}
+
+{{ define "settings" }}
+<main class="shell">
+	{{ template "pageHeader" (dict "BackURL" "/" "Title" "Settings") }}
+
+	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
+
+	{{ if .CreatedAPIToken.Token }}
+	<section class="panel">
+		<h2>API Token Created</h2>
+		<p class="empty">Copy this token now. It will not be shown again.</p>
+		<pre class="code-block">{{ .CreatedAPIToken.Token }}</pre>
+	</section>
+	{{ end }}
+
+	<section class="panel">
+		<div class="tile-head">
+			<h2>API Tokens</h2>
+		</div>
+		<form method="post" action="/settings/api-tokens">
+			<div class="form-row">
+				<label>Name<input name="name" placeholder="Home Assistant" required></label>
+				<label>Access<select name="scope">
+					<option value="read">Read-only</option>
+					<option value="write">Full access</option>
+				</select></label>
+			</div>
+			<button type="submit">Create token</button>
+		</form>
+		<div class="cards" style="margin-top:16px;">
+			{{ range .APITokens }}
+			<article class="item">
+				<div class="item-head">
+					<div>
+						<strong>{{ .Name }}</strong>
+						<div class="meta">{{ .Prefix }}... · {{ .Scope }} access · Created {{ datetime .CreatedAt }}</div>
+						{{ if .LastUsedAt }}<div class="meta">Last used {{ date .LastUsedAt }}</div>{{ end }}
+						{{ if .RevokedAt }}<div class="meta">Revoked {{ date .RevokedAt }}</div>{{ end }}
+					</div>
+					{{ if not .RevokedAt }}
+					<form method="post" action="/settings/api-tokens/{{ .ID }}/revoke">
+						<button class="danger compact" type="submit" title="Revoke token" aria-label="Revoke token">X</button>
+					</form>
+					{{ end }}
+				</div>
+			</article>
+			{{ else }}
+			<p class="empty">No API tokens yet.</p>
+			{{ end }}
+		</div>
+	</section>
 </main>
 {{ end }}
 
