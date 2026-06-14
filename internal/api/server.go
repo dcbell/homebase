@@ -54,8 +54,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /openapi.yaml", s.openapi)
 	s.mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
-	s.mux.HandleFunc("GET /auth/google/start", s.googleStart)
-	s.mux.HandleFunc("GET /auth/google/callback", s.googleCallback)
+	s.mux.HandleFunc("GET /auth/oauth/start", s.oauthStart)
+	s.mux.HandleFunc("GET /auth/oauth/callback", s.oauthCallback)
 	s.mux.HandleFunc("GET /auth/dev-login", s.devLogin)
 	s.mux.HandleFunc("POST /auth/logout", s.logout)
 
@@ -253,10 +253,6 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.unlinkDocument(w, r, strings.TrimPrefix(path, "/document-links/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/modules/"):
 		s.listModule(w, r, strings.TrimPrefix(path, "/modules/"))
-	case r.Method == http.MethodPost && path == "/integrations/google/calendar/connect":
-		s.googleCalendarConnect(w, r)
-	case r.Method == http.MethodPost && path == "/integrations/google/calendar/sync":
-		s.googleCalendarSync(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "route not found")
 	}
@@ -311,7 +307,7 @@ func (s *Server) currentHousehold(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	dashboard, err := s.store.Dashboard(r.Context(), userFrom(r), householdFrom(r), strings.TrimSpace(getenv("BUDGET_APP_URL")), s.cfg.GoogleConfigured())
+	dashboard, err := s.store.Dashboard(r.Context(), userFrom(r), householdFrom(r), strings.TrimSpace(getenv("BUDGET_APP_URL")))
 	if err != nil {
 		s.logger.Error("dashboard", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to load dashboard")

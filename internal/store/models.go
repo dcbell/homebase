@@ -245,18 +245,17 @@ type ModuleItem struct {
 }
 
 type Dashboard struct {
-	Household        Household       `json:"household"`
-	CurrentUser      User            `json:"current_user"`
-	Members          []User          `json:"members"`
-	Projects         []Project       `json:"projects"`
-	Tasks            []Task          `json:"tasks"`
-	Events           []Event         `json:"events"`
-	Routines         []Routine       `json:"routines"`
-	Notices          []RoutineNotice `json:"notices"`
-	TileOrder        []string        `json:"tile_order"`
-	AvailableTiles   []DashboardTile `json:"available_tiles"`
-	BudgetAppURL     string          `json:"budget_app_url"`
-	GoogleConfigured bool            `json:"google_configured"`
+	Household      Household       `json:"household"`
+	CurrentUser    User            `json:"current_user"`
+	Members        []User          `json:"members"`
+	Projects       []Project       `json:"projects"`
+	Tasks          []Task          `json:"tasks"`
+	Events         []Event         `json:"events"`
+	Routines       []Routine       `json:"routines"`
+	Notices        []RoutineNotice `json:"notices"`
+	TileOrder      []string        `json:"tile_order"`
+	AvailableTiles []DashboardTile `json:"available_tiles"`
+	BudgetAppURL   string          `json:"budget_app_url"`
 }
 
 type CalendarEntry struct {

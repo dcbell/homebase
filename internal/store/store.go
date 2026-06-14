@@ -70,7 +70,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) UpsertUserWithHousehold(ctx context.Context, googleSub, email, name, avatarURL string) (User, Household, error) {
+func (s *Store) UpsertUserWithHousehold(ctx context.Context, oauthSubject, email, name, avatarURL string) (User, Household, error) {
 	if strings.TrimSpace(name) == "" {
 		name = email
 	}
@@ -83,15 +83,15 @@ func (s *Store) UpsertUserWithHousehold(ctx context.Context, googleSub, email, n
 
 	var user User
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO users (google_sub, email, name, avatar_url)
+		INSERT INTO users (oauth_subject, email, name, avatar_url)
 		VALUES (NULLIF($1, ''), $2, $3, $4)
 		ON CONFLICT (email) DO UPDATE SET
-			google_sub = COALESCE(users.google_sub, EXCLUDED.google_sub),
+			oauth_subject = COALESCE(users.oauth_subject, EXCLUDED.oauth_subject),
 			name = EXCLUDED.name,
 			avatar_url = EXCLUDED.avatar_url,
 			updated_at = now()
 		RETURNING id, email, name, avatar_url, created_at
-	`, googleSub, email, name, avatarURL).Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
+	`, oauthSubject, email, name, avatarURL).Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
 	if err != nil {
 		return User{}, Household{}, err
 	}
@@ -162,24 +162,6 @@ func (s *Store) DeleteSession(ctx context.Context, sessionID string) error {
 	return err
 }
 
-func (s *Store) UpsertGoogleToken(ctx context.Context, userID int64, accessToken, refreshToken string, expiry time.Time) error {
-	var sqlExpiry sql.NullTime
-	if !expiry.IsZero() {
-		sqlExpiry = sql.NullTime{Time: expiry, Valid: true}
-	}
-
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO google_connections (user_id, access_token, refresh_token, expiry)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id) DO UPDATE SET
-			access_token = EXCLUDED.access_token,
-			refresh_token = COALESCE(NULLIF(EXCLUDED.refresh_token, ''), google_connections.refresh_token),
-			expiry = EXCLUDED.expiry,
-			updated_at = now()
-	`, userID, accessToken, refreshToken, sqlExpiry)
-	return err
-}
-
 func (s *Store) SessionContext(ctx context.Context, sessionID string) (User, Household, error) {
 	var user User
 	var household Household
@@ -206,7 +188,7 @@ func (s *Store) SessionContext(ctx context.Context, sessionID string) (User, Hou
 	return user, household, nil
 }
 
-func (s *Store) Dashboard(ctx context.Context, user User, household Household, budgetURL string, googleConfigured bool) (Dashboard, error) {
+func (s *Store) Dashboard(ctx context.Context, user User, household Household, budgetURL string) (Dashboard, error) {
 	members, err := s.ListMembers(ctx, household.ID)
 	if err != nil {
 		return Dashboard{}, err
@@ -243,18 +225,17 @@ func (s *Store) Dashboard(ctx context.Context, user User, household Household, b
 	}
 
 	return Dashboard{
-		Household:        household,
-		CurrentUser:      user,
-		Members:          members,
-		Projects:         projects,
-		Tasks:            tasks,
-		Events:           events,
-		Routines:         routines,
-		Notices:          notices,
-		TileOrder:        tileOrder,
-		AvailableTiles:   DashboardTiles(),
-		BudgetAppURL:     budgetURL,
-		GoogleConfigured: googleConfigured,
+		Household:      household,
+		CurrentUser:    user,
+		Members:        members,
+		Projects:       projects,
+		Tasks:          tasks,
+		Events:         events,
+		Routines:       routines,
+		Notices:        notices,
+		TileOrder:      tileOrder,
+		AvailableTiles: DashboardTiles(),
+		BudgetAppURL:   budgetURL,
 	}, nil
 }
 

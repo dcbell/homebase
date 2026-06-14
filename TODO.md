@@ -2,10 +2,8 @@
 
 ## Authentication
 
-- Replace the current Google-specific authentication flow with generic OAuth/OIDC support.
-- Make the OAuth provider configurable so it can point at an internal OAuth provider.
 - Add API authentication suitable for mobile apps and disconnected front-end servers, such as bearer tokens or OAuth/OIDC access token validation.
-- Update login, callback, logout, session setup, and documentation around the generic provider configuration.
+- Add live-provider test coverage for OAuth/OIDC login, callback, logout, session setup, and documentation around the generic provider configuration.
 
 ## Archive Recovery
 

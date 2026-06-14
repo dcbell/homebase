@@ -355,7 +355,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 				Title:      "Homebase",
 				Error:      pageError,
 				APIBaseURL: s.cfg.APIBaseURL,
-				LoginURL:   s.cfg.APIBaseURL + "/auth/google/start",
+				LoginURL:   s.cfg.APIBaseURL + "/auth/oauth/start",
 				Now:        time.Now(),
 			})
 			return
@@ -423,7 +423,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		Lists:         lists,
 		List:          selectedList,
 		ListItems:     listItems,
-		LoginURL:      s.cfg.APIBaseURL + "/auth/google/start",
+		LoginURL:      s.cfg.APIBaseURL + "/auth/oauth/start",
 		LogoutURL:     "/logout",
 		Now:           time.Now(),
 	})
@@ -458,7 +458,7 @@ func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
 		CalendarPage:  true,
 		CalendarView:  "month",
 		CalendarFocus: calendar.Month,
-		LoginURL:      s.cfg.APIBaseURL + "/auth/google/start",
+		LoginURL:      s.cfg.APIBaseURL + "/auth/oauth/start",
 		LogoutURL:     "/logout",
 		Now:           time.Now(),
 	})
@@ -3096,7 +3096,7 @@ func userFacingError(value string) string {
 	case "":
 		return ""
 	case "not_added":
-		return "That Google account has not been added to a household yet."
+		return "That account has not been added to a household yet."
 	case "form":
 		return "The form could not be read."
 	default:

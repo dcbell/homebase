@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS households (
 
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
-    google_sub TEXT UNIQUE,
+    oauth_subject TEXT UNIQUE,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     avatar_url TEXT NOT NULL DEFAULT '',
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS events (
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ NOT NULL,
     location TEXT NOT NULL DEFAULT '',
-    source TEXT NOT NULL DEFAULT 'homebase' CHECK (source IN ('homebase', 'google')),
+    source TEXT NOT NULL DEFAULT 'homebase' CHECK (source IN ('homebase')),
     external_id TEXT NOT NULL DEFAULT '',
     sync_status TEXT NOT NULL DEFAULT 'local' CHECK (sync_status IN ('local', 'synced', 'conflict')),
     created_by BIGINT NOT NULL REFERENCES users(id),
@@ -133,15 +133,6 @@ CREATE TABLE IF NOT EXISTS documents (
     file_size BIGINT NOT NULL DEFAULT 0,
     created_by BIGINT NOT NULL REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS google_connections (
-    user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    access_token TEXT NOT NULL,
-    refresh_token TEXT NOT NULL DEFAULT '',
-    expiry TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_household ON projects(household_id);

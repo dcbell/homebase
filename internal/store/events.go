@@ -92,7 +92,7 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 			starts_at = $5,
 			ends_at = $6,
 			location = $7,
-			sync_status = CASE WHEN source = 'google' THEN 'local' ELSE sync_status END,
+			sync_status = 'local',
 			updated_at = now()
 		WHERE household_id = $1 AND id = $2
 		RETURNING id, household_id, title, description, starts_at, ends_at, location, source, external_id, sync_status, created_by, created_at, updated_at

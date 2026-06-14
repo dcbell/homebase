@@ -374,7 +374,7 @@ const appTemplate = `
 						</div>
 					</details>
 				{{ else }}
-					<a class="button" href="{{ .LoginURL }}">Login with Google</a>
+					<a class="button" href="{{ .LoginURL }}">Login</a>
 				{{ end }}
 				</nav>
 			</div>
@@ -1078,7 +1078,7 @@ const appTemplate = `
 		<h1>Homebase</h1>
 		<p>Household projects, tasks, appointments, routines, and records in one operations view.</p>
 		{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
-		<a class="button" href="{{ .LoginURL }}">Login with Google</a>
+		<a class="button" href="{{ .LoginURL }}">Login</a>
 	</section>
 </main>
 {{ end }}

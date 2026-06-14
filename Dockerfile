@@ -12,6 +12,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o /out/homebase-web ./cmd
 
 FROM debian:bookworm-slim AS api
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home /nonexistent homebase
 RUN mkdir -p /var/lib/homebase/uploads && chown -R homebase:homebase /var/lib/homebase
 COPY --from=build /out/homebase-api /usr/local/bin/homebase-api
@@ -21,6 +24,9 @@ ENTRYPOINT ["/usr/local/bin/homebase-api"]
 
 FROM debian:bookworm-slim AS web
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --home /nonexistent homebase
 COPY --from=build /out/homebase-web /usr/local/bin/homebase-web
 USER homebase

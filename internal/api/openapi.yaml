@@ -70,27 +70,29 @@ paths:
               schema:
                 type: string
 
-  /auth/google/start:
+  /auth/oauth/start:
     get:
       tags: [Auth]
-      summary: Start Google OAuth login
-      operationId: googleStart
+      summary: Start OAuth/OIDC login
+      operationId: oauthStart
       security: []
       responses:
         "302":
-          description: Redirects to Google OAuth.
+          description: Redirects to the configured OAuth/OIDC provider.
 
-  /auth/google/callback:
+  /auth/oauth/callback:
     get:
       tags: [Auth]
-      summary: Complete Google OAuth login
-      operationId: googleCallback
+      summary: Complete OAuth/OIDC login
+      operationId: oauthCallback
       security: []
       responses:
         "302":
           description: Sets the session cookie and redirects to the web app.
         "400":
           $ref: "#/components/responses/Error"
+
+
 
   /auth/dev-login:
     get:
@@ -1104,23 +1106,7 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
-  /api/v1/integrations/google/calendar/connect:
-    post:
-      tags: [Integrations]
-      summary: Connect Google Calendar
-      operationId: googleCalendarConnect
-      responses:
-        "200":
-          $ref: "#/components/responses/Ok"
 
-  /api/v1/integrations/google/calendar/sync:
-    post:
-      tags: [Integrations]
-      summary: Sync Google Calendar
-      operationId: googleCalendarSync
-      responses:
-        "200":
-          $ref: "#/components/responses/Ok"
 
 components:
   securitySchemes:
@@ -1789,8 +1775,6 @@ components:
             $ref: "#/components/schemas/DashboardTile"
         budget_app_url:
           type: string
-        google_configured:
-          type: boolean
     CalendarEntry:
       type: object
       properties:

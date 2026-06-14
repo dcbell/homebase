@@ -58,7 +58,7 @@ func (s *Store) AddMember(ctx context.Context, householdID int64, input MemberIn
 		INSERT INTO users (email, name)
 		VALUES ($1, $2)
 		ON CONFLICT (email) DO UPDATE SET
-			name = CASE WHEN users.google_sub IS NULL THEN EXCLUDED.name ELSE users.name END,
+			name = CASE WHEN users.oauth_subject IS NULL THEN EXCLUDED.name ELSE users.name END,
 			updated_at = now()
 		RETURNING id, email, name, avatar_url, created_at
 	`, input.Email, input.Name).Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
@@ -284,7 +284,7 @@ func (s *Store) EnsureBootstrapOwner(ctx context.Context, email, name, household
 	return tx.Commit()
 }
 
-func (s *Store) ActivatePreauthorizedGoogleUser(ctx context.Context, googleSub, email, name, avatarURL string) (User, Household, error) {
+func (s *Store) ActivatePreauthorizedOAuthUser(ctx context.Context, providerSubject, email, name, avatarURL string) (User, Household, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return User{}, Household{}, errors.New("email is required")
@@ -320,13 +320,13 @@ func (s *Store) ActivatePreauthorizedGoogleUser(ctx context.Context, googleSub, 
 	var user User
 	err = tx.QueryRowContext(ctx, `
 		UPDATE users
-		SET google_sub = $2,
+		SET oauth_subject = $2,
 			name = $3,
 			avatar_url = $4,
 			updated_at = now()
 		WHERE id = $1
 		RETURNING id, email, name, avatar_url, created_at
-	`, userID, googleSub, name, avatarURL).Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
+	`, userID, providerSubject, name, avatarURL).Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
 	if err != nil {
 		return User{}, Household{}, err
 	}
