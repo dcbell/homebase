@@ -161,7 +161,6 @@ func main() {
 		"documentSourceLabel":   documentSourceLabel,
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
-		"headerTitle":           headerTitle,
 	}).Parse(appTemplate))
 
 	mux := http.NewServeMux()
@@ -169,6 +168,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /favicon.svg", favicon)
 	mux.HandleFunc("GET /docs", s.swaggerDocs)
 	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /openapi.yaml", s.openapi)
@@ -2231,37 +2231,6 @@ func (s *webServer) render(w http.ResponseWriter, status int, data pageData) {
 	w.WriteHeader(status)
 	if err := s.templates.ExecuteTemplate(w, "layout", data); err != nil {
 		s.logger.Error("render template", "error", err)
-	}
-}
-
-func headerTitle(data pageData) string {
-	switch {
-	case data.DashboardPage:
-		return "Dashboard"
-	case data.ProjectIndex || data.Project.ID != 0:
-		return "Projects"
-	case data.TaskIndex || data.Task.ID != 0:
-		return "Tasks"
-	case data.CalendarPage || data.Event.ID != 0:
-		return "Calendar"
-	case data.RoutineIndex || data.Routine.ID != 0:
-		return "Routines"
-	case data.ListIndex || data.List.ID != 0:
-		return "Lists"
-	case data.ContactIndex || data.Contact.ID != 0:
-		return "Contacts"
-	case data.AssetIndex || data.Asset.ID != 0:
-		return "Assets"
-	case data.DocumentIndex || data.Document.ID != 0:
-		return "Documents"
-	case data.MemberIndex:
-		return "Users"
-	case data.SettingsPage:
-		return "Settings"
-	case strings.TrimSpace(data.Title) != "":
-		return data.Title
-	default:
-		return "Dashboard"
 	}
 }
 

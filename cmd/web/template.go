@@ -8,6 +8,7 @@ const appTemplate = `
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{ .Title }}</title>
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 	<script>
 		(function () {
 			var saved = localStorage.getItem("homebase-theme");
@@ -23,13 +24,16 @@ const appTemplate = `
 		header { border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:30; }
 		.shell { width:min(1180px, calc(100% - 32px)); margin:0 auto; }
 		main.shell { width:min(1180px, calc(100% - 104px)); max-width:none; margin-left:calc(72px + max(16px, (100% - 72px - 1180px) / 2)); margin-right:auto; }
-		.topbar { min-height:64px; padding:10px 16px; position:relative; }
-		.topbar-brand { position:absolute; left:12px; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:10px; min-width:0; }
-		.topbar-brand-name { color:var(--ink); text-decoration:none; font-weight:800; font-size:18px; line-height:1; white-space:nowrap; }
-		.topbar-brand-name:hover { color:var(--ink); }
-		.topbar-content { width:min(1180px, calc(100% - 208px)); min-height:44px; margin-left:calc(72px + max(104px, (100% - 72px - 1180px) / 2)); margin-right:auto; max-width:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-		.topbar-left { display:flex; align-items:center; gap:10px; min-width:0; flex:0 1 auto; }
-		.header-page-title { font-weight:800; font-size:20px; line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+		.topbar { min-height:64px; padding:10px 16px; position:relative; display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px; }
+		.topbar-menu { justify-self:start; display:flex; align-items:center; }
+		.topbar-brand { position:absolute; left:50%; transform:translateX(-50%); display:inline-flex; align-items:center; gap:9px; min-width:0; color:var(--ink); text-decoration:none; font-weight:800; font-size:18px; line-height:1; white-space:nowrap; }
+		.topbar-brand:hover { color:var(--ink); }
+		.brand-mark { width:32px; height:32px; flex:0 0 auto; display:block; }
+		.brand-mark-bg { fill:var(--accent); }
+		.brand-mark-roof { fill:none; stroke:var(--accent-ink); }
+		.brand-mark-shape { fill:var(--accent-ink); }
+		.brand-mark-detail-primary { stroke:var(--accent); }
+		.brand-mark-detail-muted { stroke:var(--muted); }
 		.menu-button { width:38px; height:38px; min-height:38px; padding:0; }
 		.app-sidebar { position:fixed; inset:64px auto 0 0; z-index:19; width:72px; padding:12px; background:var(--panel); border-right:1px solid var(--line); box-shadow:var(--shadow); transition:width .16s ease; overflow:hidden; display:grid; }
 		.app-sidebar.open { width:244px; }
@@ -45,9 +49,13 @@ const appTemplate = `
 		.app-sidebar:not(.open) .sidebar-label, .app-sidebar:not(.open) .sidebar-chevron { display:none; }
 		.sidebar-close { display:none; }
 		.sidebar-backdrop { display:none; }
-		.topbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; margin-left:auto; min-width:0; }
-		.universal-search { position:relative; width:min(360px, 34vw); min-width:220px; }
-		.universal-search input { min-height:36px; padding-left:34px; padding-right:34px; }
+		.topbar-right { justify-self:end; display:flex; gap:8px; flex-wrap:nowrap; align-items:center; justify-content:flex-end; min-width:0; }
+		.universal-search { position:relative; width:38px; min-width:38px; transition:width .16s ease; }
+		.universal-search:focus-within { width:min(340px, 34vw); }
+		.universal-search input { width:100%; min-height:38px; padding:0 10px 0 34px; border-radius:999px; color:transparent; cursor:pointer; transition:color .12s ease, border-color .12s ease, background .12s ease; }
+		.universal-search input::placeholder { color:transparent; }
+		.universal-search:focus-within input { color:var(--ink); cursor:text; }
+		.universal-search:focus-within input::placeholder { color:var(--muted); }
 		.search-leading-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
 		.search-leading-icon .icon { width:16px; height:16px; }
 		.universal-results { position:absolute; right:0; top:calc(100% + 6px); z-index:32; width:min(440px, calc(100vw - 32px)); display:none; gap:6px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); box-shadow:var(--shadow); }
@@ -273,7 +281,6 @@ const appTemplate = `
 		.switch input:checked + span { background:var(--accent); }
 		.switch input:checked + span::before { transform:translateX(22px); }
 		@media (max-width: 1100px) {
-			.topbar-right > .meta { display:none; }
 			.detail-with-sidebar { grid-template-columns:1fr; }
 			.task-table-wrap { overflow:visible; }
 			.task-table, .task-table tbody { display:block; min-width:0; }
@@ -300,9 +307,6 @@ const appTemplate = `
 			.app-sidebar.open { width:224px; }
 			.app-sidebar:not(.open) .sidebar-nav a { width:38px; }
 			main.shell { margin-left:76px; margin-right:12px; width:auto; }
-			.topbar { display:grid; gap:10px; }
-			.topbar-brand { position:static; transform:none; }
-			.topbar-content { width:100%; margin-left:0; margin-right:0; max-width:none; min-height:0; flex-wrap:wrap; }
 			.dashboard-tiles { grid-template-columns:1fr; }
 			.modules, .form-row { grid-template-columns:1fr; }
 			.info-strip { grid-template-columns:1fr; }
@@ -318,10 +322,6 @@ const appTemplate = `
 			.month-switch { width:100%; justify-content:flex-start; }
 			.month-title { min-width:0; }
 			.hero, .detail-hero { align-items:flex-start; flex-direction:column; }
-			.topbar-left { width:100%; }
-			.topbar-right { width:100%; justify-content:flex-start; }
-			.universal-search { width:100%; min-width:0; }
-			.universal-results { left:0; right:auto; width:100%; }
 			.detail-actions { justify-content:flex-start; }
 			.dashboard-masonry { display:grid; position:static; }
 			.dashboard-masonry .dashboard-tile { position:static; width:auto !important; transform:none !important; }
@@ -337,9 +337,11 @@ const appTemplate = `
 			.app-sidebar.open .sidebar-label, .app-sidebar.open .sidebar-chevron { display:block; opacity:1; transform:none; }
 			main.shell { width:auto; margin-left:12px; margin-right:12px; padding-top:16px; }
 			.topbar { padding:10px 12px; }
-			.topbar-content { gap:10px; }
-			.topbar-right { gap:8px; }
-			.topbar-right > .meta { display:block; width:100%; }
+			.topbar-brand { gap:7px; font-size:17px; }
+			.brand-mark { width:28px; height:28px; }
+			.topbar-right { gap:4px; }
+			.universal-search:focus-within { position:fixed; z-index:35; top:10px; left:62px; right:102px; width:auto; }
+			.universal-results { width:min(440px, calc(100vw - 24px)); }
 			h1 { font-size:26px; }
 			.panel { padding:12px; }
 			.project-title-line, .page-title-line { gap:8px; }
@@ -384,25 +386,22 @@ const appTemplate = `
 	{{ end }}
 	<header>
 		<div class="topbar">
+			<div class="topbar-menu">
 			{{ if .Dashboard.CurrentUser.Email }}
-			<div class="topbar-brand">
 				<button class="secondary menu-button" type="button" data-menu-toggle title="Toggle menu" aria-label="Toggle menu" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
-				<a class="topbar-brand-name" href="/">Homebase</a>
-			</div>
 			{{ end }}
-			<div class="topbar-content">
-				<div class="topbar-left">
-					<span class="header-page-title">{{ headerTitle . }}</span>
-				</div>
-				<nav class="topbar-right">
+			</div>
+			<a class="topbar-brand" href="/" aria-label="Homebase dashboard">
+				{{ template "brandMark" . }}
+				<span>Homebase</span>
+			</a>
+			<nav class="topbar-right">
 				{{ if .Dashboard.CurrentUser.Email }}
 					<div class="universal-search" role="search">
 						<span class="search-leading-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
 						<input type="search" autocomplete="off" placeholder="Search tasks, projects, docs..." aria-label="Search" data-universal-search>
 						<div class="universal-results" data-universal-search-results></div>
 					</div>
-					<span class="meta">{{ .Dashboard.CurrentUser.Name }} · {{ .Dashboard.Household.Name }}</span>
-					{{ if .Dashboard.BudgetAppURL }}<a class="button secondary" href="{{ .Dashboard.BudgetAppURL }}">Budget</a>{{ end }}
 					<details class="floating-menu">
 						<summary aria-label="Notifications">
 							<span class="icon-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>{{ if .Dashboard.Notices }}<span class="notice-dot">{{ len .Dashboard.Notices }}</span>{{ end }}</span>
@@ -443,8 +442,7 @@ const appTemplate = `
 				{{ else }}
 					<a class="button" href="{{ .LoginURL }}">Login</a>
 				{{ end }}
-				</nav>
-			</div>
+			</nav>
 		</div>
 	</header>
 	{{ if .DashboardPage }}
@@ -1123,6 +1121,17 @@ const appTemplate = `
 	</script>
 </body>
 </html>
+{{ end }}
+
+{{ define "brandMark" }}
+<svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+	<rect class="brand-mark-bg" width="512" height="512" rx="112"></rect>
+	<path class="brand-mark-roof" d="M108 140 260 50 412 140" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"></path>
+	<path class="brand-mark-shape" d="M96 390V206q0-28 28-28h82q14 0 26 12l24 24h136q32 0 32 32v144q0 34-34 34H130q-34 0-34-34Z" stroke="none"></path>
+	<path class="brand-mark-shape" d="M96 392V246q0-28 28-28h268q32 0 32 32v142q0 32-34 32H130q-34 0-34-32Z" stroke="none"></path>
+	<path class="brand-mark-detail-primary" d="M154 296h164" fill="none" stroke-width="20" stroke-linecap="round"></path>
+	<path class="brand-mark-detail-muted" d="M154 340h112" fill="none" stroke-width="20" stroke-linecap="round"></path>
+</svg>
 {{ end }}
 
 {{ define "tileControls" }}
