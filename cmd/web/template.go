@@ -8,7 +8,7 @@ const appTemplate = `
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{ .Title }}</title>
-	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
 	<script>
 		(function () {
 			var saved = localStorage.getItem("homebase-theme");
@@ -30,10 +30,7 @@ const appTemplate = `
 		.topbar-brand:hover { color:var(--ink); }
 		.brand-mark { width:32px; height:32px; flex:0 0 auto; display:block; }
 		.brand-mark-bg { fill:var(--accent); }
-		.brand-mark-roof { fill:none; stroke:var(--accent-ink); }
 		.brand-mark-shape { fill:var(--accent-ink); }
-		.brand-mark-detail-primary { stroke:var(--accent); }
-		.brand-mark-detail-muted { stroke:var(--muted); }
 		.menu-button { width:38px; height:38px; min-height:38px; padding:0; }
 		.app-sidebar { position:fixed; inset:64px auto 0 0; z-index:19; width:72px; padding:12px; background:var(--panel); border-right:1px solid var(--line); box-shadow:var(--shadow); transition:width .16s ease; overflow:hidden; display:grid; }
 		.app-sidebar.open { width:244px; }
@@ -1116,11 +1113,7 @@ const appTemplate = `
 {{ define "brandMark" }}
 <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
 	<rect class="brand-mark-bg" width="512" height="512" rx="112"></rect>
-	<path class="brand-mark-roof" d="M108 140 260 50 412 140" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"></path>
-	<path class="brand-mark-shape" d="M96 390V206q0-28 28-28h82q14 0 26 12l24 24h136q32 0 32 32v144q0 34-34 34H130q-34 0-34-34Z" stroke="none"></path>
-	<path class="brand-mark-shape" d="M96 392V246q0-28 28-28h268q32 0 32 32v142q0 32-34 32H130q-34 0-34-32Z" stroke="none"></path>
-	<path class="brand-mark-detail-primary" d="M154 296h164" fill="none" stroke-width="20" stroke-linecap="round"></path>
-	<path class="brand-mark-detail-muted" d="M154 340h112" fill="none" stroke-width="20" stroke-linecap="round"></path>
+	<path class="brand-mark-shape" d="M132 112h248q18 0 18 18v144q0 12-9 20L265 407q-9 8-18 0L123 294q-9-8-9-20V130q0-18 18-18Z"></path>
 </svg>
 {{ end }}
 
