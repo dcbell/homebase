@@ -159,8 +159,9 @@ const appTemplate = `
 		.folder-toggle { cursor:pointer; }
 		.folder-summary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 		.folder-title { font-weight:800; }
-		.due-picker { position:relative; display:inline-grid; }
-		.due-picker input { position:absolute; inset:0; opacity:0; width:100%; height:100%; pointer-events:none; }
+		.due-picker { display:inline-flex; align-items:center; }
+		.due-picker input { width:116px; min-height:28px; height:28px; padding:0 7px; border:1px solid var(--accent); border-radius:999px; background:var(--panel); color:var(--accent); font-size:12px; font-weight:800; line-height:1; cursor:pointer; }
+		.due-picker input::-webkit-calendar-picker-indicator { margin:0; padding:2px; cursor:pointer; }
 		.task-row { cursor:grab; }
 		.task-row.dragging { opacity:.45; }
 		.task-row.done { opacity:.68; }
@@ -500,17 +501,6 @@ const appTemplate = `
 			document.querySelectorAll("[data-modal-open]").forEach(function (button) {
 				button.addEventListener("click", function () {
 					openModal(button.getAttribute("data-modal-open"));
-				});
-			});
-			document.querySelectorAll("[data-date-open]").forEach(function (button) {
-				button.addEventListener("click", function () {
-					var input = document.getElementById(button.getAttribute("data-date-open"));
-					if (!input) return;
-					if (input.showPicker) {
-						input.showPicker();
-					} else {
-						input.focus();
-					}
 				});
 			});
 			document.querySelectorAll("[data-modal-close]").forEach(function (button) {
@@ -3017,8 +3007,7 @@ const appTemplate = `
 
 {{ define "projectDueControl" }}
 <span class="due-picker">
-	<button class="secondary compact" type="button" data-date-open="{{ .InputID }}">{{ if .Project.DueDate }}{{ date .Project.DueDate }}{{ else }}No due date{{ end }}</button>
-	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Project.DueDate }}" data-form="{{ .FormID }}" data-date-field="due_date">
+	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Project.DueDate }}" data-form="{{ .FormID }}" data-date-field="due_date" aria-label="Project due date">
 </span>
 {{ end }}
 
@@ -3055,8 +3044,7 @@ const appTemplate = `
 
 {{ define "taskDueControl" }}
 <span class="due-picker">
-	<button class="secondary compact" type="button" data-date-open="{{ .InputID }}">{{ if .Task.DueAt }}{{ date .Task.DueAt }}{{ else }}No due date{{ end }}</button>
-	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Task.DueAt }}" data-form="{{ .FormID }}" data-date-field="due_at">
+	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Task.DueAt }}" data-form="{{ .FormID }}" data-date-field="due_at" aria-label="Task due date">
 </span>
 {{ end }}
 
