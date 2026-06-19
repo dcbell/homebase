@@ -917,7 +917,7 @@ func (s *webServer) updateProject(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/projects/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/projects/"+url.PathEscape(id), http.StatusSeeOther)
+	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/projects/"+url.PathEscape(id)), http.StatusSeeOther)
 }
 
 func (s *webServer) archiveProject(w http.ResponseWriter, r *http.Request) {
@@ -1127,7 +1127,7 @@ func (s *webServer) updateTask(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
+	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/tasks/"+url.PathEscape(id)), http.StatusSeeOther)
 }
 
 func (s *webServer) archiveTask(w http.ResponseWriter, r *http.Request) {

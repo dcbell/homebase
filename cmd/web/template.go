@@ -43,6 +43,8 @@ const appTemplate = `
 		.app-sidebar:not(.open) .sidebar-nav { overflow:hidden auto; }
 		.app-sidebar:not(.open) .sidebar-nav a { grid-template-columns:38px; width:42px; padding:0; justify-self:center; justify-content:center; }
 		.app-sidebar:not(.open) .sidebar-label, .app-sidebar:not(.open) .sidebar-chevron { display:none; }
+		.sidebar-close { display:none; }
+		.sidebar-backdrop { display:none; }
 		.topbar-right { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; margin-left:auto; min-width:0; }
 		.universal-search { position:relative; width:min(360px, 34vw); min-width:220px; }
 		.universal-search input { min-height:36px; padding-left:34px; padding-right:34px; }
@@ -129,6 +131,7 @@ const appTemplate = `
 		.action-menu-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:8; min-width:150px; display:grid; gap:6px; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); box-shadow:var(--shadow); }
 		.action-menu.left .action-menu-panel { left:0; right:auto; }
 		.action-menu.drop-up .action-menu-panel { top:auto; bottom:calc(100% + 6px); }
+		.action-menu-panel > button, .action-menu-panel > form > button { width:100%; justify-content:flex-start; }
 		.pill { display:inline-flex; align-items:center; justify-content:center; min-height:28px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:var(--panel); color:var(--muted); font-size:12px; font-weight:800; white-space:nowrap; }
 		.pill.open, .pill.active { border-color:#23a55a; color:#23a55a; }
 		.pill.waiting, .pill.normal { border-color:#f0b232; color:#f0b232; }
@@ -141,14 +144,15 @@ const appTemplate = `
 		.task-table td input, .task-table td select { min-height:32px; padding:5px 8px; }
 		.task-table td.due-cell { width:120px; }
 		.task-table .task-title-cell { min-width:220px; }
+		.task-action-cell { width:44px; }
 		.folder-row td { background:var(--panel-soft); font-weight:800; }
 		.folder-row form { display:flex; gap:8px; align-items:center; }
 		.folder-row.drop-target td { box-shadow:inset 0 0 0 2px var(--accent); }
 		.folder-toggle { cursor:pointer; }
 		.folder-summary { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 		.folder-title { font-weight:800; }
-		.due-picker { display:inline-grid; }
-		.due-picker input { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
+		.due-picker { position:relative; display:inline-grid; }
+		.due-picker input { position:absolute; inset:0; opacity:0; width:100%; height:100%; pointer-events:none; }
 		.task-row { cursor:grab; }
 		.task-row.dragging { opacity:.45; }
 		.task-row.done { opacity:.68; }
@@ -160,6 +164,9 @@ const appTemplate = `
 		.check-main { display:grid; gap:3px; min-width:0; }
 		.check-title { font-weight:800; }
 		.check-meta { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+		.task-index-card { display:grid; gap:10px; }
+		.task-index-card .item-head { align-items:flex-start; }
+		.task-card-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 		.related-list { display:grid; gap:10px; }
 		.related-row { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:start; gap:12px; border:1px solid var(--line); border-radius:6px; padding:12px; background:var(--panel-soft); }
 		.related-row form { align-self:start; }
@@ -234,7 +241,7 @@ const appTemplate = `
 		.calendar-list { display:grid; gap:10px; }
 		.calendar-list-day { display:grid; grid-template-columns:120px minmax(0, 1fr); gap:12px; align-items:start; }
 		.calendar-list-date { color:var(--muted); font-weight:800; font-size:13px; padding-top:8px; }
-		.modal { position:fixed; inset:0; z-index:20; display:none; place-items:center; padding:20px; background:rgba(0,0,0,.48); }
+		.modal { position:fixed; inset:0; z-index:60; display:none; place-items:center; padding:20px; background:rgba(0,0,0,.48); }
 		.modal.open { display:grid; }
 		.modal-card { width:min(620px, 100%); max-height:calc(100vh - 40px); overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:16px; }
 		.modal-card.preview { width:min(1200px, calc(100vw - 40px)); height:calc(100vh - 40px); display:grid; grid-template-rows:auto auto minmax(0, 1fr) auto; gap:10px; overflow:hidden; }
@@ -265,6 +272,29 @@ const appTemplate = `
 		.switch span::before { content:""; position:absolute; width:20px; height:20px; left:3px; top:3px; border-radius:50%; background:var(--panel); transition:transform .16s ease; }
 		.switch input:checked + span { background:var(--accent); }
 		.switch input:checked + span::before { transform:translateX(22px); }
+		@media (max-width: 1100px) {
+			.topbar-right > .meta { display:none; }
+			.detail-with-sidebar { grid-template-columns:1fr; }
+			.task-table-wrap { overflow:visible; }
+			.task-table, .task-table tbody { display:block; min-width:0; }
+			.task-table thead { display:none; }
+			.task-table tbody { display:grid; gap:10px; }
+			.task-table tr { width:100%; }
+			.folder-row { display:block; }
+			.folder-row td { display:block; width:100%; border:0; border-radius:6px; padding:10px; }
+			.folder-summary { min-width:0; }
+			.task-row { position:relative; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px 10px; padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--panel-soft); cursor:default; }
+			.task-table .task-row td { display:block; width:auto; min-width:0; padding:0; border:0; }
+			.task-table .task-row .task-title-cell { grid-column:1 / -1; min-width:0; padding-right:38px; font-weight:800; }
+			.task-table .task-row .task-meta-cell { display:flex; align-items:center; min-height:30px; }
+			.task-table .task-row .task-status-cell { order:1; }
+			.task-table .task-row .task-priority-cell { order:2; }
+			.task-table .task-row .task-assignee-cell { order:3; }
+			.task-table .task-row .task-due-cell { order:4; }
+			.task-table .task-row .task-action-cell { position:absolute; top:10px; right:10px; width:auto; }
+			.task-more-menu .action-menu-panel { left:auto; right:0; min-width:180px; }
+			.detail-sidebar { order:2; }
+		}
 		@media (max-width: 860px) {
 			.app-sidebar { width:60px; padding:10px; }
 			.app-sidebar.open { width:224px; }
@@ -275,13 +305,13 @@ const appTemplate = `
 			.topbar-content { width:100%; margin-left:0; margin-right:0; max-width:none; min-height:0; flex-wrap:wrap; }
 			.dashboard-tiles { grid-template-columns:1fr; }
 			.modules, .form-row { grid-template-columns:1fr; }
-			.detail-with-sidebar { grid-template-columns:1fr; }
 			.info-strip { grid-template-columns:1fr; }
 			.modal-columns { grid-template-columns:1fr; }
 			.calendar-grid { display:grid; grid-template-columns:1fr; background:transparent; border:0; gap:10px; overflow:visible; }
 			.calendar-week-grid { display:grid; grid-template-columns:1fr; background:transparent; border:0; gap:10px; overflow:visible; }
 			.weekday { display:none; }
 			.calendar-day { min-height:0; border:1px solid var(--line); border-radius:8px; }
+			.calendar-week-grid .calendar-day { min-height:0; }
 			.calendar-day.outside.empty-day { display:none; }
 			.calendar-list-day { grid-template-columns:1fr; }
 			.calendar-toolbar { align-items:flex-start; }
@@ -293,15 +323,49 @@ const appTemplate = `
 			.universal-search { width:100%; min-width:0; }
 			.universal-results { left:0; right:auto; width:100%; }
 			.detail-actions { justify-content:flex-start; }
-			.task-table-wrap { overflow-x:auto; }
 			.dashboard-masonry { display:grid; position:static; }
 			.dashboard-masonry .dashboard-tile { position:static; width:auto !important; transform:none !important; }
+		}
+		@media (max-width: 700px) {
+			header { z-index:30; }
+			.app-sidebar { inset:0 auto 0 0; z-index:40; width:min(280px, 86vw); padding:74px 12px 16px; transform:translateX(-100%); visibility:hidden; transition:transform .16s ease, visibility .16s ease; }
+			.app-sidebar.open { width:min(280px, 86vw); transform:translateX(0); visibility:visible; }
+			.sidebar-close { position:absolute; top:18px; left:14px; display:inline-flex; width:38px; height:38px; min-height:38px; padding:0; }
+			.sidebar-backdrop { position:fixed; inset:0; z-index:39; width:100%; height:100%; min-height:0; padding:0; border:0; border-radius:0; background:rgba(0,0,0,.46); }
+			.app-sidebar.open + .sidebar-backdrop { display:block; }
+			.app-sidebar:not(.open) .sidebar-nav a, .app-sidebar.open .sidebar-nav a { width:100%; grid-template-columns:38px minmax(0, 1fr) auto; justify-self:stretch; justify-content:initial; padding-right:10px; }
+			.app-sidebar.open .sidebar-label, .app-sidebar.open .sidebar-chevron { display:block; opacity:1; transform:none; }
+			main.shell { width:auto; margin-left:12px; margin-right:12px; padding-top:16px; }
+			.topbar { padding:10px 12px; }
+			.topbar-content { gap:10px; }
+			.topbar-right { gap:8px; }
+			.topbar-right > .meta { display:block; width:100%; }
+			h1 { font-size:26px; }
+			.panel { padding:12px; }
+			.project-title-line, .page-title-line { gap:8px; }
+			.summary-strip { gap:6px; }
+			.task-row { display:flex; flex-wrap:wrap; gap:8px; }
+			.task-table .task-row .task-title-cell { flex:0 0 100%; }
+			.task-table .task-row .task-meta-cell { flex:0 0 auto; width:auto; }
+			.task-card-controls { display:flex; flex-wrap:wrap; gap:6px; }
+			.task-card-controls > * { flex:0 0 auto; min-width:0; }
+			.task-table .task-row .task-meta-cell { min-height:28px; }
+			.folder-summary .folder-status-badge, .folder-summary .folder-done-badge { display:none; }
+			.item-head { align-items:flex-start; }
+			.check-item { grid-template-columns:34px minmax(0, 1fr); }
+			.check-item > .tile-actions { grid-column:2; justify-content:flex-start; }
+			.related-row { grid-template-columns:minmax(0, 1fr) auto; }
+			.modal { padding:10px; }
+			.modal-card { max-height:calc(100vh - 20px); }
+			.modal-card.preview { width:calc(100vw - 20px); height:calc(100vh - 20px); }
+			.document-detail-preview { min-height:360px; height:62vh; }
 		}
 	</style>
 </head>
 <body>
 	{{ if .Dashboard.CurrentUser.Email }}
 	<aside class="app-sidebar" aria-label="Main menu">
+		<button class="secondary sidebar-close" type="button" data-menu-close title="Close menu" aria-label="Close menu"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
 		<nav class="sidebar-nav">
 			<a href="/" title="Dashboard"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path><path d="M9 20v-6h6v6"></path></svg></span><span class="sidebar-label">Dashboard</span><span class="sidebar-chevron">›</span></a>
 			<a href="/tasks" title="Tasks"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></span><span class="sidebar-label">Tasks</span><span class="sidebar-chevron">›</span></a>
@@ -316,6 +380,7 @@ const appTemplate = `
 			{{ if .Dashboard.BudgetAppURL }}<a href="{{ .Dashboard.BudgetAppURL }}" title="Budget"><span class="sidebar-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg></span><span class="sidebar-label">Budget</span><span class="sidebar-chevron">›</span></a>{{ end }}
 		</nav>
 	</aside>
+	<button class="sidebar-backdrop" type="button" data-menu-close aria-label="Close menu"></button>
 	{{ end }}
 	<header>
 		<div class="topbar">
@@ -461,14 +526,15 @@ const appTemplate = `
 				});
 			});
 			var drawer = document.querySelector(".app-sidebar");
+			var mobileMenu = window.matchMedia("(max-width: 700px)");
 			function setMenu(open) {
 				if (drawer) drawer.classList.toggle("open", open);
 				document.querySelectorAll("[data-menu-toggle]").forEach(function (button) {
 					button.setAttribute("aria-expanded", open ? "true" : "false");
 				});
-				localStorage.setItem("homebase-sidebar-open", open ? "true" : "false");
+				if (!mobileMenu.matches) localStorage.setItem("homebase-sidebar-open", open ? "true" : "false");
 			}
-			if (drawer && localStorage.getItem("homebase-sidebar-open") === "true") setMenu(true);
+			if (drawer && !mobileMenu.matches && localStorage.getItem("homebase-sidebar-open") === "true") setMenu(true);
 			document.querySelectorAll("[data-menu-toggle]").forEach(function (button) {
 				button.addEventListener("click", function () {
 					setMenu(!(drawer && drawer.classList.contains("open")));
@@ -476,6 +542,16 @@ const appTemplate = `
 			});
 			document.querySelectorAll("[data-menu-close]").forEach(function (button) {
 				button.addEventListener("click", function () { setMenu(false); });
+			});
+			if (drawer) {
+				drawer.querySelectorAll("a").forEach(function (link) {
+					link.addEventListener("click", function () {
+						if (mobileMenu.matches) setMenu(false);
+					});
+				});
+			}
+			mobileMenu.addEventListener("change", function () {
+				if (mobileMenu.matches) setMenu(false);
 			});
 			var universalSearch = document.querySelector("[data-universal-search]");
 			var universalResults = document.querySelector("[data-universal-search-results]");
@@ -567,6 +643,9 @@ const appTemplate = `
 			document.querySelectorAll(".action-menu").forEach(function (menu) {
 				menu.addEventListener("toggle", function () {
 					if (!menu.open) return;
+					document.querySelectorAll(".action-menu[open]").forEach(function (other) {
+						if (other !== menu) other.open = false;
+					});
 					menu.classList.remove("drop-up");
 					var panel = menu.querySelector(".action-menu-panel");
 					if (!panel) return;
@@ -1514,14 +1593,27 @@ const appTemplate = `
 		<p class="empty" data-filter-empty hidden>No matching projects.</p>
 		<div class="cards">
 			{{ range .Projects }}
-			<article class="item" data-filter-item data-filter-kind="{{ .Status }}" data-filter-due="{{ projectDueBucket . $.Now }}" data-filter-text="{{ .Title }} {{ .Description }} {{ .Status }} {{ .Priority }}">
+			{{ $project := . }}
+			{{ $formID := printf "project-index-inline-%d" $project.ID }}
+			<form id="{{ $formID }}" method="post" action="/projects/{{ $project.ID }}">
+				<input type="hidden" name="return_to" value="/projects{{ if $.DueFilter }}?due={{ $.DueFilter }}{{ end }}">
+				<input type="hidden" name="title" value="{{ $project.Title }}">
+				<textarea name="description" hidden>{{ $project.Description }}</textarea>
+				<input type="hidden" name="status" value="{{ $project.Status }}">
+				<input type="hidden" name="priority" value="{{ $project.Priority }}">
+				<input type="hidden" name="due_date" value="{{ dateInput $project.DueDate }}">
+			</form>
+			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $project.Status }}" data-filter-due="{{ projectDueBucket $project $.Now }}" data-filter-text="{{ $project.Title }} {{ $project.Description }} {{ $project.Status }} {{ $project.Priority }}">
 				<div class="item-head">
 					<div>
-						<strong><a href="/projects/{{ .ID }}">{{ .Title }}</a></strong>
-						{{ if .Description }}<div class="meta">{{ .Description }}</div>{{ end }}
-						<div class="meta">{{ .Priority }} priority{{ if .DueDate }} · Due {{ date .DueDate }}{{ end }}</div>
+						<strong><a href="/projects/{{ $project.ID }}">{{ $project.Title }}</a></strong>
+						{{ if $project.Description }}<div class="meta">{{ $project.Description }}</div>{{ end }}
 					</div>
-					<span class="badge {{ .Priority }}">{{ .Status }}</span>
+				</div>
+				<div class="task-card-controls">
+					{{ template "projectStatusControl" (dict "Project" $project "FormID" $formID) }}
+					{{ template "projectPriorityControl" (dict "Project" $project "FormID" $formID) }}
+					{{ template "projectDueControl" (dict "Project" $project "FormID" $formID "InputID" (printf "project-index-due-%d" $project.ID)) }}
 				</div>
 			</article>
 			{{ else }}
@@ -1579,14 +1671,35 @@ const appTemplate = `
 		<p class="empty" data-filter-empty hidden>No matching tasks.</p>
 		<div class="cards">
 			{{ range .Tasks }}
-			<article class="item" data-filter-item data-filter-kind="{{ .Status }}" data-filter-due="{{ taskDueBucket . $.Now }}" data-filter-text="{{ .Title }} {{ .Notes }} {{ .Status }} {{ .Priority }} {{ .AssignedName }}">
+			{{ $task := . }}
+			{{ $formID := printf "task-index-inline-%d" $task.ID }}
+			<form id="{{ $formID }}" method="post" action="/tasks/{{ $task.ID }}">
+				<input type="hidden" name="return_to" value="/tasks{{ if $.DueFilter }}?due={{ $.DueFilter }}{{ end }}">
+				<input type="hidden" name="title" value="{{ $task.Title }}">
+				<input type="hidden" name="notes" value="{{ $task.Notes }}">
+				<input type="hidden" name="project_id" value="{{ idValue $task.ProjectID }}">
+				<input type="hidden" name="project_folder_id" value="{{ idValue $task.ProjectFolderID }}">
+				<input type="hidden" name="assigned_to" value="{{ idValue $task.AssignedTo }}">
+				<input type="hidden" name="due_at" value="{{ datetimeInputPtr $task.DueAt }}">
+				<input type="hidden" name="status" value="{{ $task.Status }}">
+				<input type="hidden" name="priority" value="{{ $task.Priority }}">
+				{{ if $task.RoutineID }}<input type="hidden" name="routine_id" value="{{ idValue $task.RoutineID }}">{{ end }}
+				{{ if $task.AssetID }}<input type="hidden" name="asset_id" value="{{ idValue $task.AssetID }}">{{ end }}
+				{{ if $task.AssetMaintenanceItemID }}<input type="hidden" name="asset_maintenance_item_id" value="{{ idValue $task.AssetMaintenanceItemID }}">{{ end }}
+			</form>
+			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $task.Status }}" data-filter-due="{{ taskDueBucket $task $.Now }}" data-filter-text="{{ $task.Title }} {{ $task.Notes }} {{ $task.Status }} {{ $task.Priority }} {{ $task.AssignedName }}">
 				<div class="item-head">
 					<div>
-						<strong><a href="/tasks/{{ .ID }}">{{ .Title }}</a></strong>
-						{{ if .Notes }}<div class="meta">{{ .Notes }}</div>{{ end }}
-						<div class="meta">{{ taskContext . $.Dashboard.Projects $.Dashboard.Routines }}{{ if .AssignedName }} · {{ .AssignedName }}{{ end }}{{ if .DueAt }} · Due {{ date .DueAt }}{{ end }}</div>
+						<strong><a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a></strong>
+						{{ if $task.Notes }}<div class="meta">{{ $task.Notes }}</div>{{ end }}
+						<div class="meta">{{ taskContext $task $.Dashboard.Projects $.Dashboard.Routines }}</div>
 					</div>
-					<span class="badge {{ .Priority }}">{{ .Status }}</span>
+				</div>
+				<div class="task-card-controls">
+					{{ template "taskStatusControl" (dict "Task" $task "FormID" $formID) }}
+					{{ template "taskPriorityControl" (dict "Task" $task "FormID" $formID) }}
+					{{ template "taskAssigneeControl" (dict "Task" $task "FormID" $formID "Members" $.Members) }}
+					{{ template "taskDueControl" (dict "Task" $task "FormID" $formID "InputID" (printf "task-index-due-%d" $task.ID)) }}
 				</div>
 			</article>
 			{{ else }}
@@ -1887,7 +2000,7 @@ const appTemplate = `
 					<a class="button secondary back-icon" href="/documents" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Document.Title }}</h1>
 					{{ template "titleActionMenu" (dict "EditModal" "edit-document" "ArchiveForm" "document-archive") }}
-					<span class="pill active">{{ .Document.Kind }}</span>
+					<button class="pill active" type="button" data-modal-open="edit-document" title="Edit document type">{{ .Document.Kind }}</button>
 				</div>
 				<div class="info-strip">
 					<div class="info-cell"><span>Description</span>{{ if .Document.Description }}{{ .Document.Description }}{{ else }}No description{{ end }}</div>
@@ -2419,7 +2532,7 @@ const appTemplate = `
 					<a class="button secondary back-icon" href="/contacts" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Contact.Name }}</h1>
 					{{ template "titleActionMenu" (dict "EditModal" "edit-contact" "ArchiveForm" "contact-archive") }}
-					<span class="pill active">{{ .Contact.Kind }}</span>
+					<button class="pill active" type="button" data-modal-open="edit-contact" title="Edit contact type">{{ .Contact.Kind }}</button>
 				</div>
 				<div class="info-strip">
 					<div class="info-cell"><span>Email</span>{{ if .Contact.Email }}<a href="mailto:{{ .Contact.Email }}">{{ .Contact.Email }}</a>{{ else }}No email{{ end }}</div>
@@ -2538,7 +2651,7 @@ const appTemplate = `
 					<a class="button secondary back-icon" href="/assets" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Asset.Name }}</h1>
 					{{ template "titleActionMenu" (dict "EditModal" "edit-asset" "ArchiveForm" "asset-archive") }}
-					<span class="pill active">{{ .Asset.Kind }}</span>
+					<button class="pill active" type="button" data-modal-open="edit-asset" title="Edit asset type">{{ .Asset.Kind }}</button>
 				</div>
 				{{ if .Asset.Notes }}<p>{{ .Asset.Notes }}</p>{{ end }}
 			</div>
@@ -2743,7 +2856,7 @@ const appTemplate = `
 					<a class="button secondary back-icon" href="/lists" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .List.Title }}</h1>
 					{{ template "titleActionMenu" (dict "EditModal" "edit-list" "ArchiveForm" "list-archive") }}
-					<span class="pill active">{{ .List.Kind }}</span>
+					<button class="pill active" type="button" data-modal-open="edit-list" title="Edit list type">{{ .List.Kind }}</button>
 				</div>
 				<div class="summary-strip">
 					<span class="badge">{{ $openItems }} open</span>
@@ -2780,8 +2893,8 @@ const appTemplate = `
 					<div class="check-title">{{ $item.Title }}</div>
 					{{ if $item.Notes }}<div class="meta">{{ $item.Notes }}</div>{{ end }}
 					<div class="check-meta">
-						<span class="pill">Assigned: {{ if $item.AssignedName }}{{ $item.AssignedName }}{{ else }}Unassigned{{ end }}</span>
-						<span class="pill">Due: {{ if $item.DueAt }}{{ date $item.DueAt }}{{ else }}No due date{{ end }}</span>
+						<button class="pill" type="button" data-modal-open="edit-list-item-{{ $item.ID }}">Assigned: {{ if $item.AssignedName }}{{ $item.AssignedName }}{{ else }}Unassigned{{ end }}</button>
+						<button class="pill" type="button" data-modal-open="edit-list-item-{{ $item.ID }}">Due: {{ if $item.DueAt }}{{ date $item.DueAt }}{{ else }}No due date{{ end }}</button>
 					</div>
 				</div>
 				<div class="tile-actions">
@@ -2871,6 +2984,116 @@ const appTemplate = `
 </main>
 {{ end }}
 
+{{ define "projectStatusControl" }}
+<details class="action-menu left">
+	<summary class="pill {{ .Project.Status }}">{{ .Project.Status }}</summary>
+	<div class="action-menu-panel">
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="status" data-value="active">active</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="status" data-value="waiting">waiting</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="status" data-value="done">done</button>
+	</div>
+</details>
+{{ end }}
+
+{{ define "projectPriorityControl" }}
+<details class="action-menu left">
+	<summary class="pill {{ .Project.Priority }}">{{ .Project.Priority }}</summary>
+	<div class="action-menu-panel">
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="normal">normal</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="high">high</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="low">low</button>
+	</div>
+</details>
+{{ end }}
+
+{{ define "projectDueControl" }}
+<span class="due-picker">
+	<button class="secondary compact" type="button" data-date-open="{{ .InputID }}">{{ if .Project.DueDate }}{{ date .Project.DueDate }}{{ else }}No due date{{ end }}</button>
+	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Project.DueDate }}" data-form="{{ .FormID }}" data-date-field="due_date">
+</span>
+{{ end }}
+
+{{ define "taskStatusControl" }}
+<details class="action-menu left">
+	<summary class="pill {{ .Task.Status }}">{{ .Task.Status }}</summary>
+	<div class="action-menu-panel">
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="status" data-value="open">open</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="status" data-value="done">done</button>
+	</div>
+</details>
+{{ end }}
+
+{{ define "taskPriorityControl" }}
+<details class="action-menu left">
+	<summary class="pill {{ .Task.Priority }}">{{ .Task.Priority }}</summary>
+	<div class="action-menu-panel">
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="normal">normal</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="high">high</button>
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="priority" data-value="low">low</button>
+	</div>
+</details>
+{{ end }}
+
+{{ define "taskAssigneeControl" }}
+<details class="action-menu left">
+	<summary class="pill">{{ if .Task.AssignedName }}{{ .Task.AssignedName }}{{ else }}Unassigned{{ end }}</summary>
+	<div class="action-menu-panel">
+		<button class="secondary compact" type="button" data-form="{{ .FormID }}" data-set-field="assigned_to" data-value="">Unassigned</button>
+		{{ range .Members }}<button class="secondary compact" type="button" data-form="{{ $.FormID }}" data-set-field="assigned_to" data-value="{{ .ID }}">{{ .Name }}</button>{{ end }}
+	</div>
+</details>
+{{ end }}
+
+{{ define "taskDueControl" }}
+<span class="due-picker">
+	<button class="secondary compact" type="button" data-date-open="{{ .InputID }}">{{ if .Task.DueAt }}{{ date .Task.DueAt }}{{ else }}No due date{{ end }}</button>
+	<input id="{{ .InputID }}" type="date" value="{{ dateInput .Task.DueAt }}" data-form="{{ .FormID }}" data-date-field="due_at">
+</span>
+{{ end }}
+
+{{ define "projectTaskRow" }}
+{{ $task := .Task }}
+{{ $formID := printf "project-task-inline-%d" $task.ID }}
+<tr class="task-row {{ $task.Status }}"{{ if .FolderID }} data-folder-parent="{{ .FolderID }}"{{ end }} data-task-row="{{ $task.ID }}">
+	<td class="task-title-cell">
+		<a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a>
+		{{ if or .Documents .Contacts .Assets }}
+		<div class="related-inline">
+			{{ range .Documents }}<button class="link-button" type="button" data-modal-open="related-document-{{ .LinkID }}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.8-8.8"></path></svg>{{ .Document.Title }}</button>{{ end }}
+			{{ range .Contacts }}<button class="link-button" type="button" data-modal-open="related-contact-{{ .LinkID }}">@ {{ .Contact.Name }}</button>{{ end }}
+			{{ range .Assets }}<button class="link-button" type="button" data-modal-open="related-asset-{{ .LinkID }}"># {{ .Asset.Name }}</button>{{ end }}
+		</div>
+		{{ end }}
+	</td>
+	<td class="task-meta-cell task-assignee-cell">
+		{{ template "taskAssigneeControl" (dict "Task" $task "FormID" $formID "Members" .Members) }}
+	</td>
+	<td class="due-cell task-meta-cell task-due-cell">
+		{{ template "taskDueControl" (dict "Task" $task "FormID" $formID "InputID" (printf "task-due-%d" $task.ID)) }}
+	</td>
+	<td class="task-meta-cell task-status-cell">
+		{{ template "taskStatusControl" (dict "Task" $task "FormID" $formID) }}
+	</td>
+	<td class="task-meta-cell task-priority-cell">
+		{{ template "taskPriorityControl" (dict "Task" $task "FormID" $formID) }}
+	</td>
+	<td class="task-action-cell">
+		<details class="action-menu task-more-menu">
+			<summary class="button secondary compact" title="Task actions" aria-label="Task actions">...</summary>
+			<div class="action-menu-panel">
+				<button class="secondary compact" type="button" data-modal-open="attach-project-task-document-{{ $task.ID }}">Attach document</button>
+				<button class="secondary compact" type="button" data-modal-open="attach-project-task-contact-{{ $task.ID }}">Attach contact</button>
+				<button class="secondary compact" type="button" data-modal-open="attach-project-task-asset-{{ $task.ID }}">Attach asset</button>
+				<button class="secondary compact" type="button" data-modal-open="edit-project-task-{{ $task.ID }}">Edit</button>
+				<form method="post" action="/projects/{{ .Project.ID }}/tasks/{{ $task.ID }}/archive">
+					<button class="danger compact" type="submit">Archive</button>
+				</form>
+			</div>
+		</details>
+	</td>
+</tr>
+{{ end }}
+
 {{ define "projectDetail" }}
 {{ $openTasks := openTaskCount .Tasks }}
 {{ $doneTasks := doneTaskCount .Tasks }}
@@ -2938,7 +3161,7 @@ const appTemplate = `
 			<input type="hidden" name="notes" value="{{ $task.Notes }}">
 			<input type="hidden" name="project_folder_id" value="{{ idValue $task.ProjectFolderID }}">
 			<input type="hidden" name="assigned_to" value="{{ idValue $task.AssignedTo }}">
-			<input type="hidden" name="due_at" value="{{ dateInput $task.DueAt }}">
+			<input type="hidden" name="due_at" value="{{ datetimeInputPtr $task.DueAt }}">
 			<input type="hidden" name="status" value="{{ $task.Status }}">
 			<input type="hidden" name="priority" value="{{ $task.Priority }}">
 			{{ if $task.RoutineID }}<input type="hidden" name="routine_id" value="{{ idValue $task.RoutineID }}">{{ end }}
@@ -2968,9 +3191,9 @@ const appTemplate = `
 							<div class="folder-summary">
 								<button class="secondary compact" type="button" data-folder-toggle="{{ $folder.ID }}" aria-expanded="true">v</button>
 								<span class="folder-title">{{ $folder.Title }}</span>
-								<span class="badge">{{ folderStatus $folderTasks }}</span>
+								<span class="badge folder-status-badge">{{ folderStatus $folderTasks }}</span>
 								<span class="badge">{{ openTaskCount $folderTasks }} open</span>
-								<span class="badge">{{ doneTaskCount $folderTasks }} done</span>
+								<span class="badge folder-done-badge">{{ doneTaskCount $folderTasks }} done</span>
 								{{ if folderDue $folderTasks }}<span class="badge">Due {{ date (folderDue $folderTasks) }}</span>{{ end }}
 								<details class="action-menu left">
 									<summary class="button secondary compact" title="Folder actions" aria-label="Folder actions">...</summary>
@@ -2989,52 +3212,20 @@ const appTemplate = `
 					{{ $taskDocs := taskRelatedDocs $.TaskDocuments $task.ID }}
 					{{ $taskContacts := taskRelatedContacts $.TaskContacts $task.ID }}
 					{{ $taskAssets := taskRelatedAssets $.TaskAssets $task.ID }}
-						<tr class="task-row {{ $task.Status }}" data-folder-parent="{{ $folder.ID }}" data-task-row="{{ $task.ID }}">
-							<td class="task-title-cell">
-								<a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a>
-								{{ if or $taskDocs $taskContacts $taskAssets }}
-								<div class="related-inline">
-									{{ range $taskDocs }}<button class="link-button" type="button" data-modal-open="related-document-{{ .LinkID }}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.8-8.8"></path></svg>{{ .Document.Title }}</button>{{ end }}
-									{{ range $taskContacts }}<button class="link-button" type="button" data-modal-open="related-contact-{{ .LinkID }}">@ {{ .Contact.Name }}</button>{{ end }}
-									{{ range $taskAssets }}<button class="link-button" type="button" data-modal-open="related-asset-{{ .LinkID }}"># {{ .Asset.Name }}</button>{{ end }}
-								</div>
-								{{ end }}
-							</td>
-							<td><details class="action-menu left"><summary class="pill">{{ if $task.AssignedName }}{{ $task.AssignedName }}{{ else }}Unassigned{{ end }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="assigned_to" data-value="">Unassigned</button>{{ range $.Dashboard.Members }}<button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="assigned_to" data-value="{{ .ID }}">{{ .Name }}</button>{{ end }}</div></details></td>
-							<td class="due-cell"><span class="due-picker"><button class="secondary compact" type="button" data-date-open="task-due-{{ $task.ID }}">{{ if $task.DueAt }}{{ date $task.DueAt }}{{ else }}No due date{{ end }}</button><input id="task-due-{{ $task.ID }}" type="date" value="{{ dateInput $task.DueAt }}" data-form="project-task-inline-{{ $task.ID }}" data-date-field="due_at"></span></td>
-							<td><details class="action-menu left"><summary class="pill {{ $task.Status }}">{{ $task.Status }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="status" data-value="open">open</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="status" data-value="done">done</button></div></details></td>
-							<td><details class="action-menu left"><summary class="pill {{ $task.Priority }}">{{ $task.Priority }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="normal">normal</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="high">high</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="low">low</button></div></details></td>
-						<td><div class="tile-actions"><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-document-{{ $task.ID }}" title="Attach document" aria-label="Attach document"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.8-8.8"></path></svg></button><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-contact-{{ $task.ID }}" title="Attach contact" aria-label="Attach contact">@</button><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-asset-{{ $task.ID }}" title="Attach asset" aria-label="Attach asset">#</button><button class="secondary compact" type="button" data-modal-open="edit-project-task-{{ $task.ID }}" title="Edit task" aria-label="Edit task">&#9998;</button><form method="post" action="/projects/{{ $.Project.ID }}/tasks/{{ $task.ID }}/archive"><button class="danger compact" type="submit" title="Archive task" aria-label="Archive task">X</button></form></div></td>
-					</tr>
+					{{ template "projectTaskRow" (dict "Task" $task "FolderID" $folder.ID "Project" $.Project "Members" $.Dashboard.Members "Documents" $taskDocs "Contacts" $taskContacts "Assets" $taskAssets) }}
 					{{ end }}
 					{{ end }}
 
 					{{ if or .ProjectFolders $ungroupedTasks }}
 						<tr class="folder-row" data-folder-drop="">
-							<td colspan="6"><div class="folder-summary"><span>Ungrouped</span><span class="badge">{{ openTaskCount $ungroupedTasks }} open</span><span class="badge">{{ doneTaskCount $ungroupedTasks }} done</span>{{ if folderDue $ungroupedTasks }}<span class="badge">Due {{ date (folderDue $ungroupedTasks) }}</span>{{ end }}</div></td>
+							<td colspan="6"><div class="folder-summary"><span class="folder-title">Ungrouped</span><span class="badge">{{ openTaskCount $ungroupedTasks }} open</span><span class="badge folder-done-badge">{{ doneTaskCount $ungroupedTasks }} done</span>{{ if folderDue $ungroupedTasks }}<span class="badge">Due {{ date (folderDue $ungroupedTasks) }}</span>{{ end }}</div></td>
 					</tr>
 					{{ range $ungroupedTasks }}
 					{{ $task := . }}
 					{{ $taskDocs := taskRelatedDocs $.TaskDocuments $task.ID }}
 					{{ $taskContacts := taskRelatedContacts $.TaskContacts $task.ID }}
 					{{ $taskAssets := taskRelatedAssets $.TaskAssets $task.ID }}
-						<tr class="task-row {{ $task.Status }}" data-task-row="{{ $task.ID }}">
-							<td class="task-title-cell">
-								<a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a>
-								{{ if or $taskDocs $taskContacts $taskAssets }}
-								<div class="related-inline">
-									{{ range $taskDocs }}<button class="link-button" type="button" data-modal-open="related-document-{{ .LinkID }}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.8-8.8"></path></svg>{{ .Document.Title }}</button>{{ end }}
-									{{ range $taskContacts }}<button class="link-button" type="button" data-modal-open="related-contact-{{ .LinkID }}">@ {{ .Contact.Name }}</button>{{ end }}
-									{{ range $taskAssets }}<button class="link-button" type="button" data-modal-open="related-asset-{{ .LinkID }}"># {{ .Asset.Name }}</button>{{ end }}
-								</div>
-								{{ end }}
-							</td>
-							<td><details class="action-menu left"><summary class="pill">{{ if $task.AssignedName }}{{ $task.AssignedName }}{{ else }}Unassigned{{ end }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="assigned_to" data-value="">Unassigned</button>{{ range $.Dashboard.Members }}<button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="assigned_to" data-value="{{ .ID }}">{{ .Name }}</button>{{ end }}</div></details></td>
-							<td class="due-cell"><span class="due-picker"><button class="secondary compact" type="button" data-date-open="task-due-{{ $task.ID }}">{{ if $task.DueAt }}{{ date $task.DueAt }}{{ else }}No due date{{ end }}</button><input id="task-due-{{ $task.ID }}" type="date" value="{{ dateInput $task.DueAt }}" data-form="project-task-inline-{{ $task.ID }}" data-date-field="due_at"></span></td>
-							<td><details class="action-menu left"><summary class="pill {{ $task.Status }}">{{ $task.Status }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="status" data-value="open">open</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="status" data-value="done">done</button></div></details></td>
-							<td><details class="action-menu left"><summary class="pill {{ $task.Priority }}">{{ $task.Priority }}</summary><div class="action-menu-panel"><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="normal">normal</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="high">high</button><button class="secondary compact" type="button" data-form="project-task-inline-{{ $task.ID }}" data-set-field="priority" data-value="low">low</button></div></details></td>
-						<td><div class="tile-actions"><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-document-{{ $task.ID }}" title="Attach document" aria-label="Attach document"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.8-8.8"></path></svg></button><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-contact-{{ $task.ID }}" title="Attach contact" aria-label="Attach contact">@</button><button class="secondary compact paperclip-button" type="button" data-modal-open="attach-project-task-asset-{{ $task.ID }}" title="Attach asset" aria-label="Attach asset">#</button><button class="secondary compact" type="button" data-modal-open="edit-project-task-{{ $task.ID }}" title="Edit task" aria-label="Edit task">&#9998;</button><form method="post" action="/projects/{{ $.Project.ID }}/tasks/{{ $task.ID }}/archive"><button class="danger compact" type="submit" title="Archive task" aria-label="Archive task">X</button></form></div></td>
-					</tr>
+					{{ template "projectTaskRow" (dict "Task" $task "Project" $.Project "Members" $.Dashboard.Members "Documents" $taskDocs "Contacts" $taskContacts "Assets" $taskAssets) }}
 					{{ end }}
 					{{ end }}
 
