@@ -79,6 +79,11 @@ Projects support status, priority, due dates, folders, task counts, attached doc
 
 ![Homebase projects](docs/screenshots/projects.png)
 
+An open project groups tasks into collapsible folders while keeping assignment,
+due date, status, priority, actions, and related household records visible.
+
+![Homebase project detail](docs/screenshots/project-detail.png)
+
 ### Tasks
 
 The household task index combines standalone, project, routine, and maintenance-generated tasks with search and due-date filters.
