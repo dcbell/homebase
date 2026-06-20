@@ -27,6 +27,7 @@ services:
       DATABASE_URL: postgres://homebase:homebase@db:5432/homebase?sslmode=disable
       SESSION_SECRET: dev-change-me
       SESSION_COOKIE_NAME: homebase_session
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       BUDGET_APP_URL: ${BUDGET_APP_URL:-}
       OAUTH_PROVIDER_NAME: ${OAUTH_PROVIDER_NAME:-}
       OAUTH_ISSUER_URL: ${OAUTH_ISSUER_URL:-}
@@ -62,6 +63,7 @@ services:
       API_BASE_URL: http://localhost:8081
       API_INTERNAL_URL: http://api:8081
       SESSION_COOKIE_NAME: homebase_session
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
     depends_on:
       - api
     ports:

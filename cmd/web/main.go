@@ -87,6 +87,10 @@ type pageData struct {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := config.Load()
+	if err := cfg.ApplyTimezone(); err != nil {
+		logger.Error("load application timezone", "timezone", cfg.Timezone, "error", err)
+		os.Exit(1)
+	}
 
 	s := &webServer{
 		cfg:    cfg,
@@ -281,7 +285,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		logger.Info("web listening", "addr", cfg.WebAddr)
+		logger.Info("web listening", "addr", cfg.WebAddr, "timezone", cfg.Timezone)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("web server", "error", err)
 			os.Exit(1)

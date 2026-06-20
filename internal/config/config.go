@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
 )
 
 type Config struct {
@@ -17,6 +18,7 @@ type Config struct {
 	DatabaseURL          string
 	SessionCookieName    string
 	SessionSecret        string
+	Timezone             string
 	OAuthProviderName    string
 	OAuthIssuerURL       string
 	OAuthAuthURL         string
@@ -64,6 +66,7 @@ func Load() Config {
 		DatabaseURL:          env("DATABASE_URL", "postgres://homebase:homebase@db:5432/homebase?sslmode=disable"),
 		SessionCookieName:    env("SESSION_COOKIE_NAME", "homebase_session"),
 		SessionSecret:        env("SESSION_SECRET", "dev-change-me"),
+		Timezone:             env("APP_TIMEZONE", "UTC"),
 		OAuthProviderName:    oauthProvider,
 		OAuthIssuerURL:       strings.TrimRight(oauthIssuerURL, "/"),
 		OAuthAuthURL:         oauthAuthURL,
@@ -83,6 +86,15 @@ func Load() Config {
 	}
 
 	return cfg
+}
+
+func (c Config) ApplyTimezone() error {
+	location, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return err
+	}
+	time.Local = location
+	return nil
 }
 
 func (c Config) OAuthConfigured() bool {

@@ -26,7 +26,7 @@ services:
       retries: 10
 
   api:
-    image: somethingamusing/homebase:api-260619-03
+    image: somethingamusing/homebase:api-260619-05
     restart: unless-stopped
     environment:
       APP_ENV: production
@@ -36,6 +36,7 @@ services:
       DATABASE_URL: postgres://homebase:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/homebase?sslmode=disable
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-homebase_session}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       BUDGET_APP_URL: ${BUDGET_APP_URL:-}
       OAUTH_PROVIDER_NAME: ${OAUTH_PROVIDER_NAME:-}
       OAUTH_ISSUER_URL: ${OAUTH_ISSUER_URL:-}
@@ -59,7 +60,7 @@ services:
       - homebase_uploads:/var/lib/homebase/uploads
 
   web:
-    image: somethingamusing/homebase:web-260619-04
+    image: somethingamusing/homebase:web-260619-05
     restart: unless-stopped
     environment:
       APP_ENV: production
@@ -68,6 +69,7 @@ services:
       API_BASE_URL: ${API_BASE_URL:?set API_BASE_URL}
       API_INTERNAL_URL: http://api:8081
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-homebase_session}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
     depends_on:
       - api
 

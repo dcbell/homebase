@@ -18,6 +18,10 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := config.Load()
+	if err := cfg.ApplyTimezone(); err != nil {
+		logger.Error("load application timezone", "timezone", cfg.Timezone, "error", err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -48,7 +52,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("api listening", "addr", cfg.APIAddr)
+		logger.Info("api listening", "addr", cfg.APIAddr, "timezone", cfg.Timezone)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("api server", "error", err)
 			os.Exit(1)

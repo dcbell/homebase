@@ -433,7 +433,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) calendar(w http.ResponseWriter, r *http.Request) {
 	month := time.Now()
 	if raw := strings.TrimSpace(r.URL.Query().Get("month")); raw != "" {
-		parsed, err := time.Parse("2006-01", raw)
+		parsed, err := time.ParseInLocation("2006-01", raw, time.Local)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "month must use YYYY-MM")
 			return

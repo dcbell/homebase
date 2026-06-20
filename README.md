@@ -219,6 +219,7 @@ At minimum, configure:
 ```sh
 POSTGRES_PASSWORD=replace-with-a-long-random-value
 SESSION_SECRET=replace-with-a-long-random-value
+APP_TIMEZONE=America/Chicago
 WEB_BASE_URL=https://homebase.example.com
 API_BASE_URL=https://homebase.example.com
 
@@ -320,6 +321,7 @@ Important environment variables:
 | `POSTGRES_PASSWORD` | PostgreSQL password used by the production compose stack |
 | `SESSION_SECRET` | Session-signing secret |
 | `SESSION_COOKIE_NAME` | Browser session cookie name |
+| `APP_TIMEZONE` | IANA timezone used for calendar dates and "today", such as `America/Chicago` |
 | `OAUTH_*` | OAuth/OIDC provider configuration |
 | `BOOTSTRAP_OWNER_*` | Initial production household owner |
 | `ROUTINE_CHECK_INTERVAL_SECONDS` | Routine scheduler interval; defaults to 900 seconds |
