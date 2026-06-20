@@ -1,83 +1,275 @@
 # Homebase
 
-Homebase is a household operations app scaffold with a Go API, separate server-rendered web frontend, PostgreSQL storage, configurable OAuth/OIDC login wiring, and a Docker deployment path.
+Homebase is a self-hosted household operations application for projects, tasks, schedules, records, and shared household information. It uses a Go API, a separate server-rendered Go web frontend, PostgreSQL, OAuth/OIDC authentication, and Docker deployment.
 
-## What Exists
+## Contents
 
-- API service under `cmd/api`
-- Web service under `cmd/web`
-- PostgreSQL schema embedded in `internal/store/migrations`
-- Household/user/session model with household data isolation
-- Editable projects, project tasks, standalone tasks, assignees, appointments, day/week/month calendar, routines with automatic task generation, household lists, household contacts, uploaded documents with related-item links, movable dashboard tiles, and read-only supporting module endpoints
-- In-app routine notices surfaced through the notification bell
-- Configurable OAuth/OIDC login wiring
-- Dev-login fallback when OAuth credentials are not configured
-- Pre-added user requirement for real OAuth login
-- Budget app link via `BUDGET_APP_URL`
+- [Features](#features)
+- [Screenshots](#screenshots)
+  - [Dashboard](#dashboard)
+  - [Projects](#projects)
+  - [Tasks](#tasks)
+  - [Calendar](#calendar)
+  - [Routines](#routines)
+  - [Lists](#lists)
+  - [Contacts](#contacts)
+  - [Assets](#assets)
+  - [Documents](#documents)
+  - [Users](#users)
+  - [Settings and API tokens](#settings-and-api-tokens)
+  - [API documentation](#api-documentation)
+- [Responsive Design](#responsive-design)
+- [Architecture](#architecture)
+- [Run Locally](#run-locally)
+- [Production Deployment](#production-deployment)
+- [OAuth/OIDC](#oauthoidc)
+- [API and Tokens](#api-and-tokens)
+- [Configuration](#configuration)
+- [Development Notes](#development-notes)
+
+## Features
+
+### Work and scheduling
+
+- Projects with folders, due dates, priorities, status, and nested project tasks
+- Standalone tasks and project tasks with assignees, due dates, priorities, and status
+- Task and project dashboard statistics for past-due, due-today, and upcoming work
+- Appointments plus day, week, and month calendar views
+- Recurring routines that automatically generate tasks
+- Asset maintenance schedules, each with its own recurrence and generated task history
+
+### Household records
+
+- Household members with owner/member roles
+- Contacts with reusable links to projects, tasks, and assets
+- Assets with serial number, model, vendor, purchase date, cost, warranty, maintenance, contacts, and documents
+- Uploaded documents with search, type filtering, PDF/image preview, download, and reusable related-item links
+- Shared lists with assignable, dated, completable items
+
+### Interface
+
+- Customizable dashboard with movable and removable modules
+- Dashboard calendar, task/project statistics, appointments, and selectable household list
+- Universal search across tasks, projects, documents, and other records
+- Collapsible desktop navigation and mobile navigation drawer
+- Responsive card layouts for project and task workflows
+- Dark and light themes
+- In-app routine notifications
+
+### Integration and security
+
+- Generic OAuth 2.0/OpenID Connect authentication
+- Household-scoped browser sessions
+- Pre-provisioned user access: OAuth users must already belong to a household
+- Read-only and full-access bearer API tokens
+- OpenAPI 3.0 contract and public Swagger UI
+- Optional external budget application link
+
+## Screenshots
+
+### Dashboard
+
+The dashboard combines the calendar, project/task due-date statistics, appointments, and a selectable household list. Modules can be moved or removed.
+
+![Homebase dashboard](docs/screenshots/dashboard.png)
+
+### Projects
+
+Projects support status, priority, due dates, folders, task counts, attached documents, contacts, and assets.
+
+![Homebase projects](docs/screenshots/projects.png)
+
+### Tasks
+
+The household task index combines standalone, project, routine, and maintenance-generated tasks with search and due-date filters.
+
+![Homebase tasks](docs/screenshots/tasks.png)
+
+### Calendar
+
+The calendar combines appointments, tasks, project deadlines, and routine due dates in day, week, and month views.
+
+![Homebase calendar](docs/screenshots/calendar.png)
+
+### Routines
+
+Routines track cadence, assignment, and next due date, and automatically generate tasks when due.
+
+![Homebase routines](docs/screenshots/routines.png)
+
+### Lists
+
+Lists support assignees, notes, due dates, completion, and use directly from the dashboard.
+
+![Homebase household list](docs/screenshots/lists.png)
+
+### Contacts
+
+Contacts are reusable household records that can be attached to projects, tasks, and assets.
+
+![Homebase contacts](docs/screenshots/contacts.png)
+
+### Assets
+
+Assets track purchase and warranty details, multiple maintenance schedules, generated tasks, documents, and service contacts.
+
+![Homebase asset detail](docs/screenshots/assets.png)
+
+### Documents
+
+Documents support upload, search, type filtering, download, PDF/image preview, and links to projects, tasks, and assets.
+
+![Homebase document viewer](docs/screenshots/document-viewer.png)
+
+### Users
+
+Household owners can pre-provision OAuth users and manage owner/member roles.
+
+![Homebase users](docs/screenshots/users.png)
+
+### Settings and API tokens
+
+Users can create and revoke read-only or full-access API tokens. Plaintext token values are displayed only at creation.
+
+![Homebase API token settings](docs/screenshots/settings.png)
+
+### API documentation
+
+Swagger UI documents session and bearer-token authentication as well as the household API.
+
+![Homebase Swagger UI](docs/screenshots/api-docs.png)
+
+## Responsive Design
+
+Homebase includes responsive layouts across its primary modules so the web
+application remains usable on phones and tablets:
+
+- The desktop sidebar becomes a slide-out navigation drawer.
+- Project folders and task tables become stacked cards.
+- Detail pages stack their main content and related-record panels.
+- Status, priority, assignee, and due-date controls remain available from task
+  and project cards.
+- Forms and modals collapse to single-column layouts.
+- Date fields use the device's native date picker, including the iOS picker.
+- Calendar views switch to narrow-screen day-oriented layouts when the full
+  grid is no longer practical.
+
+Real-device responsive testing remains an ongoing part of development,
+especially for drag-and-drop workflows and newly added controls. Current
+follow-up items are tracked in [`TODO.md`](TODO.md).
+
+## Architecture
+
+Homebase is a modular monolith split into two deployable Go processes:
+
+- `cmd/api`: authentication, business rules, background routine checks, file storage, and JSON API
+- `cmd/web`: server-rendered UI and form forwarding
+- `internal/store`: PostgreSQL persistence and embedded migrations
+- `internal/api/openapi.yaml`: OpenAPI 3.0 contract
+- `deploy/nginx/homebase.conf`: same-origin production reverse proxy
+
+The API owns business rules. The web service renders pages and forwards mutations to the API. Household IDs are applied at the storage and API boundaries to isolate household data.
 
 ## Run Locally
+
+Requirements:
+
+- Docker Engine
+- Docker Compose
+
+Start the development stack:
 
 ```sh
 cp .env.example .env
 docker compose up --build
 ```
 
-Then open:
+Open:
 
-- Web frontend: http://localhost:8080
+- Web application: http://localhost:8080
 - API health: http://localhost:8081/healthz
 - Swagger UI: http://localhost:8080/docs
+- Raw OpenAPI document: http://localhost:8080/openapi.yaml
 
-If OAuth is not configured, the login button redirects to a development login user. In production, set `APP_ENV=production`, configure OAuth/OIDC credentials, and pre-add the first owner with `BOOTSTRAP_OWNER_EMAIL`.
+When OAuth is not configured, the development login creates a local demo session. Production mode does not permit this fallback.
 
-## Docker Hub Deploy Example
+## Production Deployment
 
-An example compose file for the published Docker Hub images is available at `docker-compose.dockerhub.example.yml`.
+The example production stack is [`docker-compose.dockerhub.example.yml`](docker-compose.dockerhub.example.yml). It uses published Docker Hub images and includes:
 
-Set at least these values on the test server:
+- nginx public entrypoint
+- Homebase web service
+- Homebase API service
+- PostgreSQL
+- persistent document-upload and database volumes
+
+Copy the example environment file and set production values:
 
 ```sh
-POSTGRES_PASSWORD=...
-SESSION_SECRET=...
+cp .env.example .env
+```
+
+At minimum, configure:
+
+```sh
+POSTGRES_PASSWORD=replace-with-a-long-random-value
+SESSION_SECRET=replace-with-a-long-random-value
 WEB_BASE_URL=https://homebase.example.com
 API_BASE_URL=https://homebase.example.com
-OAUTH_PROVIDER_NAME=authentik
+
+OAUTH_PROVIDER_NAME=Authentik
 OAUTH_ISSUER_URL=https://auth.example.com/application/o/homebase/
 OAUTH_CLIENT_ID=...
 OAUTH_CLIENT_SECRET=...
+
 BOOTSTRAP_OWNER_EMAIL=you@example.com
+BOOTSTRAP_OWNER_NAME="Your Name"
+BOOTSTRAP_HOUSEHOLD_NAME="Home"
 ```
 
-Then run:
+Start the stack:
 
 ```sh
+docker compose -f docker-compose.dockerhub.example.yml pull
 docker compose -f docker-compose.dockerhub.example.yml up -d
 ```
 
-The compose file includes nginx as the public entrypoint. It routes app pages to the web container and `/auth/`, `/api/v1/`, `/healthz`, and OpenAPI paths to the API container. Publish that nginx service behind your public hostname so the web app and OAuth callback use the same origin.
+The nginx service routes:
 
-The OAuth callback URL should be `${API_BASE_URL}/auth/oauth/callback` unless `OAUTH_REDIRECT_URL` is explicitly set.
+- `/` to the web service
+- `/auth/` and `/api/v1/` to the API
+- `/healthz` and OpenAPI paths to the API
+
+Publish nginx behind the application hostname. Keeping browser pages, API calls, and the OAuth callback on one origin avoids cross-origin session and cookie configuration.
+
+Persistent data lives in:
+
+- `homebase_pgdata`: PostgreSQL database
+- `homebase_uploads`: uploaded document files
+
+Back up both volumes together.
 
 ## OAuth/OIDC
 
-For an OIDC provider, configure the issuer URL and client credentials:
-
-```text
-http://localhost:8081/auth/oauth/callback
-```
-
-Set:
+Homebase supports OIDC discovery through an issuer URL:
 
 ```sh
-OAUTH_PROVIDER_NAME=internal
-OAUTH_ISSUER_URL=https://auth.example.com
+OAUTH_PROVIDER_NAME=Authentik
+OAUTH_ISSUER_URL=https://auth.example.com/application/o/homebase/
 OAUTH_CLIENT_ID=...
 OAUTH_CLIENT_SECRET=...
-OAUTH_REDIRECT_URL=http://localhost:8081/auth/oauth/callback
 OAUTH_SCOPES="openid profile email"
 ```
 
-If your provider does not expose an OIDC discovery document, set the endpoints directly:
+The default production callback is:
+
+```text
+https://homebase.example.com/auth/oauth/callback
+```
+
+Set `OAUTH_REDIRECT_URL` only when the callback must differ from `${API_BASE_URL}/auth/oauth/callback`.
+
+Providers without discovery can use explicit endpoints:
 
 ```sh
 OAUTH_AUTH_URL=https://auth.example.com/oauth/authorize
@@ -85,32 +277,57 @@ OAUTH_TOKEN_URL=https://auth.example.com/oauth/token
 OAUTH_USERINFO_URL=https://auth.example.com/oauth/userinfo
 ```
 
-Login is open to start, but the callback only succeeds when the OAuth account email already belongs to a household. Use the Household Members screen to add more allowed users after the first owner logs in.
+The provider certificate must be trusted by the API container. The OAuth provider's token-signing certificate may be self-signed; OIDC token verification uses the provider's published JWKS. The HTTPS certificate used to reach the issuer and endpoints must chain to a trusted CA.
 
-For a fresh production install, seed the first owner:
+The first production owner is created from the `BOOTSTRAP_OWNER_*` variables. Additional users must be added from the Users screen before their OAuth login will succeed.
 
-```sh
-BOOTSTRAP_OWNER_EMAIL=you@example.com
-BOOTSTRAP_OWNER_NAME="Your Name"
-BOOTSTRAP_HOUSEHOLD_NAME="Home"
-```
+## API and Tokens
 
-## API Tokens
+Signed-in users can create API tokens from **Profile > Settings**. Tokens inherit the user's household access and are shown only once.
 
-Signed-in users can create API tokens from the profile menu under Settings. Tokens inherit the user's current household access and can be created as read-only or full-access tokens. The plaintext token is shown only once.
+- Read-only tokens can call `GET` and other read operations.
+- Full-access tokens can also call supported write operations.
+- Token management itself requires a browser session.
 
-Use tokens with API requests:
+Example:
 
 ```sh
-curl -H "Authorization: Bearer hb_..." https://homebase.example.com/api/v1/me
+curl \
+  -H "Authorization: Bearer hb_..." \
+  https://homebase.example.com/api/v1/me
 ```
 
-Read-only tokens can call read endpoints only. Full-access tokens can call write endpoints, but token management itself still requires a browser session.
+API references:
 
-## Architecture Notes
+- Swagger UI: `/docs`
+- Raw contract: `/openapi.yaml`
+- Repository contract: [`internal/api/openapi.yaml`](internal/api/openapi.yaml)
+- Additional notes: [`docs/api.md`](docs/api.md)
 
-- The frontend contains display and form forwarding only; business rules stay in the API.
-- The app uses PostgreSQL for development and production to avoid SQLite/Postgres behavior drift.
-- The backend is a modular monolith. Add new household modules behind the API before exposing them in the web frontend.
-- Due routines are checked by the API process on startup and then every 15 minutes by default. Override with `ROUTINE_CHECK_INTERVAL_SECONDS`.
-- Documents link to projects and tasks through a reusable related-item table so the same document can be reused from multiple places. Uploaded document files are stored by the API service under `DOCUMENT_UPLOAD_DIR`; Docker Compose persists them in the `homebase_uploads` volume. Override the upload limit with `DOCUMENT_MAX_UPLOAD_MB`.
+## Configuration
+
+Important environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `WEB_BASE_URL` | Public browser origin |
+| `API_BASE_URL` | Public API origin, normally the same as `WEB_BASE_URL` |
+| `POSTGRES_PASSWORD` | PostgreSQL password used by the production compose stack |
+| `SESSION_SECRET` | Session-signing secret |
+| `SESSION_COOKIE_NAME` | Browser session cookie name |
+| `OAUTH_*` | OAuth/OIDC provider configuration |
+| `BOOTSTRAP_OWNER_*` | Initial production household owner |
+| `ROUTINE_CHECK_INTERVAL_SECONDS` | Routine scheduler interval; defaults to 900 seconds |
+| `DOCUMENT_MAX_UPLOAD_MB` | Maximum uploaded document size; defaults to 25 MiB |
+| `BUDGET_APP_URL` | Optional external budget application link |
+
+See [`.env.example`](.env.example) for the complete list.
+
+## Development Notes
+
+- PostgreSQL is used in both development and production to avoid database behavior drift.
+- Migrations run from the embedded schema when the API starts.
+- Due routines are checked at API startup and then on the configured interval.
+- Documents are reusable records. A single upload can be linked to multiple projects, tasks, and assets.
+- Dashboard tile order and the selected dashboard list are retained per user/browser.
+- Current follow-up work, including archive recovery and additional real-device QA, is tracked in [`TODO.md`](TODO.md).

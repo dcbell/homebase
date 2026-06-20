@@ -16,4 +16,6 @@ The API service also serves the same raw document internally at:
 - `GET /openapi.yaml`
 - `GET /docs/openapi.yaml`
 
-All `/api/v1` routes require a valid `homebase_session` cookie unless otherwise noted in the OpenAPI document.
+All `/api/v1` routes require either a valid `homebase_session` cookie or an
+`Authorization: Bearer hb_...` API token unless otherwise noted in the OpenAPI
+document. Read-only tokens cannot call write operations.
