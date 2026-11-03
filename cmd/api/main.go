@@ -108,7 +108,8 @@ func runRoutineScheduler(ctx context.Context, logger *slog.Logger, apiServer *ap
 	}
 }
 
-// runReminderLoop sends due Reminders every interval. It is separate from the
+// runReminderLoop sends due Reminders and deletes expired read Notifications
+// every interval. It is separate from the
 // Routine scheduler so that loop keeps its own cadence.
 func runReminderLoop(ctx context.Context, logger *slog.Logger, server *api.Server, interval time.Duration) {
 	run := func() {
@@ -120,6 +121,13 @@ func runReminderLoop(ctx context.Context, logger *slog.Logger, server *api.Serve
 		}
 		if sent > 0 {
 			logger.Info("sent due reminders", "count", sent)
+		}
+		expired, err := server.ExpireNotifications(jobCtx, time.Now())
+		if err != nil {
+			logger.Error("expire notifications", "error", err)
+		}
+		if expired > 0 {
+			logger.Info("deleted expired notifications", "count", expired)
 		}
 	}
 

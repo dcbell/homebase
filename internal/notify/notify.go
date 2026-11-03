@@ -64,7 +64,8 @@ func New(st *store.Store, c clock.Clock, logger *slog.Logger, opts ...Option) *N
 		delivery: DeliveryFunc(func(context.Context, store.Notification) {}),
 	}
 	n.reminderRenderers = map[string]reminderRenderer{
-		store.SubjectTask: n.renderTaskReminder,
+		store.SubjectTask:        n.renderTaskReminder,
+		store.SubjectAppointment: n.renderAppointmentReminder,
 	}
 	for _, opt := range opts {
 		opt(n)
@@ -131,6 +132,9 @@ func (n *Notifier) AppointmentChanged(ctx context.Context, change AppointmentCha
 		}
 	}
 	var errs []error
+	if err := n.appointmentReminders(ctx, appointment); err != nil {
+		errs = append(errs, err)
+	}
 	for _, id := range appointment.AttendeeIDs {
 		if wasAttending[id] {
 			continue

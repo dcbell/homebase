@@ -182,3 +182,19 @@ func notificationURL(subjectType string, subjectID int64, listID *int64) string 
 		return "/"
 	}
 }
+
+// DeleteReadNotificationsBefore permanently deletes read Notifications created
+// before cutoff and returns how many it removed. Unread Notifications are kept.
+// Notifications are not household records, so this is the documented
+// exemption from the Archive rule.
+func (s *Store) DeleteReadNotificationsBefore(ctx context.Context, cutoff time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM notifications
+		WHERE read_at IS NOT NULL AND created_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	return int(affected), err
+}
