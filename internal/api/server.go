@@ -155,6 +155,10 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.registerPushSubscription(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/push-subscriptions/"):
 		s.deletePushSubscription(w, r, strings.TrimPrefix(path, "/push-subscriptions/"))
+	case r.Method == http.MethodGet && path == "/push-settings":
+		s.getPushSettings(w, r)
+	case r.Method == http.MethodPatch && path == "/push-settings":
+		s.updatePushSettings(w, r)
 	case r.Method == http.MethodGet && path == "/households/current":
 		s.currentHousehold(w, r)
 	case r.Method == http.MethodGet && path == "/dashboard":

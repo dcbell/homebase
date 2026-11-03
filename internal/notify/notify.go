@@ -190,13 +190,21 @@ func withArticle(noun string) string {
 	return "a " + noun
 }
 
-// notify stores a Notification and hands it to the Delivery.
+// notify stores a Notification and hands it to the Delivery, unless the
+// recipient turned Push off for its kind. The Notification is stored either
+// way, so it still shows in the bell and counts towards Unread.
 func (n *Notifier) notify(ctx context.Context, input store.NotificationInput) error {
 	input.CreatedAt = n.clock.Now()
 	stored, err := n.store.CreateNotification(ctx, input)
 	if err != nil {
 		return fmt.Errorf("store %s notification: %w", input.Kind, err)
 	}
-	n.delivery.Deliver(ctx, stored)
+	settings, err := n.store.PushSettings(ctx, stored.HouseholdID, stored.RecipientID)
+	if err != nil {
+		return fmt.Errorf("load push settings for %s notification: %w", input.Kind, err)
+	}
+	if settings.Allows(stored.Kind) {
+		n.delivery.Deliver(ctx, stored)
+	}
 	return nil
 }

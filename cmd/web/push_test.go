@@ -193,6 +193,7 @@ func TestSettingsListsDevicesAndOffersToEnableThisOne(t *testing.T) {
 	_, web := newRecordingAPI(t, map[string]cannedResponse{
 		"GET /api/v1/dashboard":          {http.StatusOK, `{"current_user":{"id":1,"email":"member@example.test","name":"Member"},"notifications":{"notifications":[],"unread_count":4}}`},
 		"GET /api/v1/api-tokens":         {http.StatusOK, `[]`},
+		"GET /api/v1/push-settings":      {http.StatusOK, `{"assignment":true,"task_reminder":true,"appointment_reminder":true}`},
 		"GET /api/v1/push-subscriptions": {http.StatusOK, `[{"id":7,"name":"Safari on iPhone","endpoint":"https://push.example/phone","created_at":"2030-01-10T09:00:00Z","last_used_at":"2030-01-14T18:30:00Z"}]`},
 	})
 

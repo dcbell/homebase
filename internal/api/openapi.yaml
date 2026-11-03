@@ -366,6 +366,52 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/v1/push-settings:
+    get:
+      tags: [Push]
+      summary: Get my Push settings
+      operationId: getPushSettings
+      description: >
+        Which kinds of Notification the current Member gets as Push. Every
+        kind is on until the Member turns it off.
+      responses:
+        "200":
+          description: The current Member's Push settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSettings"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Push]
+      summary: Update my Push settings
+      operationId: updatePushSettings
+      description: >
+        Turns Push on or off per kind of Notification. Omitted kinds keep
+        their current setting. Turning a kind off stops the Push only: those
+        Notifications are still stored, appear in the bell and count towards
+        Unread.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSettingsInput"
+      responses:
+        "200":
+          description: The updated Push settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSettings"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
   /api/v1/households/current:
     get:
       tags: [Dashboard]
@@ -2072,6 +2118,23 @@ components:
         name:
           type: string
           description: Optional display name. Defaults to one derived from the User-Agent.
+    PushSettings:
+      type: object
+      description: >
+        Whether each kind of Notification is sent to the Member's Push
+        Subscriptions. Notifications of a kind that is off are still stored.
+      required: [assignment, task_reminder, appointment_reminder]
+      properties:
+        assignment: { type: boolean, description: Assignment Notifications. }
+        task_reminder: { type: boolean, description: Task Reminders. }
+        appointment_reminder: { type: boolean, description: Appointment Reminders. }
+    PushSettingsInput:
+      type: object
+      description: Kinds to change. Omitted kinds keep their current setting.
+      properties:
+        assignment: { type: boolean }
+        task_reminder: { type: boolean }
+        appointment_reminder: { type: boolean }
     Dashboard:
       type: object
       properties:

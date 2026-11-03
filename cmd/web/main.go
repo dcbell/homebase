@@ -70,6 +70,7 @@ type pageData struct {
 	AssetMaintenanceItems []store.AssetMaintenanceItem
 	APITokens             []store.APIToken
 	PushSubscriptions     []store.PushSubscription
+	PushSettings          store.PushSettings
 	CreatedAPIToken       store.APITokenWithSecret
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
@@ -773,6 +774,12 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 			pageError = err.Error()
 		}
 	}
+	pushSettings := store.PushSettings{Assignment: true, TaskReminder: true, AppointmentReminder: true}
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/push-settings", nil, &pushSettings); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
 	if pageError == "" {
 		pageError = userFacingError(r.URL.Query().Get("error"))
 	}
@@ -782,6 +789,7 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 		Dashboard:         dashboard,
 		APITokens:         tokens,
 		PushSubscriptions: pushSubscriptions,
+		PushSettings:      pushSettings,
 		CreatedAPIToken:   created,
 		SettingsPage:      true,
 		Now:               time.Now(),

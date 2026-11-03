@@ -27,6 +27,7 @@ func (s *webServer) pushRoutes(mux *http.ServeMux) {
 		s.forwardJSON(w, r, http.MethodDelete, "/api/v1/push-subscriptions/"+url.PathEscape(r.PathValue("id")))
 	})
 	mux.HandleFunc("POST /settings/push-subscriptions/{id}/remove", s.removePushSubscription)
+	mux.HandleFunc("POST /settings/push-settings", s.savePushSettings)
 	mux.HandleFunc("POST /notifications/{id}/read", s.readNotification)
 }
 
@@ -64,6 +65,25 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// savePushSettings is the Push on/off switches in Settings. A switch that is
+// off is absent from the form, so every kind is sent explicitly.
+func (s *webServer) savePushSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/settings?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	settings := store.PushSettings{
+		Assignment:          r.PostForm.Get("assignment") != "",
+		TaskReminder:        r.PostForm.Get("task_reminder") != "",
+		AppointmentReminder: r.PostForm.Get("appointment_reminder") != "",
+	}
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/push-settings", settings, nil); err != nil {
+		http.Redirect(w, r, "/settings?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 // removePushSubscription is the Remove button next to a device in Settings.
