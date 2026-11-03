@@ -32,6 +32,9 @@ func (s *webServer) pwaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /icons/icon-512.png", staticFile("icon-512.png", "image/png", day))
 	mux.HandleFunc("GET /icons/icon-maskable-512.png", staticFile("icon-maskable-512.png", "image/png", day))
 	mux.HandleFunc("GET /apple-touch-icon.png", staticFile("apple-touch-icon.png", "image/png", day))
+	// The notification badge is the mark alone, white on transparent: Android
+	// draws badges from their alpha channel only.
+	mux.HandleFunc("GET /icons/badge-96.png", staticFile("badge-96.png", "image/png", day))
 	// The service worker must stay at the root so its scope covers every page,
 	// and must not be cached so browsers pick up a new version promptly.
 	mux.HandleFunc("GET /sw.js", staticFile("sw.js", "text/javascript; charset=utf-8", "no-cache"))

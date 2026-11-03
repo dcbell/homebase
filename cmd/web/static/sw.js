@@ -77,7 +77,7 @@ self.addEventListener("push", function (event) {
 	var options = {
 		body: data.body || "",
 		icon: "/icons/icon-192.png",
-		badge: "/icons/icon-192.png",
+		badge: "/icons/badge-96.png",
 		data: { url: sameOriginPath(data.url), notification_id: data.notification_id || 0 }
 	};
 	if (data.notification_id) options.tag = "notification-" + data.notification_id;
