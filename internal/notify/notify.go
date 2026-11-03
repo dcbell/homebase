@@ -10,8 +10,10 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"homebase/internal/clock"
 	"homebase/internal/store"
@@ -93,6 +95,47 @@ func (n *Notifier) TaskChanged(ctx context.Context, change TaskChange) error {
 	})
 }
 
+// AppointmentChange describes an Appointment that was created or updated.
+// Its Attendees are the Members it is for.
+type AppointmentChange struct {
+	// Actor is the Member who made the change, or nil when the system did.
+	Actor *store.User
+	// Before is the Appointment as it was, or nil when it was just created.
+	Before *store.Event
+	// After is the Appointment as it is now.
+	After store.Event
+}
+
+// AppointmentChanged is called after every Appointment create or update.
+// Each Member who has just become an Attendee gets an Assignment
+// Notification, unless they added themselves.
+func (n *Notifier) AppointmentChanged(ctx context.Context, change AppointmentChange) error {
+	appointment := change.After
+	wasAttending := map[int64]bool{}
+	if change.Before != nil {
+		for _, id := range change.Before.AttendeeIDs {
+			wasAttending[id] = true
+		}
+	}
+	var errs []error
+	for _, id := range appointment.AttendeeIDs {
+		if wasAttending[id] {
+			continue
+		}
+		if err := n.assigned(ctx, change.Actor, assignment{
+			householdID: appointment.HouseholdID,
+			recipientID: id,
+			subjectType: store.SubjectAppointment,
+			subjectID:   appointment.ID,
+			noun:        "Appointment",
+			name:        appointment.Title,
+		}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 type assignment struct {
 	householdID int64
 	recipientID int64
@@ -108,9 +151,9 @@ func (n *Notifier) assigned(ctx context.Context, actor *store.User, a assignment
 	if actor != nil && actor.ID == a.recipientID {
 		return nil
 	}
-	title := fmt.Sprintf("You were assigned a %s", a.noun)
+	title := fmt.Sprintf("You were assigned %s", withArticle(a.noun))
 	if actor != nil {
-		title = fmt.Sprintf("%s assigned you a %s", actor.Name, a.noun)
+		title = fmt.Sprintf("%s assigned you %s", actor.Name, withArticle(a.noun))
 	}
 	return n.notify(ctx, store.NotificationInput{
 		HouseholdID: a.householdID,
@@ -121,6 +164,13 @@ func (n *Notifier) assigned(ctx context.Context, actor *store.User, a assignment
 		Title:       title,
 		Body:        a.name,
 	})
+}
+
+func withArticle(noun string) string {
+	if noun != "" && strings.ContainsRune("AEIOU", rune(noun[0])) {
+		return "an " + noun
+	}
+	return "a " + noun
 }
 
 // notify stores a Notification and hands it to the Delivery.
