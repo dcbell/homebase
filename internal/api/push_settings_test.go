@@ -95,3 +95,26 @@ func TestTaskReminderWithPushOffIsStoredButNotPushed(t *testing.T) {
 		t.Errorf("sent %d Pushes for the Reminder with Task Reminder Push off, want none", len(sent)-assignmentPushes)
 	}
 }
+
+func TestAppointmentReminderIsPushedOnlyWhileItsKindIsOn(t *testing.T) {
+	t.Parallel()
+	h, recorder := newPushHarness(t)
+	household := h.SeedHousehold()
+	subscribe(t, household.Member, "https://push.example/phone")
+	household.Member.Patch("/api/v1/push-settings", map[string]any{"appointment_reminder": false}).Expect(http.StatusOK)
+	appt := createAppointmentAt(t, household.Owner, at(17, 9, 0), household.Member.User.ID)
+	before := len(recorder.Sent())
+
+	sendRemindersAt(t, h, at(16, 9, 0))
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon")...)
+	if sent := recorder.Sent(); len(sent) != before {
+		t.Errorf("sent %d Pushes for the Reminder with Appointment Reminder Push off, want none", len(sent)-before)
+	}
+
+	household.Member.Patch("/api/v1/push-settings", map[string]any{"appointment_reminder": true}).Expect(http.StatusOK)
+	sendRemindersAt(t, h, at(17, 8, 0))
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before")...)
+	if sent := recorder.Sent(); len(sent) != before+1 {
+		t.Errorf("sent %d Pushes for the hour-before Reminder with the kind back on, want 1", len(sent)-before)
+	}
+}
