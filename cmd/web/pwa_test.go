@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -81,6 +84,45 @@ func TestAppIconsArePNGs(t *testing.T) {
 		if !strings.HasPrefix(rec.Body.String(), "\x89PNG\r\n\x1a\n") {
 			t.Errorf("%s: body is not a PNG", path)
 		}
+	}
+}
+
+// Android draws a notification badge from its alpha channel alone, so the
+// badge must be a single colour on a transparent background.
+func TestNotificationBadgeIsAMonochromeMaskOfTheMark(t *testing.T) {
+	routes := newTestWebServer(t).routes()
+	rec := get(t, routes, "/icons/badge-96.png")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", got)
+	}
+	img, err := png.Decode(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("badge is not a PNG: %v", err)
+	}
+	if b := img.Bounds(); b.Dx() != 96 || b.Dy() != 96 {
+		t.Fatalf("badge is %dx%d, want 96x96", b.Dx(), b.Dy())
+	}
+	if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
+		t.Errorf("badge corner alpha = %d, want a transparent background", a)
+	}
+	if _, _, _, a := img.At(48, 48).RGBA(); a == 0 {
+		t.Errorf("badge centre is transparent, want the mark drawn there")
+	}
+	for y := 0; y < 96; y++ {
+		for x := 0; x < 96; x++ {
+			c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+			if c.A > 0 && (c.R != 255 || c.G != 255 || c.B != 255) {
+				t.Fatalf("badge pixel (%d,%d) = %v, want white wherever it is drawn", x, y, c)
+			}
+		}
+	}
+
+	sw := get(t, routes, "/sw.js").Body.String()
+	if !strings.Contains(sw, `badge: "/icons/badge-96.png"`) {
+		t.Error("service worker does not use the monochrome badge")
 	}
 }
 

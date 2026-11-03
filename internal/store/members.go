@@ -348,6 +348,11 @@ func (s *Store) ActivatePreauthorizedOAuthUser(ctx context.Context, providerSubj
 	return user, household, nil
 }
 
+// IsMember reports whether userID is currently a Member of the household.
+func (s *Store) IsMember(ctx context.Context, householdID, userID int64) (bool, error) {
+	return s.userInHousehold(ctx, householdID, userID)
+}
+
 func (s *Store) userInHousehold(ctx context.Context, householdID, userID int64) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `

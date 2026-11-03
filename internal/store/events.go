@@ -77,6 +77,35 @@ func (s *Store) ListEvents(ctx context.Context, householdID int64) ([]Event, err
 	return events, nil
 }
 
+// ListWholeHouseholdEventsAfter returns the Household's Appointments with no
+// Attendees (so for every Member) that start after the given time.
+func (s *Store) ListWholeHouseholdEventsAfter(ctx context.Context, householdID int64, after time.Time) ([]Event, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+eventColumns+`
+		FROM events
+		WHERE household_id = $1
+		  AND starts_at > $2
+		  AND NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id)
+		ORDER BY starts_at, id
+	`, householdID, after)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := []Event{}
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		e.Attendees = []Attendee{}
+		e.AttendeeIDs = []int64{}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
 func validateEventInput(input *EventInput) error {
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" {

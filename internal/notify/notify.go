@@ -93,10 +93,11 @@ func (n *Notifier) TaskChanged(ctx context.Context, change TaskChange) error {
 	if err := n.taskReminders(ctx, task); err != nil {
 		return err
 	}
-	if task.AssignedTo == nil {
-		return nil
+	var before *int64
+	if change.Before != nil {
+		before = change.Before.AssignedTo
 	}
-	if change.Before != nil && change.Before.AssignedTo != nil && *change.Before.AssignedTo == *task.AssignedTo {
+	if !newlyAssigned(before, task.AssignedTo) {
 		return nil
 	}
 	return n.assigned(ctx, change.Actor, assignment{
@@ -172,7 +173,7 @@ func (n *Notifier) assigned(ctx context.Context, actor *store.User, a assignment
 	if actor != nil {
 		title = fmt.Sprintf("%s assigned you %s", actor.Name, withArticle(a.noun))
 	}
-	return n.notify(ctx, store.NotificationInput{
+	_, err := n.notify(ctx, store.NotificationInput{
 		HouseholdID: a.householdID,
 		RecipientID: a.recipientID,
 		Kind:        store.NotificationAssignment,
@@ -181,6 +182,7 @@ func (n *Notifier) assigned(ctx context.Context, actor *store.User, a assignment
 		Title:       title,
 		Body:        a.name,
 	})
+	return err
 }
 
 func withArticle(noun string) string {
@@ -193,18 +195,28 @@ func withArticle(noun string) string {
 // notify stores a Notification and hands it to the Delivery, unless the
 // recipient turned Push off for its kind. The Notification is stored either
 // way, so it still shows in the bell and counts towards Unread.
-func (n *Notifier) notify(ctx context.Context, input store.NotificationInput) error {
+//
+// Nothing is created for a recipient who is no longer a Member of the
+// household. created reports whether a Notification was stored.
+func (n *Notifier) notify(ctx context.Context, input store.NotificationInput) (created bool, err error) {
+	member, err := n.store.IsMember(ctx, input.HouseholdID, input.RecipientID)
+	if err != nil {
+		return false, fmt.Errorf("check %s notification recipient: %w", input.Kind, err)
+	}
+	if !member {
+		return false, nil
+	}
 	input.CreatedAt = n.clock.Now()
 	stored, err := n.store.CreateNotification(ctx, input)
 	if err != nil {
-		return fmt.Errorf("store %s notification: %w", input.Kind, err)
+		return false, fmt.Errorf("store %s notification: %w", input.Kind, err)
 	}
 	settings, err := n.store.PushSettings(ctx, stored.HouseholdID, stored.RecipientID)
 	if err != nil {
-		return fmt.Errorf("load push settings for %s notification: %w", input.Kind, err)
+		return true, fmt.Errorf("load push settings for %s notification: %w", input.Kind, err)
 	}
 	if settings.Allows(stored.Kind) {
 		n.delivery.Deliver(ctx, stored)
 	}
-	return nil
+	return true, nil
 }

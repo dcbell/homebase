@@ -52,6 +52,9 @@ type Server struct {
 	// pushSender sends Push to Push Subscriptions. The default is Web Push
 	// with the VAPID keys stored in the database.
 	pushSender push.Sender
+	// pushDelivery sends Push in the background so requests never wait on
+	// push services.
+	pushDelivery *push.Delivery
 }
 
 // Option overrides one of the Server's default dependencies.
@@ -90,10 +93,22 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option
 		}
 		s.pushSender = push.NewWebPush(st, subject)
 	}
-	s.notifier = notify.New(st, s.clock, logger,
-		notify.WithDelivery(push.NewDelivery(st, s.pushSender, s.clock, logger)))
+	s.pushDelivery = push.NewDelivery(st, s.pushSender, s.clock, logger)
+	s.notifier = notify.New(st, s.clock, logger, notify.WithDelivery(s.pushDelivery))
 	s.routes()
 	return s
+}
+
+// Close stops background work: it waits for queued Push to be sent, until
+// ctx ends. Call it after the HTTP server and the loops have stopped.
+func (s *Server) Close(ctx context.Context) error {
+	return s.pushDelivery.Close(ctx)
+}
+
+// WaitForPush blocks until every Push queued so far has been sent. Push goes
+// out in the background; tests call this to observe it deterministically.
+func (s *Server) WaitForPush() {
+	s.pushDelivery.Wait()
 }
 
 // SendDueReminders sends every Reminder due as of asOf. The API process runs
@@ -652,7 +667,16 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusCreated, member)
+}
+
+// membersChanged reports a Member joining or leaving to the Notifier, logging
+// rather than failing the already-saved request.
+func (s *Server) membersChanged(ctx context.Context, householdID int64) {
+	if err := s.notifier.MembersChanged(ctx, householdID); err != nil {
+		s.logger.Error("notify members changed", "household_id", householdID, "error", err)
+	}
 }
 
 func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, id string) {
@@ -707,6 +731,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, id string)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -768,7 +793,16 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, rawID str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.projectChanged(r.Context(), project.HouseholdID, project.ID)
 	writeJSON(w, http.StatusOK, project)
+}
+
+// projectChanged reports a Project update or archive to the Notifier, which
+// keeps its Tasks' Reminders in line, logging rather than failing the request.
+func (s *Server) projectChanged(ctx context.Context, householdID, projectID int64) {
+	if err := s.notifier.ProjectChanged(ctx, householdID, projectID); err != nil {
+		s.logger.Error("notify project changed", "project_id", projectID, "error", err)
+	}
 }
 
 func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -783,6 +817,7 @@ func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID st
 		writeError(w, http.StatusInternalServerError, "failed to archive project")
 		return
 	}
+	s.projectChanged(r.Context(), householdFrom(r).ID, id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

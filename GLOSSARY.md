@@ -120,10 +120,10 @@ A Notification that something assigned to a Member is coming due or is overdue. 
 _Avoid_: Alert, nudge
 
 **Due Soon**:
-The Reminder sent 24 hours before something is due.
+The Reminder sent 24 hours before something is due. For a Task due on a date with no time of day, it is sent at 08:00 the day before.
 
 **Due Now**:
-The Reminder sent at the due date and time, or when an Appointment starts.
+The Reminder sent at the due date and time, or when an Appointment starts. For a Task due on a date with no time of day, it is sent at 08:00 on that date.
 
 **Overdue**:
 The Reminder sent the morning after the due date if the Task is still open.

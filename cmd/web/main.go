@@ -828,7 +828,7 @@ func (s *webServer) createProject(w http.ResponseWriter, r *http.Request) {
 		"priority":    defaultValue(r.FormValue("priority"), "normal"),
 	}
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
-		payload["due_date"] = due + "T00:00:00Z"
+		payload["due_date"] = formTime(due)
 	}
 	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil)
 	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/"), http.StatusSeeOther)
@@ -945,7 +945,7 @@ func (s *webServer) updateProject(w http.ResponseWriter, r *http.Request) {
 		"priority":    defaultValue(r.FormValue("priority"), "normal"),
 	}
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
-		payload["due_date"] = due + "T00:00:00Z"
+		payload["due_date"] = formTime(due)
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/projects/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -1179,8 +1179,8 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"title":        r.FormValue("title"),
 		"description":  r.FormValue("description"),
 		"location":     r.FormValue("location"),
-		"starts_at":    r.FormValue("starts_at") + ":00Z",
-		"ends_at":      r.FormValue("ends_at") + ":00Z",
+		"starts_at":    formTime(r.FormValue("starts_at")),
+		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	_ = s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil)
@@ -1218,8 +1218,8 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		"title":        r.FormValue("title"),
 		"description":  r.FormValue("description"),
 		"location":     r.FormValue("location"),
-		"starts_at":    r.FormValue("starts_at") + ":00Z",
-		"ends_at":      r.FormValue("ends_at") + ":00Z",
+		"starts_at":    formTime(r.FormValue("starts_at")),
+		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
@@ -2298,6 +2298,25 @@ func formatDateInput(t *time.Time) string {
 	return t.Format("2006-01-02")
 }
 
+// formTimeLayouts are what date and datetime-local inputs submit.
+var formTimeLayouts = []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02"}
+
+// formTime turns a date or datetime-local form value into an RFC3339 time
+// for the API. The value is a wall-clock time in the application timezone
+// (APP_TIMEZONE, which ApplyTimezone makes time.Local), the same zone the
+// pages display times in, so a time shown in a form and saved unchanged
+// stays the same instant. A date alone is midnight on that date. A value
+// that is not a date is passed through for the API to reject.
+func formTime(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range formTimeLayouts {
+		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return raw
+}
+
 func formatDateTimeInput(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -2727,7 +2746,7 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
-		payload["next_due_at"] = nextDue + "T00:00:00Z"
+		payload["next_due_at"] = formTime(nextDue)
 	}
 	return payload
 }
@@ -2751,11 +2770,7 @@ func listItemPayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
-		if strings.Contains(due, "T") {
-			payload["due_at"] = due + ":00Z"
-		} else {
-			payload["due_at"] = due + "T00:00:00Z"
-		}
+		payload["due_at"] = formTime(due)
 	}
 	return payload
 }
@@ -2782,10 +2797,10 @@ func assetPayloadFromForm(r *http.Request) map[string]any {
 		"status":        defaultValue(r.FormValue("status"), "active"),
 	}
 	if warranty := strings.TrimSpace(r.FormValue("warranty_expires_at")); warranty != "" {
-		payload["warranty_expires_at"] = warranty + "T00:00:00Z"
+		payload["warranty_expires_at"] = formTime(warranty)
 	}
 	if purchaseDate := strings.TrimSpace(r.FormValue("purchase_date")); purchaseDate != "" {
-		payload["purchase_date"] = purchaseDate + "T00:00:00Z"
+		payload["purchase_date"] = formTime(purchaseDate)
 	}
 	if cost := strings.TrimSpace(r.FormValue("purchase_cost")); cost != "" {
 		if parsed, err := strconv.ParseFloat(cost, 64); err == nil {
@@ -2803,7 +2818,7 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 		"status":  defaultValue(r.FormValue("status"), "active"),
 	}
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
-		payload["next_due_at"] = nextDue + "T00:00:00Z"
+		payload["next_due_at"] = formTime(nextDue)
 	}
 	return payload
 }
@@ -2853,11 +2868,7 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
-		if strings.Contains(due, "T") {
-			payload["due_at"] = due + ":00Z"
-		} else {
-			payload["due_at"] = due + "T00:00:00Z"
-		}
+		payload["due_at"] = formTime(due)
 	}
 	return payload
 }
