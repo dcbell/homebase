@@ -72,6 +72,10 @@ _Avoid_: Calendar entry, item
 An Event the Household schedules directly, with a start, end, and location, such as a doctor's visit.
 _Avoid_: Meeting, booking
 
+**Attendee**:
+A Member an Appointment is for. An Appointment with no Attendees is for the whole Household.
+_Avoid_: Participant, guest, invitee
+
 ## Records
 
 **Asset**:
@@ -101,6 +105,40 @@ _Avoid_: Task, entry
 **Archive**:
 The only way a household record is removed. Archived records are hidden from active views and can be recovered. Hard deletion requires an explicit, documented exemption.
 _Avoid_: Delete, remove, trash
+
+## Notifications
+
+**Notification**:
+A message to one Member about something that happened or is coming due. It appears in the in-app bell and on the Member's devices. A Notification is not a household record, so the Archive rule does not apply: read Notifications expire.
+_Avoid_: Alert, notice, message
+
+**Assignment Notification**:
+A Notification telling a Member that a Task, List Item, Routine, or Appointment has become theirs, whether another Member assigned it or a Routine or Maintenance Schedule generated it. It is never sent when you assign something to yourself.
+
+**Reminder**:
+A Notification that something assigned to a Member is coming due or is overdue. It is sent whoever made the assignment. A Task gets Due Soon, Due Now, and Overdue Reminders. An Appointment gets Due Soon, an hour-before Reminder, and Due Now.
+_Avoid_: Alert, nudge
+
+**Due Soon**:
+The Reminder sent 24 hours before something is due.
+
+**Due Now**:
+The Reminder sent at the due date and time, or when an Appointment starts.
+
+**Overdue**:
+The Reminder sent the morning after the due date if the Task is still open.
+_Avoid_: Late, past due
+
+**Unread**:
+A Notification the Member has not yet opened. The count of Unread Notifications is the badge on the app icon and the bell.
+
+**Push**:
+Delivery of a Notification to a Member's device while the app is closed.
+_Avoid_: Push notification (as a noun for the message itself)
+
+**Push Subscription**:
+One browser or installed app that a Member has enabled to receive Push. A Member may have many.
+_Avoid_: Device, registration, endpoint
 
 ## Interface
 
