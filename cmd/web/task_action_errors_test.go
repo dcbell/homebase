@@ -65,7 +65,7 @@ func TestTaskActionsReportAPIFailures(t *testing.T) {
 	}
 }
 
-func TestTaskActionsRedirectAsBeforeWhenTheAPISucceeds(t *testing.T) {
+func TestTaskActionsRedirectWithSavedWhenTheAPISucceeds(t *testing.T) {
 	for _, action := range taskActions {
 		t.Run(action.name, func(t *testing.T) {
 			_, web := newRecordingAPI(t, map[string]cannedResponse{
@@ -77,8 +77,8 @@ func TestTaskActionsRedirectAsBeforeWhenTheAPISucceeds(t *testing.T) {
 			if rec.Code != http.StatusSeeOther {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 			}
-			if got := rec.Header().Get("Location"); got != action.redirect {
-				t.Fatalf("Location = %q, want %q", got, action.redirect)
+			if got, want := rec.Header().Get("Location"), action.redirect+"?saved=1"; got != want {
+				t.Fatalf("Location = %q, want %q", got, want)
 			}
 		})
 	}

@@ -46,8 +46,8 @@ func TestSavingPushSettingsSendsEveryKindAndReturnsToSettings(t *testing.T) {
 
 	rec := serve(web.routes(), req)
 
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings" {
-		t.Errorf("got %d to %q, want a redirect to /settings", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings?saved=1" {
+		t.Errorf("got %d to %q, want a redirect to /settings?saved=1", rec.Code, rec.Header().Get("Location"))
 	}
 	calls := api.Calls()
 	if len(calls) != 1 || calls[0].Method != http.MethodPatch || calls[0].Path != "/api/v1/push-settings" {
