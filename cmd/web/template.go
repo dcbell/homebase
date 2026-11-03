@@ -412,6 +412,7 @@ const appTemplate = `
 			</a>
 			<nav class="topbar-right">
 				{{ if .Dashboard.CurrentUser.Email }}
+					<span hidden data-app-badge="{{ .Dashboard.Notifications.UnreadCount }}"></span>
 					<div class="universal-search" role="search">
 						<span class="search-leading-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
 						<input type="search" autocomplete="off" placeholder="Search tasks, projects, docs..." aria-label="Search" data-universal-search>
@@ -513,6 +514,124 @@ const appTemplate = `
 	{{ end }}
 	<script>
 		(function () {
+			// App-icon badge: the page refreshes it from the Unread count on
+			// every load, including the redirect after marking read.
+			var appBadge = document.querySelector("[data-app-badge]");
+			if (appBadge && "setAppBadge" in navigator) {
+				var unread = parseInt(appBadge.getAttribute("data-app-badge"), 10) || 0;
+				Promise.resolve(unread > 0 ? navigator.setAppBadge(unread) : navigator.clearAppBadge()).catch(function () {});
+			}
+
+			// Settings > Notifications. The permission prompt is only ever
+			// triggered by the Enable button.
+			var pushPanel = document.querySelector("[data-push-settings]");
+			if (pushPanel) {
+				var pushPart = function (name) { return pushPanel.querySelector("[data-push-" + name + "]"); };
+				var showPush = function (name, on) { var el = pushPart(name); if (el) el.hidden = !on; };
+				var pushFailed = function (message) {
+					var el = pushPart("error");
+					el.textContent = message;
+					el.hidden = false;
+				};
+				var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+				var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+				var pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+				var keyBytes = function (base64url) {
+					var padded = (base64url + "===".slice((base64url.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+					var raw = atob(padded);
+					var bytes = new Uint8Array(raw.length);
+					for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+					return bytes;
+				};
+				var deviceCard = function (endpoint) {
+					var cards = pushPanel.querySelectorAll("[data-push-endpoint]");
+					for (var i = 0; i < cards.length; i++) {
+						if (cards[i].getAttribute("data-push-endpoint") === endpoint) return cards[i];
+					}
+					return null;
+				};
+				var jsonOrError = function (response) {
+					return response.json().catch(function () { return {}; }).then(function (body) {
+						if (!response.ok) throw new Error(body.error || "Request failed");
+						return body;
+					});
+				};
+
+				if (!pushSupported) {
+					showPush(isIOS && !standalone ? "ios-hint" : "unsupported", true);
+				} else if (Notification.permission === "denied") {
+					showPush("blocked", true);
+				} else {
+					navigator.serviceWorker.ready.then(function (registration) {
+						return registration.pushManager.getSubscription();
+					}).then(function (subscription) {
+						var card = subscription && deviceCard(subscription.endpoint);
+						if (card) {
+							card.querySelector("[data-push-this-device]").hidden = false;
+							showPush("disable", true);
+						} else {
+							showPush("enable", true);
+						}
+					}).catch(function () {
+						showPush("enable", true);
+					});
+				}
+
+				pushPart("enable").addEventListener("click", function () {
+					var button = this;
+					button.disabled = true;
+					var asked = Notification.requestPermission();
+					Promise.resolve(asked).then(function (permission) {
+						if (permission !== "granted") {
+							showPush("enable", false);
+							showPush("blocked", permission === "denied");
+							throw null;
+						}
+						return Promise.all([
+							navigator.serviceWorker.ready,
+							fetch("/push/vapid-public-key", { credentials: "same-origin" }).then(jsonOrError)
+						]);
+					}).then(function (results) {
+						var registration = results[0];
+						return registration.pushManager.getSubscription().then(function (existing) {
+							return existing || registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(results[1].public_key) });
+						});
+					}).then(function (subscription) {
+						return fetch("/push-subscriptions", {
+							method: "POST",
+							credentials: "same-origin",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(subscription.toJSON())
+						}).then(jsonOrError);
+					}).then(function () {
+						window.location.reload();
+					}).catch(function (err) {
+						button.disabled = false;
+						if (err) pushFailed("Notifications could not be enabled: " + err.message);
+					});
+				});
+
+				pushPart("disable").addEventListener("click", function () {
+					var button = this;
+					button.disabled = true;
+					navigator.serviceWorker.ready.then(function (registration) {
+						return registration.pushManager.getSubscription();
+					}).then(function (subscription) {
+						if (!subscription) return null;
+						var card = deviceCard(subscription.endpoint);
+						var removed = card
+							? fetch("/push-subscriptions/" + card.getAttribute("data-push-id"), { method: "DELETE", credentials: "same-origin" }).then(jsonOrError)
+							: Promise.resolve();
+						return removed.then(function () { return subscription.unsubscribe(); });
+					}).then(function () {
+						window.location.reload();
+					}).catch(function (err) {
+						button.disabled = false;
+						pushFailed("Notifications could not be disabled: " + err.message);
+					});
+				});
+			}
+
 			function openModal(id) {
 				var modal = document.getElementById(id);
 				if (modal) modal.classList.add("open");
@@ -1922,6 +2041,35 @@ const appTemplate = `
 		<pre class="code-block">{{ .CreatedAPIToken.Token }}</pre>
 	</section>
 	{{ end }}
+
+	<section class="panel" data-push-settings>
+		<div class="tile-head">
+			<h2>Notifications</h2>
+		</div>
+		<p class="empty" data-push-ios-hint hidden>To get notifications on iPhone or iPad, add Homebase to your Home Screen first: tap Share, then Add to Home Screen, and open Homebase from there. This needs iOS 16.4 or later.</p>
+		<p class="empty" data-push-blocked hidden>Notifications are blocked for Homebase in this browser. Allow them in the browser's site settings (on iPhone or iPad: Settings, Notifications, Homebase), then reload this page.</p>
+		<p class="empty" data-push-unsupported hidden>This browser can't receive push notifications.</p>
+		<p class="error" data-push-error hidden></p>
+		<button type="button" data-push-enable hidden>Enable notifications on this device</button>
+		<button type="button" class="secondary" data-push-disable hidden>Disable notifications on this device</button>
+		<div class="cards" style="margin-top:16px;">
+			{{ range .PushSubscriptions }}
+			<article class="item" data-push-endpoint="{{ .Endpoint }}" data-push-id="{{ .ID }}">
+				<div class="item-head">
+					<div>
+						<strong>{{ .Name }}</strong> <span class="pill active" data-push-this-device hidden>This device</span>
+						<div class="meta">Added {{ datetime .CreatedAt }} · {{ if .LastUsedAt }}Last used {{ datetime .LastUsedAt }}{{ else }}Not used yet{{ end }}</div>
+					</div>
+					<form method="post" action="/settings/push-subscriptions/{{ .ID }}/remove">
+						<button class="danger compact" type="submit" title="Remove device" aria-label="Remove device">X</button>
+					</form>
+				</div>
+			</article>
+			{{ else }}
+			<p class="empty">No devices receive notifications yet.</p>
+			{{ end }}
+		</div>
+	</section>
 
 	<section class="panel">
 		<div class="tile-head">

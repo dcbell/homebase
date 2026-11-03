@@ -35,6 +35,9 @@ type Config struct {
 	DocumentMaxBytes     int64
 	HTTPClientTimeout    time.Duration
 	RoutineCheckInterval time.Duration
+	// VAPIDSubject identifies the operator to push services. Empty means the
+	// bootstrap owner's email.
+	VAPIDSubject string
 }
 
 func Load() Config {
@@ -83,6 +86,7 @@ func Load() Config {
 		DocumentMaxBytes:     int64Env("DOCUMENT_MAX_UPLOAD_MB", 25) * 1024 * 1024,
 		HTTPClientTimeout:    durationEnv("HTTP_CLIENT_TIMEOUT_SECONDS", 10*time.Second),
 		RoutineCheckInterval: durationEnv("ROUTINE_CHECK_INTERVAL_SECONDS", 15*time.Minute),
+		VAPIDSubject:         env("VAPID_SUBJECT", ""),
 	}
 
 	return cfg

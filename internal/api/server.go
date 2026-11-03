@@ -20,6 +20,7 @@ import (
 	"homebase/internal/clock"
 	"homebase/internal/config"
 	"homebase/internal/notify"
+	"homebase/internal/push"
 	"homebase/internal/store"
 )
 
@@ -47,10 +48,22 @@ type Server struct {
 	// notifier decides and records every Notification. Domain handlers report
 	// changes to it and never create Notifications themselves.
 	notifier *notify.Notifier
+
+	// pushSender sends Push to Push Subscriptions. The default is Web Push
+	// with the VAPID keys stored in the database.
+	pushSender push.Sender
 }
 
 // Option overrides one of the Server's default dependencies.
 type Option func(*Server)
+
+// WithPushSender sets how Push is sent to Push Subscriptions. The default is
+// standard Web Push with VAPID; tests pass a recording fake.
+func WithPushSender(sender push.Sender) Option {
+	return func(s *Server) {
+		s.pushSender = sender
+	}
+}
 
 // WithClock sets the Server's source of "now". The default is the real clock.
 func WithClock(c clock.Clock) Option {
@@ -70,8 +83,15 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option
 	for _, opt := range opts {
 		opt(s)
 	}
-	// Push plugs in here as a notify.WithDelivery option.
-	s.notifier = notify.New(st, s.clock, logger)
+	if s.pushSender == nil {
+		subject := cfg.VAPIDSubject
+		if subject == "" {
+			subject = cfg.BootstrapOwnerEmail
+		}
+		s.pushSender = push.NewWebPush(st, subject)
+	}
+	s.notifier = notify.New(st, s.clock, logger,
+		notify.WithDelivery(push.NewDelivery(st, s.pushSender, s.clock, logger)))
 	s.routes()
 	return s
 }
@@ -111,6 +131,14 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read"):
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/notifications/"), "/read")
 		s.markNotificationRead(w, r, id)
+	case r.Method == http.MethodGet && path == "/push/vapid-public-key":
+		s.vapidPublicKey(w, r)
+	case r.Method == http.MethodGet && path == "/push-subscriptions":
+		s.listPushSubscriptions(w, r)
+	case r.Method == http.MethodPost && path == "/push-subscriptions":
+		s.registerPushSubscription(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/push-subscriptions/"):
+		s.deletePushSubscription(w, r, strings.TrimPrefix(path, "/push-subscriptions/"))
 	case r.Method == http.MethodGet && path == "/households/current":
 		s.currentHousehold(w, r)
 	case r.Method == http.MethodGet && path == "/dashboard":

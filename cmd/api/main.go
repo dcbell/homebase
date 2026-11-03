@@ -12,6 +12,7 @@ import (
 
 	"homebase/internal/api"
 	"homebase/internal/config"
+	"homebase/internal/push"
 	"homebase/internal/store"
 )
 
@@ -42,6 +43,15 @@ func main() {
 			logger.Error("bootstrap owner", "error", err)
 			os.Exit(1)
 		}
+	}
+	// The VAPID key pair lives in the database (ADR 0003); create it on first
+	// start so every API instance signs Push with the same keys.
+	if _, err := push.EnsureVAPIDKeys(ctx, st); err != nil {
+		logger.Error("ensure VAPID keys", "error", err)
+		os.Exit(1)
+	}
+	if cfg.VAPIDSubject == "" && cfg.BootstrapOwnerEmail == "" {
+		logger.Warn("no VAPID subject: set VAPID_SUBJECT or BOOTSTRAP_OWNER_EMAIL, or some push services will reject Push")
 	}
 	go runRoutineScheduler(ctx, logger, st, cfg.RoutineCheckInterval)
 

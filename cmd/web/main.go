@@ -69,6 +69,7 @@ type pageData struct {
 	Assets                []store.Asset
 	AssetMaintenanceItems []store.AssetMaintenanceItem
 	APITokens             []store.APIToken
+	PushSubscriptions     []store.PushSubscription
 	CreatedAPIToken       store.APITokenWithSecret
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
@@ -206,6 +207,7 @@ func (s *webServer) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /favicon.svg", favicon)
 	s.pwaRoutes(mux)
+	s.pushRoutes(mux)
 	mux.HandleFunc("GET /docs", s.swaggerDocs)
 	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /openapi.yaml", s.openapi)
@@ -763,17 +765,24 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 			pageError = err.Error()
 		}
 	}
+	var pushSubscriptions []store.PushSubscription
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/push-subscriptions", nil, &pushSubscriptions); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
 	if pageError == "" {
 		pageError = userFacingError(r.URL.Query().Get("error"))
 	}
 	s.render(w, http.StatusOK, pageData{
-		Title:           "Settings",
-		Error:           pageError,
-		Dashboard:       dashboard,
-		APITokens:       tokens,
-		CreatedAPIToken: created,
-		SettingsPage:    true,
-		Now:             time.Now(),
+		Title:             "Settings",
+		Error:             pageError,
+		Dashboard:         dashboard,
+		APITokens:         tokens,
+		PushSubscriptions: pushSubscriptions,
+		CreatedAPIToken:   created,
+		SettingsPage:      true,
+		Now:               time.Now(),
 	})
 }
 
