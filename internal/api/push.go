@@ -97,6 +97,30 @@ func (s *Server) deletePushSubscription(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) getPushSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.store.PushSettings(r.Context(), householdFrom(r).ID, userFrom(r).ID)
+	if err != nil {
+		s.logger.Error("load push settings", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load push settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (s *Server) updatePushSettings(w http.ResponseWriter, r *http.Request) {
+	var input store.PushSettingsInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	settings, err := s.store.UpdatePushSettings(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	if err != nil {
+		s.logger.Error("update push settings", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update push settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
 // deviceName turns a User-Agent into a name a Member recognizes, such as
 // "Safari on iPhone".
 func deviceName(userAgent string) string {

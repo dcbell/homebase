@@ -2088,6 +2088,13 @@ const appTemplate = `
 			<p class="empty">No devices receive notifications yet.</p>
 			{{ end }}
 		</div>
+		<form method="post" action="/settings/push-settings" class="push-kinds" style="margin-top:16px;">
+			<p class="meta">Choose what is sent to your devices. Everything still appears in the bell.</p>
+			<label class="theme-row"><span>Assignments</span><span class="switch"><input type="checkbox" name="assignment"{{ if .PushSettings.Assignment }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<label class="theme-row"><span>Task Reminders</span><span class="switch"><input type="checkbox" name="task_reminder"{{ if .PushSettings.TaskReminder }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<label class="theme-row"><span>Appointment Reminders</span><span class="switch"><input type="checkbox" name="appointment_reminder"{{ if .PushSettings.AppointmentReminder }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<noscript><button type="submit" class="secondary">Save</button></noscript>
+		</form>
 	</section>
 
 	<section class="panel">
