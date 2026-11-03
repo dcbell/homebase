@@ -26,6 +26,7 @@ Homebase is a self-hosted household operations application for projects, tasks, 
 - [API and Tokens](#api-and-tokens)
 - [Configuration](#configuration)
 - [Development Notes](#development-notes)
+- [Running Tests](#running-tests)
 
 ## Features
 
@@ -338,3 +339,17 @@ See [`.env.example`](.env.example) for the complete list.
 - Documents are reusable records. A single upload can be linked to multiple projects, tasks, and assets.
 - Dashboard tile order and the selected dashboard list are retained per user/browser.
 - Current follow-up work, including archive recovery and additional real-device QA, is tracked in [GitHub Issues](https://github.com/dcbell/homebase/issues).
+
+## Running Tests
+
+The API tests run against the docker compose PostgreSQL. Start it, then run the tests:
+
+```sh
+docker compose up -d db
+go test ./...
+```
+
+- `TEST_DATABASE_URL` locates the PostgreSQL server. It defaults to `postgres://homebase:homebase@localhost:5432/homebase?sslmode=disable`.
+- Tests never use the database named in that URL. They create a separate `homebase_test` database on the same server and give each test its own schema, migrated with the embedded migrations and dropped when the test ends. Development data is never touched, and several test runs can share the server at once.
+- Tests that need the database skip with a message when it is unreachable.
+- API tests use `internal/apitest`: it builds the API server with a fake clock, seeds a Household with an Owner and a Member, and sends requests as either one.

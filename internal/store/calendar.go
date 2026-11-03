@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month time.Time) (CalendarMonth, error) {
+func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month, now time.Time) (CalendarMonth, error) {
 	location := time.Local
 	if month.IsZero() {
-		month = time.Now()
+		month = now
 	}
 	monthStart := time.Date(month.In(location).Year(), month.In(location).Month(), 1, 0, 0, 0, 0, location)
 	gridStart := monthStart.AddDate(0, 0, -int(monthStart.Weekday()))
@@ -30,7 +30,7 @@ func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month time
 		return CalendarMonth{}, err
 	}
 
-	todayKey := dayKey(time.Now())
+	todayKey := dayKey(now)
 	days := make([]CalendarDay, 0, 42)
 	for day := gridStart; day.Before(gridEnd); day = day.AddDate(0, 0, 1) {
 		key := dayKey(day)
