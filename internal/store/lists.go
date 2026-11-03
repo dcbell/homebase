@@ -152,21 +152,27 @@ func (s *Store) CreateListItem(ctx context.Context, householdID, userID, listID 
 	return item, err
 }
 
-func (s *Store) UpdateListItem(ctx context.Context, householdID, id int64, input ListItemInput) (ListItem, error) {
+// UpdateListItem replaces a List Item's fields. It also returns the List Item
+// as it was just before the update, so callers can tell what changed.
+func (s *Store) UpdateListItem(ctx context.Context, householdID, id int64, input ListItemInput) (updated ListItem, previous ListItem, err error) {
 	listID, err := s.listIDForItem(ctx, householdID, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ListItem{}, ErrNotFound
+		return ListItem{}, ListItem{}, ErrNotFound
 	}
 	if err != nil {
-		return ListItem{}, err
+		return ListItem{}, ListItem{}, err
 	}
 	if err := s.validateListItemInput(ctx, householdID, listID, &input); err != nil {
-		return ListItem{}, err
+		return ListItem{}, ListItem{}, err
 	}
 
-	var item ListItem
+	var item, prev ListItem
 	err = s.db.QueryRowContext(ctx, `
-		WITH updated AS (
+		WITH previous AS (
+			SELECT id, household_id, list_id, assigned_to, title, notes, status, due_at, completed_at, created_by, created_at, updated_at
+			FROM list_items
+			WHERE household_id = $1 AND id = $2
+		), updated AS (
 			UPDATE list_items
 			SET assigned_to = $3,
 				title = $4,
@@ -182,16 +188,23 @@ func (s *Store) UpdateListItem(ctx context.Context, householdID, id int64, input
 			WHERE household_id = $1 AND id = $2
 			RETURNING id, household_id, list_id, assigned_to, title, notes, status, due_at, completed_at, created_by, created_at, updated_at
 		)
-		SELECT updated.id, updated.household_id, updated.list_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at
+		SELECT updated.id, updated.household_id, updated.list_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at,
+			previous.id, previous.household_id, previous.list_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at
 		FROM updated
+		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
+		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Status, input.DueAt).Scan(
 		&item.ID, &item.HouseholdID, &item.ListID, &item.AssignedTo, &item.AssignedName, &item.Title, &item.Notes, &item.Status, &item.DueAt, &item.CompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
+		&prev.ID, &prev.HouseholdID, &prev.ListID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Status, &prev.DueAt, &prev.CompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ListItem{}, ErrNotFound
+		return ListItem{}, ListItem{}, ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return ListItem{}, ListItem{}, err
+	}
+	return item, prev, nil
 }
 
 func (s *Store) CompleteListItem(ctx context.Context, householdID, id int64) (ListItem, error) {

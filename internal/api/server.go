@@ -838,6 +838,22 @@ func (s *Server) taskChanged(ctx context.Context, change notify.TaskChange) {
 	}
 }
 
+// listItemChanged reports a List Item change to the Notifier, logging rather
+// than failing the already-saved request.
+func (s *Server) listItemChanged(ctx context.Context, change notify.ListItemChange) {
+	if err := s.notifier.ListItemChanged(ctx, change); err != nil {
+		s.logger.Error("notify list item changed", "list_item_id", change.After.ID, "error", err)
+	}
+}
+
+// routineChanged reports a Routine change to the Notifier, logging rather
+// than failing the already-saved request.
+func (s *Server) routineChanged(ctx context.Context, change notify.RoutineChange) {
+	if err := s.notifier.RoutineChanged(ctx, change); err != nil {
+		s.logger.Error("notify routine changed", "routine_id", change.After.ID, "error", err)
+	}
+}
+
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 	id, ok := parseID(w, rawID)
 	if !ok {
@@ -1018,11 +1034,13 @@ func (s *Server) createRoutine(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	routine, err := s.store.CreateRoutine(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	routine, err := s.store.CreateRoutine(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.routineChanged(r.Context(), notify.RoutineChange{Actor: &actor, After: routine})
 	writeJSON(w, http.StatusCreated, routine)
 }
 
@@ -1052,7 +1070,7 @@ func (s *Server) updateRoutine(w http.ResponseWriter, r *http.Request, rawID str
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	routine, err := s.store.UpdateRoutine(r.Context(), householdFrom(r).ID, id, input)
+	routine, previous, err := s.store.UpdateRoutine(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "routine not found")
 		return
@@ -1061,6 +1079,8 @@ func (s *Server) updateRoutine(w http.ResponseWriter, r *http.Request, rawID str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.routineChanged(r.Context(), notify.RoutineChange{Actor: &actor, Before: &previous, After: routine})
 	writeJSON(w, http.StatusOK, routine)
 }
 
@@ -1084,7 +1104,7 @@ func (s *Server) generateRoutineTask(w http.ResponseWriter, r *http.Request, raw
 	if !ok {
 		return
 	}
-	task, err := s.store.GenerateRoutineTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
+	task, created, err := s.store.GenerateRoutineTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "routine not found")
 		return
@@ -1092,6 +1112,10 @@ func (s *Server) generateRoutineTask(w http.ResponseWriter, r *http.Request, raw
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if created {
+		// A Generated Task has no acting Member, even when one asked for it.
+		s.taskChanged(r.Context(), notify.TaskChange{After: task})
 	}
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -1195,11 +1219,13 @@ func (s *Server) createListItem(w http.ResponseWriter, r *http.Request, rawListI
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.store.CreateListItem(r.Context(), householdFrom(r).ID, userFrom(r).ID, listID, input)
+	actor := userFrom(r)
+	item, err := s.store.CreateListItem(r.Context(), householdFrom(r).ID, actor.ID, listID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.listItemChanged(r.Context(), notify.ListItemChange{Actor: &actor, After: item})
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -1212,7 +1238,7 @@ func (s *Server) updateListItem(w http.ResponseWriter, r *http.Request, rawID st
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.store.UpdateListItem(r.Context(), householdFrom(r).ID, id, input)
+	item, previous, err := s.store.UpdateListItem(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "list item not found")
 		return
@@ -1221,6 +1247,8 @@ func (s *Server) updateListItem(w http.ResponseWriter, r *http.Request, rawID st
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.listItemChanged(r.Context(), notify.ListItemChange{Actor: &actor, Before: &previous, After: item})
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -1557,7 +1585,7 @@ func (s *Server) generateAssetMaintenanceTask(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	task, err := s.store.GenerateAssetMaintenanceItemTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
+	task, created, err := s.store.GenerateAssetMaintenanceItemTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "maintenance item not found")
 		return
@@ -1565,6 +1593,10 @@ func (s *Server) generateAssetMaintenanceTask(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if created {
+		// A Generated Task has no acting Member, even when one asked for it.
+		s.taskChanged(r.Context(), notify.TaskChange{After: task})
 	}
 	writeJSON(w, http.StatusCreated, task)
 }

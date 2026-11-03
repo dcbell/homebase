@@ -43,11 +43,12 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	go runRoutineScheduler(ctx, logger, st, cfg.RoutineCheckInterval)
+	apiServer := api.New(cfg, st, logger)
+	go runRoutineScheduler(ctx, logger, apiServer, cfg.RoutineCheckInterval)
 
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.New(cfg, st, logger),
+		Handler:           apiServer,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -68,7 +69,7 @@ func main() {
 	}
 }
 
-func runRoutineScheduler(ctx context.Context, logger *slog.Logger, st *store.Store, interval time.Duration) {
+func runRoutineScheduler(ctx context.Context, logger *slog.Logger, apiServer *api.Server, interval time.Duration) {
 	if interval <= 0 {
 		interval = 15 * time.Minute
 	}
@@ -76,21 +77,8 @@ func runRoutineScheduler(ctx context.Context, logger *slog.Logger, st *store.Sto
 	run := func() {
 		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		count, err := st.GenerateDueRoutineTasks(jobCtx, time.Now())
-		if err != nil {
-			logger.Error("generate due routine tasks", "error", err)
-			return
-		}
-		if count > 0 {
-			logger.Info("generated due routine tasks", "count", count)
-		}
-		assetCount, err := st.GenerateDueAssetMaintenanceTasks(jobCtx, time.Now())
-		if err != nil {
-			logger.Error("generate due asset maintenance tasks", "error", err)
-			return
-		}
-		if assetCount > 0 {
-			logger.Info("generated due asset maintenance tasks", "count", assetCount)
+		if err := apiServer.GenerateDueTasks(jobCtx); err != nil {
+			logger.Error("generate due tasks", "error", err)
 		}
 	}
 

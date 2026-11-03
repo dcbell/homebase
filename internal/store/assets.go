@@ -285,28 +285,31 @@ func (s *Store) ArchiveAssetMaintenanceItem(ctx context.Context, householdID, id
 	return nil
 }
 
-func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdID, userID, id int64) (Task, error) {
+// GenerateAssetMaintenanceItemTask creates the Task for a Maintenance
+// Schedule's next due date. It is idempotent: when an open Task for that due
+// date already exists it is returned with created false.
+func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdID, userID, id int64) (task Task, created bool, err error) {
 	item, err := s.GetAssetMaintenanceItem(ctx, householdID, id)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	if item.Status == "archived" {
-		return Task{}, errors.New("maintenance item is archived")
+		return Task{}, false, errors.New("maintenance item is archived")
 	}
 	asset, err := s.GetAsset(ctx, householdID, item.AssetID)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	if asset.Status == "archived" {
-		return Task{}, errors.New("asset is archived")
+		return Task{}, false, errors.New("asset is archived")
 	}
 	if item.NextDueAt != nil {
 		task, err := s.getOpenAssetMaintenanceTaskForDue(ctx, item.ID, *item.NextDueAt)
 		if err == nil {
-			return task, nil
+			return task, false, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
-			return Task{}, err
+			return Task{}, false, err
 		}
 	}
 
@@ -318,14 +321,14 @@ func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdI
 		Priority:               "normal",
 		DueAt:                  item.NextDueAt,
 	}
-	task, err := s.CreateTask(ctx, householdID, userID, input)
+	task, err = s.CreateTask(ctx, householdID, userID, input)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	if err := s.LinkAsset(ctx, householdID, userID, asset.ID, RelatedItemInput{EntityType: "task", EntityID: task.ID}); err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
-	return task, nil
+	return task, true, nil
 }
 
 func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID int64, dueAt time.Time) (Task, error) {
@@ -347,7 +350,10 @@ func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID in
 	return task, err
 }
 
-func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.Time) (int64, error) {
+// GenerateDueAssetMaintenanceTasks creates the Task for every active
+// Maintenance Schedule due as of now that has no open Task for that due date
+// yet, and returns the Tasks it created.
+func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH inserted AS (
 			INSERT INTO tasks (household_id, asset_id, asset_maintenance_item_id, title, notes, priority, due_at, created_by)
@@ -371,25 +377,32 @@ func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.T
 						AND t.due_at IS NOT DISTINCT FROM i.next_due_at
 				)
 			ON CONFLICT DO NOTHING
-			RETURNING id, household_id, asset_id, created_by
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
 		), linked AS (
 			INSERT INTO asset_links (household_id, asset_id, entity_type, entity_id, created_by)
 			SELECT household_id, asset_id, 'task', id, created_by
 			FROM inserted
 			ON CONFLICT DO NOTHING
 		)
-		SELECT id FROM inserted
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at
+		FROM inserted
+		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
+		ORDER BY inserted.id
 	`, now)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var count int64
+	tasks := []Task{}
 	for rows.Next() {
-		count++
+		var task Task
+		if err := scanTask(rows, &task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
 	}
-	return count, rows.Err()
+	return tasks, rows.Err()
 }
 
 func (s *Store) CompleteAssetMaintenance(ctx context.Context, householdID, id int64) error {
