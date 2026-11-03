@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"homebase/internal/clock"
 	"homebase/internal/config"
 	"homebase/internal/store"
 )
@@ -39,15 +40,30 @@ type Server struct {
 	cfg    config.Config
 	store  *store.Store
 	logger *slog.Logger
+	clock  clock.Clock
 	mux    *http.ServeMux
 }
 
-func New(cfg config.Config, st *store.Store, logger *slog.Logger) *Server {
+// Option overrides one of the Server's default dependencies.
+type Option func(*Server)
+
+// WithClock sets the Server's source of "now". The default is the real clock.
+func WithClock(c clock.Clock) Option {
+	return func(s *Server) {
+		s.clock = c
+	}
+}
+
+func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option) *Server {
 	s := &Server{
 		cfg:    cfg,
 		store:  st,
 		logger: logger,
+		clock:  clock.Real(),
 		mux:    http.NewServeMux(),
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.routes()
 	return s
@@ -431,7 +447,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) calendar(w http.ResponseWriter, r *http.Request) {
-	month := time.Now()
+	now := s.clock.Now()
+	month := now
 	if raw := strings.TrimSpace(r.URL.Query().Get("month")); raw != "" {
 		parsed, err := time.ParseInLocation("2006-01", raw, time.Local)
 		if err != nil {
@@ -441,7 +458,7 @@ func (s *Server) calendar(w http.ResponseWriter, r *http.Request) {
 		month = parsed
 	}
 
-	calendar, err := s.store.CalendarMonth(r.Context(), householdFrom(r).ID, month)
+	calendar, err := s.store.CalendarMonth(r.Context(), householdFrom(r).ID, month, now)
 	if err != nil {
 		s.logger.Error("calendar", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to load calendar")
