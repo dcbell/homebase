@@ -22,22 +22,22 @@ type apiCall struct {
 	UserAgent string
 }
 
-// fakeAPI answers with canned responses keyed by "METHOD /path" and records
+// recordingAPI answers with canned responses keyed by "METHOD /path" and records
 // every call.
-type fakeAPI struct {
+type recordingAPI struct {
 	mu        sync.Mutex
 	calls     []apiCall
-	responses map[string]fakeResponse
+	responses map[string]cannedResponse
 }
 
-type fakeResponse struct {
+type cannedResponse struct {
 	status int
 	body   string
 }
 
-func newFakeAPI(t *testing.T, responses map[string]fakeResponse) (*fakeAPI, *webServer) {
+func newRecordingAPI(t *testing.T, responses map[string]cannedResponse) (*recordingAPI, *webServer) {
 	t.Helper()
-	api := &fakeAPI{responses: responses}
+	api := &recordingAPI{responses: responses}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		cookie := ""
@@ -49,7 +49,7 @@ func newFakeAPI(t *testing.T, responses map[string]fakeResponse) (*fakeAPI, *web
 		resp, ok := api.responses[r.Method+" "+r.URL.Path]
 		api.mu.Unlock()
 		if !ok {
-			resp = fakeResponse{http.StatusNotFound, `{"error":"route not found"}`}
+			resp = cannedResponse{http.StatusNotFound, `{"error":"route not found"}`}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.status)
@@ -60,7 +60,7 @@ func newFakeAPI(t *testing.T, responses map[string]fakeResponse) (*fakeAPI, *web
 	return api, web
 }
 
-func (a *fakeAPI) Calls() []apiCall {
+func (a *recordingAPI) Calls() []apiCall {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]apiCall(nil), a.calls...)
@@ -87,7 +87,7 @@ func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestVAPIDPublicKeyIsForwardedFromTheAPI(t *testing.T) {
-	api, web := newFakeAPI(t, map[string]fakeResponse{
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
 		"GET /api/v1/push/vapid-public-key": {http.StatusOK, `{"public_key":"BPublicKey"}`},
 	})
 
@@ -102,7 +102,7 @@ func TestVAPIDPublicKeyIsForwardedFromTheAPI(t *testing.T) {
 }
 
 func TestRegisteringAPushSubscriptionIsForwardedWithTheBrowsersUserAgent(t *testing.T) {
-	api, web := newFakeAPI(t, map[string]fakeResponse{
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
 		"POST /api/v1/push-subscriptions": {http.StatusCreated, `{"id":7,"name":"Safari on iPhone"}`},
 	})
 	subscription := `{"endpoint":"https://push.example/phone","keys":{"p256dh":"k","auth":"a"}}`
@@ -125,7 +125,7 @@ func TestRegisteringAPushSubscriptionIsForwardedWithTheBrowsersUserAgent(t *test
 }
 
 func TestPushSubscriptionErrorsAreForwardedAsIs(t *testing.T) {
-	_, web := newFakeAPI(t, map[string]fakeResponse{
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
 		"POST /api/v1/push-subscriptions": {http.StatusForbidden, `{"error":"registering a push subscription requires a browser session"}`},
 	})
 
@@ -137,7 +137,7 @@ func TestPushSubscriptionErrorsAreForwardedAsIs(t *testing.T) {
 }
 
 func TestDisablingThisDeviceDeletesItsPushSubscription(t *testing.T) {
-	api, web := newFakeAPI(t, map[string]fakeResponse{
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
 		"DELETE /api/v1/push-subscriptions/7": {http.StatusOK, `{"ok":true}`},
 	})
 
@@ -152,7 +152,7 @@ func TestDisablingThisDeviceDeletesItsPushSubscription(t *testing.T) {
 }
 
 func TestRemovingADeviceInSettingsReturnsToSettings(t *testing.T) {
-	api, web := newFakeAPI(t, map[string]fakeResponse{
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
 		"DELETE /api/v1/push-subscriptions/7": {http.StatusOK, `{"ok":true}`},
 	})
 
@@ -167,7 +167,7 @@ func TestRemovingADeviceInSettingsReturnsToSettings(t *testing.T) {
 }
 
 func TestTappingAPushMarksItReadAndReturnsTheUnreadCount(t *testing.T) {
-	api, web := newFakeAPI(t, map[string]fakeResponse{
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
 		"POST /api/v1/notifications/42/read": {http.StatusOK, `{"id":42,"url":"/tasks/9"}`},
 		"GET /api/v1/notifications":          {http.StatusOK, `{"notifications":[],"unread_count":3}`},
 	})
@@ -190,7 +190,7 @@ func TestTappingAPushMarksItReadAndReturnsTheUnreadCount(t *testing.T) {
 }
 
 func TestSettingsListsDevicesAndOffersToEnableThisOne(t *testing.T) {
-	_, web := newFakeAPI(t, map[string]fakeResponse{
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
 		"GET /api/v1/dashboard":          {http.StatusOK, `{"current_user":{"id":1,"email":"member@example.test","name":"Member"},"notifications":{"notifications":[],"unread_count":4}}`},
 		"GET /api/v1/api-tokens":         {http.StatusOK, `[]`},
 		"GET /api/v1/push-subscriptions": {http.StatusOK, `[{"id":7,"name":"Safari on iPhone","endpoint":"https://push.example/phone","created_at":"2030-01-10T09:00:00Z","last_used_at":"2030-01-14T18:30:00Z"}]`},
