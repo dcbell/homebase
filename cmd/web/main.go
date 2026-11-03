@@ -134,6 +134,8 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"datetimeInput":         formatDateTimeInput,
 		"datetimeInputPtr":      formatDateTimeInputPtr,
 		"selectedID":            selectedID,
+		"hasID":                 hasID,
+		"attendeeNames":         attendeeNames,
 		"selectedString":        selectedString,
 		"idValue":               idValue,
 		"initials":              initials,
@@ -1166,11 +1168,12 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{
-		"title":       r.FormValue("title"),
-		"description": r.FormValue("description"),
-		"location":    r.FormValue("location"),
-		"starts_at":   r.FormValue("starts_at") + ":00Z",
-		"ends_at":     r.FormValue("ends_at") + ":00Z",
+		"title":        r.FormValue("title"),
+		"description":  r.FormValue("description"),
+		"location":     r.FormValue("location"),
+		"starts_at":    r.FormValue("starts_at") + ":00Z",
+		"ends_at":      r.FormValue("ends_at") + ":00Z",
+		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	_ = s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -1204,11 +1207,12 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{
-		"title":       r.FormValue("title"),
-		"description": r.FormValue("description"),
-		"location":    r.FormValue("location"),
-		"starts_at":   r.FormValue("starts_at") + ":00Z",
-		"ends_at":     r.FormValue("ends_at") + ":00Z",
+		"title":        r.FormValue("title"),
+		"description":  r.FormValue("description"),
+		"location":     r.FormValue("location"),
+		"starts_at":    r.FormValue("starts_at") + ":00Z",
+		"ends_at":      r.FormValue("ends_at") + ":00Z",
+		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -2658,6 +2662,41 @@ func selectedString(current, value string) template.HTMLAttr {
 		return "selected"
 	}
 	return ""
+}
+
+// attendeeIDsFromForm reads the checked Attendee checkboxes. It always returns
+// a list, so an edit with none checked makes the Appointment whole-Household.
+func attendeeIDsFromForm(r *http.Request) []int64 {
+	ids := []int64{}
+	for _, raw := range r.Form["attendee_ids"] {
+		if id, ok := optionalInt64(raw); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// hasID reports whether id is in ids, which may be absent (nil) in a template.
+func hasID(ids any, id int64) bool {
+	list, _ := ids.([]int64)
+	for _, candidate := range list {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
+
+// attendeeNames describes who an Appointment is for.
+func attendeeNames(attendees []store.Attendee) string {
+	if len(attendees) == 0 {
+		return "the whole household"
+	}
+	names := make([]string, len(attendees))
+	for i, a := range attendees {
+		names[i] = a.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 func optionalInt64(value string) (int64, bool) {

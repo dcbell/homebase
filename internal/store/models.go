@@ -102,6 +102,16 @@ type Event struct {
 	CreatedBy   int64     `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// AttendeeIDs and Attendees are the Members the Appointment is for. Empty
+	// means the whole Household.
+	AttendeeIDs []int64    `json:"attendee_ids"`
+	Attendees   []Attendee `json:"attendees"`
+}
+
+// Attendee is a Member an Appointment is for.
+type Attendee struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 type Routine struct {
@@ -302,6 +312,9 @@ type CalendarEntry struct {
 	Meta     string     `json:"meta,omitempty"`
 	Status   string     `json:"status,omitempty"`
 	Priority string     `json:"priority,omitempty"`
+	// Attendees is set on appointment entries that are not for the whole
+	// Household.
+	Attendees []Attendee `json:"attendees,omitempty"`
 }
 
 type CalendarDay struct {
