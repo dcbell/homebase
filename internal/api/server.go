@@ -667,7 +667,16 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusCreated, member)
+}
+
+// membersChanged reports a Member joining or leaving to the Notifier, logging
+// rather than failing the already-saved request.
+func (s *Server) membersChanged(ctx context.Context, householdID int64) {
+	if err := s.notifier.MembersChanged(ctx, householdID); err != nil {
+		s.logger.Error("notify members changed", "household_id", householdID, "error", err)
+	}
 }
 
 func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, id string) {
@@ -722,6 +731,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, id string)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

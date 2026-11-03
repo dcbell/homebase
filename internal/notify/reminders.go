@@ -284,6 +284,24 @@ func (n *Notifier) AppointmentRemoved(ctx context.Context, householdID, appointm
 	return n.scheduleReminders(ctx, subject, nil, nil, AppointmentReminderStages)
 }
 
+// MembersChanged is called after a Member joins or leaves the household. An
+// Appointment with no Attendees is for whoever is a Member, so the Reminders
+// of every such Appointment still ahead are rescheduled for the current
+// Members: a newcomer gets those still to come, and a leaver gets none.
+func (n *Notifier) MembersChanged(ctx context.Context, householdID int64) error {
+	appointments, err := n.store.ListWholeHouseholdEventsAfter(ctx, householdID, n.clock.Now())
+	if err != nil {
+		return fmt.Errorf("list whole-household appointments: %w", err)
+	}
+	var errs []error
+	for _, appointment := range appointments {
+		if err := n.appointmentReminders(ctx, appointment); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // appointmentRecipients are the Members an Appointment's Reminders go to: its
 // Attendees, or every Member when it has none.
 func (n *Notifier) appointmentRecipients(ctx context.Context, appointment store.Event) ([]int64, error) {
