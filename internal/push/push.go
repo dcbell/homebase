@@ -2,16 +2,12 @@
 // with standard Web Push and VAPID (ADR 0003).
 //
 // The Sender interface is the seam: production uses WebPush, tests use
-// pushtest.Recorder. Delivery plugs into the Notifier as its notify.Delivery.
+// pushtest.Recorder. Delivery plugs into the Notifier as its notify.Delivery
+// and sends in the background, so no request waits on a push service.
 package push
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
-
-	"homebase/internal/clock"
-	"homebase/internal/store"
 )
 
 // Subscription is where to send a Push and the keys to encrypt it with.
@@ -59,61 +55,3 @@ type Payload struct {
 	UnreadCount    int    `json:"unread_count"`
 }
 
-// Delivery pushes each stored Notification to every Push Subscription of its
-// recipient. It implements notify.Delivery.
-type Delivery struct {
-	store  *store.Store
-	sender Sender
-	clock  clock.Clock
-	logger *slog.Logger
-}
-
-func NewDelivery(st *store.Store, sender Sender, c clock.Clock, logger *slog.Logger) *Delivery {
-	return &Delivery{store: st, sender: sender, clock: c, logger: logger}
-}
-
-// Deliver sends n to all of its recipient's Push Subscriptions. Failures are
-// logged, never returned: the Notification is already in the bell.
-func (d *Delivery) Deliver(ctx context.Context, n store.Notification) {
-	subs, err := d.store.ListPushSubscriptions(ctx, n.HouseholdID, n.RecipientID)
-	if err != nil {
-		d.logger.Error("list push subscriptions", "notification_id", n.ID, "error", err)
-		return
-	}
-	if len(subs) == 0 {
-		return
-	}
-	unread, err := d.store.UnreadNotificationCount(ctx, n.HouseholdID, n.RecipientID)
-	if err != nil {
-		d.logger.Error("count unread notifications", "notification_id", n.ID, "error", err)
-		return
-	}
-	payload, err := json.Marshal(Payload{
-		Title:          n.Title,
-		Body:           n.Body,
-		URL:            n.URL,
-		NotificationID: n.ID,
-		UnreadCount:    unread,
-	})
-	if err != nil {
-		d.logger.Error("encode push payload", "notification_id", n.ID, "error", err)
-		return
-	}
-
-	for _, sub := range subs {
-		result, err := d.sender.Send(ctx, Subscription{Endpoint: sub.Endpoint, P256dh: sub.P256dh, Auth: sub.Auth}, payload)
-		switch result {
-		case Delivered:
-			if err := d.store.TouchPushSubscription(ctx, sub.ID, d.clock.Now()); err != nil {
-				d.logger.Error("record push subscription use", "subscription_id", sub.ID, "error", err)
-			}
-		case Gone:
-			d.logger.Info("forgetting gone push subscription", "subscription_id", sub.ID, "user_id", sub.UserID)
-			if err := d.store.ForgetPushSubscription(ctx, sub.ID); err != nil {
-				d.logger.Error("forget push subscription", "subscription_id", sub.ID, "error", err)
-			}
-		default:
-			d.logger.Warn("push failed", "subscription_id", sub.ID, "notification_id", n.ID, "error", err)
-		}
-	}
-}

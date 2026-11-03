@@ -66,6 +66,11 @@ func New(t testing.TB, opts ...api.Option) *Harness {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h.Server = api.New(h.Config, h.Store, logger, append([]api.Option{api.WithClock(h.Clock)}, opts...)...)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = h.Server.Close(ctx)
+	})
 	return h
 }
 
@@ -182,6 +187,9 @@ func (c *Client) Do(method, path string, body any) *Response {
 
 	rec := httptest.NewRecorder()
 	c.h.Server.ServeHTTP(rec, req)
+	// Push goes out in the background; wait for it so tests see its effects
+	// (Pushes sent, gone Push Subscriptions forgotten) once the request returns.
+	c.h.Server.WaitForPush()
 	return &Response{t: c.h.t, Method: method, Path: path, Status: rec.Code, Header: rec.Header(), Body: rec.Body.Bytes()}
 }
 

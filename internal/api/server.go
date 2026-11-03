@@ -52,6 +52,9 @@ type Server struct {
 	// pushSender sends Push to Push Subscriptions. The default is Web Push
 	// with the VAPID keys stored in the database.
 	pushSender push.Sender
+	// pushDelivery sends Push in the background so requests never wait on
+	// push services.
+	pushDelivery *push.Delivery
 }
 
 // Option overrides one of the Server's default dependencies.
@@ -90,10 +93,22 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option
 		}
 		s.pushSender = push.NewWebPush(st, subject)
 	}
-	s.notifier = notify.New(st, s.clock, logger,
-		notify.WithDelivery(push.NewDelivery(st, s.pushSender, s.clock, logger)))
+	s.pushDelivery = push.NewDelivery(st, s.pushSender, s.clock, logger)
+	s.notifier = notify.New(st, s.clock, logger, notify.WithDelivery(s.pushDelivery))
 	s.routes()
 	return s
+}
+
+// Close stops background work: it waits for queued Push to be sent, until
+// ctx ends. Call it after the HTTP server and the loops have stopped.
+func (s *Server) Close(ctx context.Context) error {
+	return s.pushDelivery.Close(ctx)
+}
+
+// WaitForPush blocks until every Push queued so far has been sent. Push goes
+// out in the background; tests call this to observe it deterministically.
+func (s *Server) WaitForPush() {
+	s.pushDelivery.Wait()
 }
 
 // SendDueReminders sends every Reminder due as of asOf. The API process runs

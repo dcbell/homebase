@@ -79,6 +79,10 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("api shutdown", "error", err)
 	}
+	// Send the Push still queued, within what is left of the shutdown time.
+	if err := apiServer.Close(shutdownCtx); err != nil {
+		logger.Error("push delivery shutdown", "error", err)
+	}
 }
 
 func runRoutineScheduler(ctx context.Context, logger *slog.Logger, apiServer *api.Server, interval time.Duration) {

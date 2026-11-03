@@ -18,6 +18,7 @@ func sendRemindersAt(t *testing.T, h *apitest.Harness, at time.Time) {
 	if _, err := h.Server.SendDueReminders(context.Background(), at); err != nil {
 		t.Fatalf("send due Reminders: %v", err)
 	}
+	h.Server.WaitForPush()
 }
 
 // remindersOf returns the Task Reminders a Member has received, oldest first,
