@@ -783,7 +783,16 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, rawID str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.projectChanged(r.Context(), project.HouseholdID, project.ID)
 	writeJSON(w, http.StatusOK, project)
+}
+
+// projectChanged reports a Project update or archive to the Notifier, which
+// keeps its Tasks' Reminders in line, logging rather than failing the request.
+func (s *Server) projectChanged(ctx context.Context, householdID, projectID int64) {
+	if err := s.notifier.ProjectChanged(ctx, householdID, projectID); err != nil {
+		s.logger.Error("notify project changed", "project_id", projectID, "error", err)
+	}
 }
 
 func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -798,6 +807,7 @@ func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID st
 		writeError(w, http.StatusInternalServerError, "failed to archive project")
 		return
 	}
+	s.projectChanged(r.Context(), householdFrom(r).ID, id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

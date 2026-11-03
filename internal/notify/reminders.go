@@ -105,15 +105,56 @@ func (n *Notifier) TaskStatusChanged(ctx context.Context, task store.Task) error
 	return n.taskReminders(ctx, task)
 }
 
+// ProjectChanged is called after a Project is updated or archived. Tasks of
+// an archived Project get no Reminders; restoring the Project restores those
+// still ahead. The Tasks' own status is untouched.
+func (n *Notifier) ProjectChanged(ctx context.Context, householdID, projectID int64) error {
+	tasks, err := n.store.ListProjectTasks(ctx, householdID, projectID)
+	if err != nil {
+		return fmt.Errorf("list project %d tasks for reminders: %w", projectID, err)
+	}
+	var errs []error
+	for _, task := range tasks {
+		if err := n.taskReminders(ctx, task); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // taskReminders keeps a Task's Reminders in line with its current state: an
-// open Task with a due date and an assignee has them; any other Task has none.
+// open Task with a due date and an assignee, outside any archived Project,
+// has them; any other Task has none.
 func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
+	active, err := n.taskActive(ctx, task)
+	if err != nil {
+		return err
+	}
 	var recipients []int64
-	if task.Status == "open" && task.AssignedTo != nil {
+	if active && task.AssignedTo != nil {
 		recipients = []int64{*task.AssignedTo}
 	}
 	subject := store.ReminderSubject{HouseholdID: task.HouseholdID, Type: store.SubjectTask, ID: task.ID}
 	return n.scheduleReminders(ctx, subject, recipients, task.DueAt, TaskReminderStages)
+}
+
+// taskActive reports whether a Task is still something to be reminded of:
+// open, and not part of an archived Project.
+func (n *Notifier) taskActive(ctx context.Context, task store.Task) (bool, error) {
+	if task.Status != "open" {
+		return false, nil
+	}
+	if task.ProjectID == nil {
+		return true, nil
+	}
+	project, err := n.store.GetProject(ctx, task.HouseholdID, *task.ProjectID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load project %d of task %d: %w", *task.ProjectID, task.ID, err)
+	}
+	return project.Status != "archived", nil
 }
 
 // SendDueReminders sends every Reminder due as of asOf and returns how many
@@ -193,7 +234,7 @@ var taskReminderTitles = map[string]string{
 
 // renderTaskReminder builds a Task Reminder from the Task as it is now. It
 // drops the Reminder if the Task has since been finished, reassigned or
-// rescheduled, as a guard behind cancellation.
+// rescheduled, or its Project archived, as a guard behind cancellation.
 func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledReminder) (store.NotificationInput, bool, error) {
 	task, err := n.store.GetTask(ctx, r.HouseholdID, r.SubjectID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -202,8 +243,12 @@ func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledRemi
 	if err != nil {
 		return store.NotificationInput{}, false, fmt.Errorf("load task %d for reminder: %w", r.SubjectID, err)
 	}
-	if task.Status != "open" || task.AssignedTo == nil || *task.AssignedTo != r.RecipientID || task.DueAt == nil || !task.DueAt.Equal(r.DueAt) {
+	if task.AssignedTo == nil || *task.AssignedTo != r.RecipientID || task.DueAt == nil || !task.DueAt.Equal(r.DueAt) {
 		return store.NotificationInput{}, false, nil
+	}
+	active, err := n.taskActive(ctx, task)
+	if err != nil || !active {
+		return store.NotificationInput{}, false, err
 	}
 	return store.NotificationInput{
 		Kind:  store.NotificationTaskReminder,
