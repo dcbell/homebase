@@ -102,6 +102,16 @@ func (s *Server) SendDueReminders(ctx context.Context, asOf time.Time) (int, err
 	return s.notifier.SendDueReminders(ctx, asOf)
 }
 
+// NotificationRetention is how long a read Notification is kept.
+const NotificationRetention = 90 * 24 * time.Hour
+
+// ExpireNotifications permanently deletes read Notifications older than
+// NotificationRetention as of asOf. The API process runs it alongside the
+// Reminder runner; tests call it with the fake Clock's time.
+func (s *Server) ExpireNotifications(ctx context.Context, asOf time.Time) (int, error) {
+	return s.store.DeleteReadNotificationsBefore(ctx, asOf.Add(-NotificationRetention))
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
