@@ -164,3 +164,73 @@ func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledRemi
 		Body:  task.Title,
 	}, true, nil
 }
+
+// AppointmentReminderStages are an Appointment's Reminders: Due Soon 24h
+// before, one an hour before, and Due Now when it starts.
+var AppointmentReminderStages = []ReminderStage{
+	{Stage: store.ReminderDueSoon, SendAt: before(24 * time.Hour)},
+	{Stage: store.ReminderHourBefore, SendAt: before(time.Hour)},
+	{Stage: store.ReminderDueNow, SendAt: before(0)},
+}
+
+// appointmentReminders keeps an Appointment's Reminders in line with its
+// start time and Attendees.
+func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.Event) error {
+	recipients, err := n.appointmentRecipients(ctx, appointment)
+	if err != nil {
+		return err
+	}
+	subject := store.ReminderSubject{HouseholdID: appointment.HouseholdID, Type: store.SubjectAppointment, ID: appointment.ID}
+	starts := appointment.StartsAt
+	return n.scheduleReminders(ctx, subject, recipients, &starts, AppointmentReminderStages)
+}
+
+// AppointmentRemoved is called after an Appointment is deleted. It cancels
+// the Appointment's pending Reminders.
+func (n *Notifier) AppointmentRemoved(ctx context.Context, householdID, appointmentID int64) error {
+	subject := store.ReminderSubject{HouseholdID: householdID, Type: store.SubjectAppointment, ID: appointmentID}
+	return n.scheduleReminders(ctx, subject, nil, nil, AppointmentReminderStages)
+}
+
+// appointmentRecipients are the Members an Appointment's Reminders go to: its
+// Attendees, or every Member when it has none.
+func (n *Notifier) appointmentRecipients(ctx context.Context, appointment store.Event) ([]int64, error) {
+	if len(appointment.AttendeeIDs) > 0 {
+		return appointment.AttendeeIDs, nil
+	}
+	members, err := n.store.ListMembers(ctx, appointment.HouseholdID)
+	if err != nil {
+		return nil, fmt.Errorf("list members for appointment %d reminders: %w", appointment.ID, err)
+	}
+	ids := make([]int64, 0, len(members))
+	for _, m := range members {
+		ids = append(ids, m.ID)
+	}
+	return ids, nil
+}
+
+var appointmentReminderTitles = map[string]string{
+	store.ReminderDueSoon:    "Appointment in 24 hours",
+	store.ReminderHourBefore: "Appointment in 1 hour",
+	store.ReminderDueNow:     "Appointment starting now",
+}
+
+// renderAppointmentReminder builds an Appointment Reminder from the
+// Appointment as it is now.
+func (n *Notifier) renderAppointmentReminder(ctx context.Context, r store.ScheduledReminder) (store.NotificationInput, bool, error) {
+	appointment, err := n.store.GetEvent(ctx, r.HouseholdID, r.SubjectID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.NotificationInput{}, false, nil
+	}
+	if err != nil {
+		return store.NotificationInput{}, false, fmt.Errorf("load appointment %d for reminder: %w", r.SubjectID, err)
+	}
+	if !appointment.StartsAt.Equal(r.DueAt) {
+		return store.NotificationInput{}, false, nil
+	}
+	return store.NotificationInput{
+		Kind:  store.NotificationAppointmentReminder,
+		Title: appointmentReminderTitles[r.Stage],
+		Body:  appointment.Title,
+	}, true, nil
+}
