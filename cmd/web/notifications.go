@@ -16,7 +16,7 @@ func (s *webServer) openNotification(w http.ResponseWriter, r *http.Request) {
 	var notification store.Notification
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/notifications/"+url.PathEscape(id)+"/read", nil, &notification); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		http.Redirect(w, r, returnPath(r)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)

@@ -460,7 +460,7 @@ func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Calendar", Error: err.Error(), Now: time.Now()})
@@ -710,7 +710,7 @@ func (s *webServer) memberIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Users", Error: err.Error(), Now: time.Now()})
@@ -760,7 +760,7 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Settings", Error: err.Error(), Now: time.Now()})
@@ -795,6 +795,7 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 		PushSubscriptions: pushSubscriptions,
 		PushSettings:      pushSettings,
 		CreatedAPIToken:   created,
+		Saved:             created.Token != "",
 		SettingsPage:      true,
 		Now:               time.Now(),
 	})
@@ -804,7 +805,7 @@ func (s *webServer) projectIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Projects", Error: err.Error(), Now: time.Now()})
@@ -1087,11 +1088,7 @@ func (s *webServer) createTask(w http.ResponseWriter, r *http.Request) {
 	payload := taskPayloadFromForm(r)
 	returnTo := safeReturnTo(r.FormValue("return_to"), "/")
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/tasks", payload, nil); err != nil {
-		separator := "?"
-		if strings.Contains(returnTo, "?") {
-			separator = "&"
-		}
-		http.Redirect(w, r, returnTo+separator+"error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, returnTo, http.StatusSeeOther)
@@ -1101,7 +1098,7 @@ func (s *webServer) taskIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Tasks", Error: err.Error(), Now: time.Now()})
@@ -1292,7 +1289,7 @@ func (s *webServer) routineIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Routines", Error: err.Error(), Now: time.Now()})
@@ -1367,7 +1364,7 @@ func (s *webServer) listIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Lists", Error: err.Error(), Now: time.Now()})
@@ -1520,7 +1517,7 @@ func (s *webServer) contactIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Contacts", Error: err.Error(), Now: time.Now()})
@@ -1601,7 +1598,7 @@ func (s *webServer) assetIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Assets", Error: err.Error(), Now: time.Now()})
@@ -1760,7 +1757,7 @@ func (s *webServer) documentIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
 		s.render(w, r, http.StatusBadGateway, pageData{Title: "Documents", Error: err.Error(), Now: time.Now()})
@@ -2373,9 +2370,10 @@ func documentFileFromForm(r *http.Request) *multipart.FileHeader {
 }
 
 // render writes the page in the shared layout. The "Saved ✓" toast shows after
-// a save (see withSavedSignal), unless the page also has an error to show.
+// a save (see withSavedSignal), or when a handler that renders straight after
+// saving sets data.Saved, unless the page also has an error to show.
 func (s *webServer) render(w http.ResponseWriter, r *http.Request, status int, data pageData) {
-	data.Saved = r.URL.Query().Get("saved") == "1" && data.Error == ""
+	data.Saved = (data.Saved || r.URL.Query().Get(savedQueryKey) == "1") && data.Error == ""
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := s.templates.ExecuteTemplate(w, "layout", data); err != nil {

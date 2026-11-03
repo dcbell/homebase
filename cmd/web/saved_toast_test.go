@@ -141,3 +141,92 @@ func TestAPageWithAnErrorShowsOnlyTheError(t *testing.T) {
 		t.Errorf("page shows the Saved toast alongside the error")
 	}
 }
+
+func TestAFailedSaveKeepsTheFragmentAfterTheError(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/tasks": {http.StatusBadRequest, `{"error":"title is required"}`},
+	})
+
+	rec := postTaskAction(web.routes(), "/tasks", url.Values{"return_to": {"/tasks?due=today#add"}})
+
+	if got, want := rec.Header().Get("Location"), "/tasks?due=today&error=title+is+required#add"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestAFailedSaveWithAMalformedReturnQueryGetsNoSaved(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/tasks": {http.StatusBadRequest, `{"error":"title is required"}`},
+	})
+
+	rec := postTaskAction(web.routes(), "/tasks", url.Values{"return_to": {"/tasks?due=%zz"}})
+
+	if got, want := rec.Header().Get("Location"), "/tasks?due=%zz&error=title+is+required"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestARedirectWithAMalformedErrorGetsNoSaved(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/tasks": {http.StatusOK, `{"id":7}`},
+	})
+
+	rec := postTaskAction(web.routes(), "/tasks", url.Values{"title": {"Mow"}, "return_to": {"/tasks?error=%zz"}})
+
+	if got, want := rec.Header().Get("Location"), "/tasks?error=%zz"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestAnUnauthorizedSaveIsSentToSignInWithoutSaved(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/api-tokens": {http.StatusUnauthorized, `{"error":"unauthorized"}`},
+		"GET /api/v1/dashboard":   {http.StatusUnauthorized, `{"error":"unauthorized"}`},
+	})
+
+	rec := postTaskAction(web.routes(), "/settings/api-tokens", url.Values{"name": {"CLI"}})
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if got, want := rec.Header().Get("Location"), "/"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestCreatingAnAPITokenShowsTheSecretAndTheSavedToast(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/api-tokens":        {http.StatusOK, `{"id":3,"name":"CLI","scope":"read","token":"hb_secret_123"}`},
+		"GET /api/v1/dashboard":          {http.StatusOK, tasksDashboard},
+		"GET /api/v1/api-tokens":         {http.StatusOK, `[]`},
+		"GET /api/v1/push-subscriptions": {http.StatusOK, `[]`},
+		"GET /api/v1/push-settings":      {http.StatusOK, `{}`},
+	})
+
+	rec := postTaskAction(web.routes(), "/settings/api-tokens", url.Values{"name": {"CLI"}})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "hb_secret_123") {
+		t.Errorf("page does not show the new token's secret")
+	}
+	if !strings.Contains(body, savedToast) {
+		t.Errorf("page has no %s", savedToast)
+	}
+}
+
+func TestAFailedAPITokenCreationShowsNoSavedToast(t *testing.T) {
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"POST /api/v1/api-tokens": {http.StatusBadRequest, `{"error":"name is required"}`},
+		"GET /api/v1/dashboard":   {http.StatusOK, tasksDashboard},
+		"GET /api/v1/api-tokens":  {http.StatusOK, `[]`},
+	})
+
+	rec := postTaskAction(web.routes(), "/settings/api-tokens", url.Values{})
+
+	if strings.Contains(rec.Body.String(), "Saved ✓") {
+		t.Errorf("page shows the Saved toast after a failed token creation")
+	}
+}

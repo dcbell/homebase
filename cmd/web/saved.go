@@ -6,9 +6,13 @@ import (
 	"strings"
 )
 
-// notSaves are the POST routes that redirect without saving anything, so the
+// savedQueryKey is the query key withSavedSignal adds (as saved=1) to tell the
+// page it lands on to show the "Saved ✓" toast.
+const savedQueryKey = "saved"
+
+// nonSavingRoutes are the POST routes that redirect without saving anything, so the
 // "Saved ✓" toast would mislead.
-var notSaves = map[string]bool{
+var nonSavingRoutes = map[string]bool{
 	"POST /logout":                  true,
 	"POST /notifications/read-all":  true,
 	"POST /notifications/{id}/open": true,
@@ -20,11 +24,11 @@ var notSaves = map[string]bool{
 
 // withSavedSignal adds saved=1 to the redirect after every successful save, so
 // the page it lands on shows the "Saved ✓" toast. A save is any POST answered
-// with 303 See Other whose Location carries no error, apart from notSaves.
+// with 303 See Other whose Location carries no error, apart from nonSavingRoutes.
 func withSavedSignal(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			if _, pattern := mux.Handler(r); !notSaves[pattern] {
+			if _, pattern := mux.Handler(r); !nonSavingRoutes[pattern] {
 				w = &savedSignalWriter{ResponseWriter: w}
 			}
 		}
@@ -35,13 +39,36 @@ func withSavedSignal(mux *http.ServeMux) http.Handler {
 type savedSignalWriter struct {
 	http.ResponseWriter
 	wroteHeader bool
+	skip        bool
+}
+
+// redirectToSignIn sends a Member whose session the API rejected back to the
+// sign-in page. Nothing was saved, so the redirect never gets saved=1.
+func redirectToSignIn(w http.ResponseWriter, r *http.Request) {
+	skipSavedSignal(w)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// skipSavedSignal stops withSavedSignal adding saved=1 to this response.
+func skipSavedSignal(w http.ResponseWriter) {
+	for {
+		switch rw := w.(type) {
+		case *savedSignalWriter:
+			rw.skip = true
+			return
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = rw.Unwrap()
+		default:
+			return
+		}
+	}
 }
 
 func (w *savedSignalWriter) WriteHeader(status int) {
-	if !w.wroteHeader && status == http.StatusSeeOther {
+	if !w.wroteHeader && !w.skip && status == http.StatusSeeOther {
 		location := w.Header().Get("Location")
-		if location != "" && !hasQueryValue(location, "error") && !hasQueryValue(location, "saved") {
-			w.Header().Set("Location", withQueryValue(location, "saved", "1"))
+		if location != "" && !hasQueryValue(location, "error") && !hasQueryValue(location, savedQueryKey) {
+			w.Header().Set("Location", withQueryValue(location, savedQueryKey, "1"))
 		}
 	}
 	w.wroteHeader = true
@@ -61,5 +88,15 @@ func hasQueryValue(location, key string) bool {
 	path, _, _ := strings.Cut(location, "#")
 	_, rawQuery, _ := strings.Cut(path, "?")
 	query, err := url.ParseQuery(rawQuery)
-	return err == nil && query.Has(key)
+	if err == nil {
+		return query.Has(key)
+	}
+	// ParseQuery drops the pairs it cannot decode, so look at the raw keys too:
+	// a malformed error is still an error.
+	for _, pair := range strings.Split(rawQuery, "&") {
+		if name, _, _ := strings.Cut(pair, "="); name == key {
+			return true
+		}
+	}
+	return query.Has(key)
 }
