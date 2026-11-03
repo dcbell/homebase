@@ -208,6 +208,12 @@ const appTemplate = `
 		label { display:grid; gap:5px; color:var(--muted); font-size:13px; min-width:0; }
 		input, textarea, select { width:100%; min-width:0; min-height:38px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; background:var(--field); color:var(--ink); }
 		textarea { min-height:74px; resize:vertical; }
+		.attendee-picker { display:grid; gap:6px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:0; min-width:0; }
+		.attendee-picker legend { color:var(--muted); font-size:13px; padding:0 4px; }
+		.attendee-picker .hint { color:var(--muted); font-size:12px; }
+		.attendee-picker .options { display:flex; flex-wrap:wrap; gap:6px 14px; }
+		.attendee-picker label { display:inline-flex; align-items:center; gap:6px; color:var(--ink); }
+		.attendee-picker input[type="checkbox"] { width:auto; min-height:0; }
 		.form-row { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; min-width:0; }
 		.filter-row { margin-bottom:14px; grid-template-columns:minmax(0, 1fr) minmax(160px, 220px) minmax(160px, 220px); align-items:end; }
 		.modules { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; }
@@ -1253,7 +1259,7 @@ const appTemplate = `
 				{{ range eventsForDayOffset .Dashboard.Events .Now 0 }}
 					<article class="item">
 						<strong><a href="/events/{{ .ID }}">{{ .Title }}</a></strong>
-						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}</div>
+						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}{{ if .Attendees }} · {{ attendeeNames .Attendees }}{{ end }}</div>
 					</article>
 				{{ else }}
 					<p class="empty">No appointments today.</p>
@@ -1262,7 +1268,7 @@ const appTemplate = `
 				{{ range eventsForDayOffset .Dashboard.Events .Now 1 }}
 					<article class="item">
 						<strong><a href="/events/{{ .ID }}">{{ .Title }}</a></strong>
-						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}</div>
+						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}{{ if .Attendees }} · {{ attendeeNames .Attendees }}{{ end }}</div>
 					</article>
 				{{ else }}
 					<p class="empty">No appointments tomorrow.</p>
@@ -1385,6 +1391,7 @@ const appTemplate = `
 				<label>Starts<input name="starts_at" type="datetime-local" required></label>
 				<label>Ends<input name="ends_at" type="datetime-local" required></label>
 			</div>
+			{{ template "attendeePicker" (dict "Members" .Dashboard.Members) }}
 			<label>Description<textarea name="description"></textarea></label>
 			<button type="submit">Add appointment</button>
 		</form>
@@ -1541,7 +1548,19 @@ const appTemplate = `
 	{{ if .Time }}{{ if entryTime .Time }}<span class="meta">{{ entryTime .Time }}</span>{{ end }}{{ end }}
 	<strong>{{ .Title }}</strong>
 	{{ if .Meta }}<span class="meta">{{ .Meta }}</span>{{ end }}
+	{{ if .Attendees }}<span class="meta">{{ attendeeNames .Attendees }}</span>{{ end }}
 </a>
+{{ end }}
+
+{{ define "attendeePicker" }}
+<fieldset class="attendee-picker">
+	<legend>Attendees</legend>
+	<div class="options">
+		{{ $selected := .Selected }}
+		{{ range .Members }}<label><input type="checkbox" name="attendee_ids" value="{{ .ID }}"{{ if hasID $selected .ID }} checked{{ end }}>{{ .Name }}</label>{{ end }}
+	</div>
+	<span class="hint">None selected means the whole household.</span>
+</fieldset>
 {{ end }}
 
 {{ define "calendarWeekView" }}
@@ -3553,6 +3572,7 @@ const appTemplate = `
 					<h1>{{ .Event.Title }}</h1>
 					{{ template "titleActionMenu" (dict "DeleteForm" "event-delete" "DeleteLabel" "Delete") }}
 				</div>
+				<p class="meta">For {{ attendeeNames .Event.Attendees }}</p>
 			</div>
 		</div>
 	</section>
@@ -3569,6 +3589,7 @@ const appTemplate = `
 				<label>Starts<input name="starts_at" type="datetime-local" value="{{ datetimeInput .Event.StartsAt }}" required></label>
 				<label>Ends<input name="ends_at" type="datetime-local" value="{{ datetimeInput .Event.EndsAt }}" required></label>
 			</div>
+			{{ template "attendeePicker" (dict "Members" .Dashboard.Members "Selected" .Event.AttendeeIDs) }}
 			<label>Description<textarea name="description">{{ .Event.Description }}</textarea></label>
 			<button type="submit">Save appointment</button>
 		</form>
