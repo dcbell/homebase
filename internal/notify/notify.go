@@ -93,10 +93,11 @@ func (n *Notifier) TaskChanged(ctx context.Context, change TaskChange) error {
 	if err := n.taskReminders(ctx, task); err != nil {
 		return err
 	}
-	if task.AssignedTo == nil {
-		return nil
+	var before *int64
+	if change.Before != nil {
+		before = change.Before.AssignedTo
 	}
-	if change.Before != nil && change.Before.AssignedTo != nil && *change.Before.AssignedTo == *task.AssignedTo {
+	if !newlyAssigned(before, task.AssignedTo) {
 		return nil
 	}
 	return n.assigned(ctx, change.Actor, assignment{
