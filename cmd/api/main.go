@@ -45,6 +45,7 @@ func main() {
 	}
 	apiServer := api.New(cfg, st, logger)
 	go runRoutineScheduler(ctx, logger, apiServer, cfg.RoutineCheckInterval)
+	go runReminderLoop(ctx, logger, apiServer, time.Minute)
 
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
@@ -79,6 +80,35 @@ func runRoutineScheduler(ctx context.Context, logger *slog.Logger, apiServer *ap
 		defer cancel()
 		if err := apiServer.GenerateDueTasks(jobCtx); err != nil {
 			logger.Error("generate due tasks", "error", err)
+		}
+	}
+
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
+}
+
+// runReminderLoop sends due Reminders every interval. It is separate from the
+// Routine scheduler so that loop keeps its own cadence.
+func runReminderLoop(ctx context.Context, logger *slog.Logger, server *api.Server, interval time.Duration) {
+	run := func() {
+		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		sent, err := server.SendDueReminders(jobCtx, time.Now())
+		if err != nil {
+			logger.Error("send due reminders", "error", err)
+		}
+		if sent > 0 {
+			logger.Info("sent due reminders", "count", sent)
 		}
 	}
 

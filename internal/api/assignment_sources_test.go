@@ -244,4 +244,28 @@ func TestBackgroundCheckNotifiesTheAssigneeOfEachGeneratedTask(t *testing.T) {
 	}
 	expectGeneratedTaskNotification(t, household.Member, *generated)
 	expectNoNotifications(t, household.Owner)
+
+	// Due Soon and Due Now had passed when the Task was generated; Overdue is still ahead.
+	sendRemindersAt(t, h, at(16, 8, 0))
+	expectReminders(t, household.Member, fmt.Sprintf("overdue %d", generated.ID))
+}
+
+func TestGeneratedTaskWithDueDateGetsItsReminders(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	routine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
+		"title":       "Pay the council tax",
+		"cadence":     "monthly",
+		"next_due_at": "2030-01-20T09:00:00Z",
+		"assigned_to": household.Member.User.ID,
+	}).Expect(http.StatusCreated))
+
+	task := apitest.Decode[store.Task](t, household.Owner.Post(fmt.Sprintf("/api/v1/routines/%d/generate-task", routine.ID), nil).Expect(http.StatusCreated))
+
+	sendRemindersAt(t, h, at(19, 9, 0))
+	expectReminders(t, household.Member, fmt.Sprintf("due_soon %d", task.ID))
+	sendRemindersAt(t, h, at(20, 9, 0))
+	expectReminders(t, household.Member, fmt.Sprintf("due_soon %d", task.ID), fmt.Sprintf("due_now %d", task.ID))
+	expectReminders(t, household.Owner)
 }

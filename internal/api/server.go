@@ -76,6 +76,12 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option
 	return s
 }
 
+// SendDueReminders sends every Reminder due as of asOf. The API process runs
+// it every minute; tests call it with the fake Clock's time.
+func (s *Server) SendDueReminders(ctx context.Context, asOf time.Time) (int, error) {
+	return s.notifier.SendDueReminders(ctx, asOf)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
@@ -854,6 +860,14 @@ func (s *Server) routineChanged(ctx context.Context, change notify.RoutineChange
 	}
 }
 
+// taskStatusChanged reports a Task completed, reopened or archived to the
+// Notifier, logging rather than failing the request.
+func (s *Server) taskStatusChanged(ctx context.Context, task store.Task) {
+	if err := s.notifier.TaskStatusChanged(ctx, task); err != nil {
+		s.logger.Error("notify task status changed", "task_id", task.ID, "error", err)
+	}
+}
+
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 	id, ok := parseID(w, rawID)
 	if !ok {
@@ -908,6 +922,7 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID stri
 		writeError(w, http.StatusInternalServerError, "failed to complete task")
 		return
 	}
+	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -925,6 +940,7 @@ func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusInternalServerError, "failed to reopen task")
 		return
 	}
+	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -939,6 +955,11 @@ func (s *Server) archiveTask(w http.ResponseWriter, r *http.Request, rawID strin
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to archive task")
 		return
+	}
+	if task, err := s.store.GetTask(r.Context(), householdFrom(r).ID, id); err != nil {
+		s.logger.Error("load archived task", "task_id", id, "error", err)
+	} else {
+		s.taskStatusChanged(r.Context(), task)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
