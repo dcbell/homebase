@@ -53,6 +53,10 @@ type reminderRenderer func(ctx context.Context, r store.ScheduledReminder) (inpu
 func (n *Notifier) scheduleReminders(ctx context.Context, subject store.ReminderSubject, recipients []int64, due *time.Time, stages []ReminderStage) error {
 	want := []store.ReminderInput{}
 	if due != nil {
+		recipients, err := n.members(ctx, subject.HouseholdID, recipients)
+		if err != nil {
+			return fmt.Errorf("schedule %s %d reminders: %w", subject.Type, subject.ID, err)
+		}
 		for _, recipientID := range recipients {
 			for _, stage := range stages {
 				want = append(want, store.ReminderInput{
@@ -68,6 +72,30 @@ func (n *Notifier) scheduleReminders(ctx context.Context, subject store.Reminder
 		return fmt.Errorf("schedule %s %d reminders: %w", subject.Type, subject.ID, err)
 	}
 	return nil
+}
+
+// members keeps the ids that belong to current Members of the household, so
+// nothing is scheduled for someone who was removed but is still named on a
+// Task or Appointment.
+func (n *Notifier) members(ctx context.Context, householdID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	list, err := n.store.ListMembers(ctx, householdID)
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+	current := make(map[int64]bool, len(list))
+	for _, m := range list {
+		current[m.ID] = true
+	}
+	kept := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if current[id] {
+			kept = append(kept, id)
+		}
+	}
+	return kept, nil
 }
 
 // TaskStatusChanged is called after a Task is completed, reopened or
@@ -135,7 +163,7 @@ func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) 
 	input.Stage = r.Stage
 	input.SubjectType = r.SubjectType
 	input.SubjectID = r.SubjectID
-	return true, n.notify(ctx, input)
+	return n.notify(ctx, input)
 }
 
 var taskReminderTitles = map[string]string{
