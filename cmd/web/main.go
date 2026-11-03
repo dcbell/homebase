@@ -496,7 +496,10 @@ func (s *webServer) moveDashboardTile(w http.ResponseWriter, r *http.Request) {
 			"tile":      r.FormValue("tile"),
 			"direction": r.FormValue("direction"),
 		}
-		_ = s.apiJSON(r, http.MethodPost, "/api/v1/dashboard/tiles/move", payload, nil)
+		if err := s.apiJSON(r, http.MethodPost, "/api/v1/dashboard/tiles/move", payload, nil); err != nil {
+			http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -830,8 +833,12 @@ func (s *webServer) createProject(w http.ResponseWriter, r *http.Request) {
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
 		payload["due_date"] = formTime(due)
 	}
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/"), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/")
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
@@ -956,7 +963,10 @@ func (s *webServer) updateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveProject(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/projects/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
@@ -996,7 +1006,10 @@ func (s *webServer) updateProjectFolder(w http.ResponseWriter, r *http.Request) 
 func (s *webServer) archiveProjectFolder(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	folderID := r.PathValue("folderID")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/project-folders/"+url.PathEscape(folderID)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/project-folders/"+url.PathEscape(folderID)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1183,7 +1196,10 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
+		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -1231,7 +1247,10 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id), nil, nil); err != nil {
+		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -1307,7 +1326,10 @@ func (s *webServer) updateRoutine(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveRoutine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/routines/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/routines/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/routines/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/routines", http.StatusSeeOther)
 }
 
@@ -1403,7 +1425,10 @@ func (s *webServer) updateList(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/lists/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/lists/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/lists/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/lists", http.StatusSeeOther)
 }
 
@@ -1440,22 +1465,33 @@ func (s *webServer) completeListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
 	_ = r.ParseForm()
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/complete", nil, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID)), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID))
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/complete", nil, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) reopenListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
 	_ = r.ParseForm()
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/reopen", nil, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID)), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID))
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/reopen", nil, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) archiveListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/list-items/"+url.PathEscape(itemID)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/list-items/"+url.PathEscape(itemID)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/lists/"+url.PathEscape(listID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/lists/"+url.PathEscape(listID), http.StatusSeeOther)
 }
 
@@ -1533,7 +1569,10 @@ func (s *webServer) updateContact(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveContact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/contacts/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/contacts/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/contacts/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/contacts", http.StatusSeeOther)
 }
 
@@ -1642,7 +1681,10 @@ func (s *webServer) updateAsset(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/assets/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/assets/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets", http.StatusSeeOther)
 }
 
@@ -1812,7 +1854,10 @@ func (s *webServer) downloadDocument(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveDocument(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/documents/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/documents/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/documents/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/documents", http.StatusSeeOther)
 }
 
@@ -1836,7 +1881,10 @@ func (s *webServer) linkDocumentRelatedItem(w http.ResponseWriter, r *http.Reque
 func (s *webServer) unlinkDocumentFromDocumentPage(w http.ResponseWriter, r *http.Request) {
 	documentID := r.PathValue("documentID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/documents/"+url.PathEscape(documentID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/documents/"+url.PathEscape(documentID), http.StatusSeeOther)
 }
 
@@ -1852,7 +1900,10 @@ func (s *webServer) attachProjectDocument(w http.ResponseWriter, r *http.Request
 func (s *webServer) unlinkProjectDocument(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1935,7 +1986,10 @@ func (s *webServer) attachProjectContact(w http.ResponseWriter, r *http.Request)
 func (s *webServer) unlinkProjectContact(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1967,7 +2021,10 @@ func (s *webServer) attachProjectAsset(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkProjectAsset(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1999,7 +2056,10 @@ func (s *webServer) attachAssetDocument(w http.ResponseWriter, r *http.Request) 
 func (s *webServer) unlinkAssetDocument(w http.ResponseWriter, r *http.Request) {
 	assetID := r.PathValue("assetID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(assetID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets/"+url.PathEscape(assetID), http.StatusSeeOther)
 }
 
@@ -2015,7 +2075,10 @@ func (s *webServer) attachAssetContact(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkAssetContact(w http.ResponseWriter, r *http.Request) {
 	assetID := r.PathValue("assetID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(assetID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets/"+url.PathEscape(assetID), http.StatusSeeOther)
 }
 
@@ -3208,6 +3271,21 @@ func safeReturnTo(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// withErrorQuery adds err as the error query value to target, keeping any query
+// and fragment target already has.
+func withErrorQuery(target string, err error) string {
+	path, fragment, hasFragment := strings.Cut(target, "#")
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	path += sep + "error=" + url.QueryEscape(err.Error())
+	if hasFragment {
+		path += "#" + fragment
+	}
+	return path
 }
 
 func userFacingError(value string) string {
