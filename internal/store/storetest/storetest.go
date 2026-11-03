@@ -45,7 +45,7 @@ type ensureResult struct {
 // database. It skips the test when the database server is unreachable.
 func Open(t testing.TB) *store.Store {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	serverURL := os.Getenv("TEST_DATABASE_URL")
