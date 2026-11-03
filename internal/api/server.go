@@ -19,6 +19,7 @@ import (
 
 	"homebase/internal/clock"
 	"homebase/internal/config"
+	"homebase/internal/notify"
 	"homebase/internal/store"
 )
 
@@ -42,6 +43,10 @@ type Server struct {
 	logger *slog.Logger
 	clock  clock.Clock
 	mux    *http.ServeMux
+
+	// notifier decides and records every Notification. Domain handlers report
+	// changes to it and never create Notifications themselves.
+	notifier *notify.Notifier
 }
 
 // Option overrides one of the Server's default dependencies.
@@ -65,6 +70,8 @@ func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option
 	for _, opt := range opts {
 		opt(s)
 	}
+	// Push plugs in here as a notify.WithDelivery option.
+	s.notifier = notify.New(st, s.clock, logger)
 	s.routes()
 	return s
 }
@@ -97,6 +104,13 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.createAPIToken(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/api-tokens/"):
 		s.revokeAPIToken(w, r, strings.TrimPrefix(path, "/api-tokens/"))
+	case r.Method == http.MethodGet && path == "/notifications":
+		s.listNotifications(w, r)
+	case r.Method == http.MethodPost && path == "/notifications/read-all":
+		s.markAllNotificationsRead(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/notifications/"), "/read")
+		s.markNotificationRead(w, r, id)
 	case r.Method == http.MethodGet && path == "/households/current":
 		s.currentHousehold(w, r)
 	case r.Method == http.MethodGet && path == "/dashboard":
@@ -432,6 +446,67 @@ func (s *Server) revokeAPIToken(w http.ResponseWriter, r *http.Request, rawID st
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := optionalQueryInt(query.Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+		return
+	}
+	beforeID, err := optionalQueryInt(query.Get("before_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "before_id must be a positive integer")
+		return
+	}
+	list, err := s.store.ListNotifications(r.Context(), householdFrom(r).ID, userFrom(r).ID, int(limit), beforeID)
+	if err != nil {
+		s.logger.Error("list notifications", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list notifications")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) markNotificationRead(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	notification, err := s.store.MarkNotificationRead(r.Context(), householdFrom(r).ID, userFrom(r).ID, id, s.clock.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "notification not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("mark notification read", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mark notification read")
+		return
+	}
+	writeJSON(w, http.StatusOK, notification)
+}
+
+func (s *Server) markAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.MarkAllNotificationsRead(r.Context(), householdFrom(r).ID, userFrom(r).ID, s.clock.Now()); err != nil {
+		s.logger.Error("mark all notifications read", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mark notifications read")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// optionalQueryInt parses an optional positive integer query parameter. An
+// empty value is 0.
+func optionalQueryInt(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, errors.New("invalid")
+	}
+	return value, nil
+}
+
 func (s *Server) currentHousehold(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, householdFrom(r))
 }
@@ -745,12 +820,22 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	task, err := s.store.CreateTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	task, err := s.store.CreateTask(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, After: task})
 	writeJSON(w, http.StatusCreated, task)
+}
+
+// taskChanged reports a Task change to the Notifier. The change is already
+// saved, so a Notification failure is logged rather than failing the request.
+func (s *Server) taskChanged(ctx context.Context, change notify.TaskChange) {
+	if err := s.notifier.TaskChanged(ctx, change); err != nil {
+		s.logger.Error("notify task changed", "task_id", change.After.ID, "error", err)
+	}
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -779,7 +864,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	task, err := s.store.UpdateTask(r.Context(), householdFrom(r).ID, id, input)
+	task, previous, err := s.store.UpdateTask(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -788,6 +873,8 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, Before: &previous, After: task})
 	writeJSON(w, http.StatusOK, task)
 }
 

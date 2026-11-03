@@ -14,6 +14,7 @@ tags:
   - name: Health
   - name: Auth
   - name: Dashboard
+  - name: Notifications
   - name: Members
   - name: Projects
   - name: Tasks
@@ -194,6 +195,81 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      summary: List my Notifications
+      operationId: listNotifications
+      description: >
+        Lists the current Member's Notifications, newest first, with their
+        Unread count. Listing marks nothing read. Read-only API tokens may call
+        this.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, at most 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: before_id
+          in: query
+          required: false
+          description: Return Notifications older than this one, to fetch the next page.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: A page of Notifications and the Unread count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications/{id}/read:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Notifications]
+      summary: Mark a Notification read
+      operationId: markNotificationRead
+      description: >
+        Requires a browser session or a full-access API token. Marking an
+        already-read Notification keeps its original read time.
+      responses:
+        "200":
+          description: The Notification, now read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all my Notifications read
+      operationId: markAllNotificationsRead
+      description: Requires a browser session or a full-access API token.
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
 
   /api/v1/households/current:
@@ -1816,13 +1892,42 @@ components:
       properties:
         key: { type: string }
         name: { type: string }
-    RoutineNotice:
+    Notification:
       type: object
       properties:
-        routine:
-          $ref: "#/components/schemas/Routine"
-        kind: { type: string }
-        message: { type: string }
+        id: { type: integer, format: int64 }
+        household_id: { type: integer, format: int64 }
+        recipient_id: { type: integer, format: int64 }
+        kind:
+          type: string
+          enum: [assignment, task_reminder, appointment_reminder]
+        stage:
+          type: string
+          description: Reminder stage. Omitted for Assignment Notifications.
+          enum: [due_soon, hour_before, due_now, overdue]
+        subject_type:
+          type: string
+          enum: [task, list_item, routine, appointment]
+        subject_id: { type: integer, format: int64 }
+        url:
+          type: string
+          description: Web app path that opens the subject. List Items open their List.
+          example: /tasks/42
+        title: { type: string }
+        body: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        read_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the Member read it. Omitted while Unread.
+    NotificationList:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unread_count: { type: integer }
     Dashboard:
       type: object
       properties:
@@ -1850,10 +1955,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Routine"
-        notices:
-          type: array
-          items:
-            $ref: "#/components/schemas/RoutineNotice"
         tile_order:
           type: array
           items:
@@ -1864,6 +1965,10 @@ components:
             $ref: "#/components/schemas/DashboardTile"
         budget_app_url:
           type: string
+        notifications:
+          allOf:
+            - $ref: "#/components/schemas/NotificationList"
+          description: The current Member's latest Notifications and Unread count, for the bell.
     CalendarEntry:
       type: object
       properties:
