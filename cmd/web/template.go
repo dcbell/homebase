@@ -843,8 +843,9 @@ const appTemplate = `
 				});
 			});
 			document.querySelectorAll("[data-filter-kind]").forEach(function (select) {
+				var scope = select.closest("[data-filter-scope]") || document;
+				applyFilter(scope);
 				select.addEventListener("change", function () {
-					var scope = select.closest("[data-filter-scope]") || document;
 					applyFilter(scope);
 				});
 			});
@@ -1811,9 +1812,9 @@ const appTemplate = `
 		</div>
 		<div class="form-row filter-row">
 			<label>Search<input type="search" data-filter-input placeholder="Search tasks"></label>
-			<label>Status<select data-filter-kind>
+			<label>Status<select data-filter-kind autocomplete="off">
 				<option value="">All statuses</option>
-				<option value="open">open</option>
+				<option value="open" selected>open</option>
 				<option value="done">done</option>
 			</select></label>
 			<label>Due<select data-filter-due>
@@ -1842,7 +1843,7 @@ const appTemplate = `
 				{{ if $task.AssetID }}<input type="hidden" name="asset_id" value="{{ idValue $task.AssetID }}">{{ end }}
 				{{ if $task.AssetMaintenanceItemID }}<input type="hidden" name="asset_maintenance_item_id" value="{{ idValue $task.AssetMaintenanceItemID }}">{{ end }}
 			</form>
-			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $task.Status }}" data-filter-due="{{ taskDueBucket $task $.Now }}" data-filter-text="{{ $task.Title }} {{ $task.Notes }} {{ $task.Status }} {{ $task.Priority }} {{ $task.AssignedName }}">
+			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $task.Status }}"{{ if ne $task.Status "open" }} hidden{{ end }} data-filter-due="{{ taskDueBucket $task $.Now }}" data-filter-text="{{ $task.Title }} {{ $task.Notes }} {{ $task.Status }} {{ $task.Priority }} {{ $task.AssignedName }}">
 				<div class="item-head">
 					<div>
 						<strong><a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a></strong>
