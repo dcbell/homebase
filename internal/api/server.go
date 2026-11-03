@@ -963,12 +963,23 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	event, err := s.store.CreateEvent(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	event, err := s.store.CreateEvent(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, After: event})
 	writeJSON(w, http.StatusCreated, event)
+}
+
+// appointmentChanged reports an Appointment change to the Notifier. The change
+// is already saved, so a Notification failure is logged rather than failing
+// the request.
+func (s *Server) appointmentChanged(ctx context.Context, change notify.AppointmentChange) {
+	if err := s.notifier.AppointmentChanged(ctx, change); err != nil {
+		s.logger.Error("notify appointment changed", "event_id", change.After.ID, "error", err)
+	}
 }
 
 func (s *Server) getEvent(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -997,7 +1008,7 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	event, err := s.store.UpdateEvent(r.Context(), householdFrom(r).ID, id, input)
+	event, previous, err := s.store.UpdateEvent(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -1006,6 +1017,8 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, Before: &previous, After: event})
 	writeJSON(w, http.StatusOK, event)
 }
 
