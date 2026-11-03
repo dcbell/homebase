@@ -14,6 +14,8 @@ tags:
   - name: Health
   - name: Auth
   - name: Dashboard
+  - name: Notifications
+  - name: Push
   - name: Members
   - name: Projects
   - name: Tasks
@@ -194,6 +196,220 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      summary: List my Notifications
+      operationId: listNotifications
+      description: >
+        Lists the current Member's Notifications, newest first, with their
+        Unread count. Listing marks nothing read. Read-only API tokens may call
+        this.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, at most 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: before_id
+          in: query
+          required: false
+          description: Return Notifications older than this one, to fetch the next page.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: A page of Notifications and the Unread count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications/{id}/read:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Notifications]
+      summary: Mark a Notification read
+      operationId: markNotificationRead
+      description: >
+        Requires a browser session or a full-access API token. Marking an
+        already-read Notification keeps its original read time.
+      responses:
+        "200":
+          description: The Notification, now read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all my Notifications read
+      operationId: markAllNotificationsRead
+      description: Requires a browser session or a full-access API token.
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/push/vapid-public-key:
+    get:
+      tags: [Push]
+      summary: Get the VAPID public key
+      operationId: getVapidPublicKey
+      description: >
+        The key a browser passes as applicationServerKey to
+        pushManager.subscribe(). It is generated on the API's first start and
+        stays the same until the database is replaced.
+      responses:
+        "200":
+          description: The VAPID public key.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  public_key:
+                    type: string
+                    description: Uncompressed P-256 public key, base64url without padding.
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/push-subscriptions:
+    get:
+      tags: [Push]
+      summary: List my Push Subscriptions
+      operationId: listPushSubscriptions
+      description: The current Member's devices that receive Push, oldest first.
+      responses:
+        "200":
+          description: Push Subscriptions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PushSubscription"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Push]
+      summary: Register this device's Push Subscription
+      operationId: registerPushSubscription
+      description: >
+        Requires a browser session. The body is the browser's
+        PushSubscription.toJSON(). Registering an endpoint again updates it
+        and returns 200 instead of 201, so it is safe to repeat. The display
+        name defaults to one derived from the User-Agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionInput"
+      responses:
+        "200":
+          description: The endpoint was already registered and has been updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSubscription"
+        "201":
+          description: Registered Push Subscription.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSubscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/push-subscriptions/{id}:
+    delete:
+      tags: [Push]
+      summary: Remove a Push Subscription
+      operationId: deletePushSubscription
+      description: Requires a browser session or a full-access API token. The device stops receiving Push.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/push-settings:
+    get:
+      tags: [Push]
+      summary: Get my Push settings
+      operationId: getPushSettings
+      description: >
+        Which kinds of Notification the current Member gets as Push. Every
+        kind is on until the Member turns it off.
+      responses:
+        "200":
+          description: The current Member's Push settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSettings"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Push]
+      summary: Update my Push settings
+      operationId: updatePushSettings
+      description: >
+        Turns Push on or off per kind of Notification. Omitted kinds keep
+        their current setting. Turning a kind off stops the Push only: those
+        Notifications are still stored, appear in the bell and count towards
+        Unread.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSettingsInput"
+      responses:
+        "200":
+          description: The updated Push settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushSettings"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
 
   /api/v1/households/current:
@@ -1577,6 +1793,20 @@ components:
         starts_at: { $ref: "#/components/schemas/Timestamp" }
         ends_at: { $ref: "#/components/schemas/Timestamp" }
         location: { type: string }
+        attendee_ids:
+          type: array
+          items: { type: integer, format: int64 }
+          description: >-
+            Member ids of the Attendees, the Members the Appointment is for. Every id must be a
+            Member of the Household (400 otherwise). Empty means the whole Household. On update,
+            omitting the field keeps the current Attendees and an empty list clears them. Adding
+            another Member sends them an Assignment Notification; adding yourself sends nothing.
+    Attendee:
+      type: object
+      description: A Member an Appointment is for.
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
     Event:
       allOf:
         - $ref: "#/components/schemas/EventInput"
@@ -1588,6 +1818,10 @@ components:
             source: { type: string }
             external_id: { type: string }
             sync_status: { type: string }
+            attendees:
+              type: array
+              description: The Attendees ordered by name. Empty means the whole Household.
+              items: { $ref: "#/components/schemas/Attendee" }
     RoutineInput:
       type: object
       properties:
@@ -1816,13 +2050,91 @@ components:
       properties:
         key: { type: string }
         name: { type: string }
-    RoutineNotice:
+    Notification:
       type: object
       properties:
-        routine:
-          $ref: "#/components/schemas/Routine"
-        kind: { type: string }
-        message: { type: string }
+        id: { type: integer, format: int64 }
+        household_id: { type: integer, format: int64 }
+        recipient_id: { type: integer, format: int64 }
+        kind:
+          type: string
+          enum: [assignment, task_reminder, appointment_reminder]
+        stage:
+          type: string
+          description: Reminder stage. Omitted for Assignment Notifications.
+          enum: [due_soon, hour_before, due_now, overdue]
+        subject_type:
+          type: string
+          enum: [task, list_item, routine, appointment]
+        subject_id: { type: integer, format: int64 }
+        url:
+          type: string
+          description: Web app path that opens the subject. List Items open their List.
+          example: /tasks/42
+        title: { type: string }
+        body: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        read_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the Member read it. Omitted while Unread.
+    NotificationList:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        unread_count: { type: integer }
+    PushSubscription:
+      type: object
+      description: >
+        A device that receives Push. Every Notification is pushed with the
+        payload {title, body, url, notification_id, unread_count}. Push
+        Subscriptions their push service reports as gone are removed
+        automatically.
+      properties:
+        id: { type: integer, format: int64 }
+        household_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        name: { type: string, example: Safari on iPhone }
+        endpoint: { type: string, format: uri }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        last_used_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When a Push was last accepted for it. Omitted until then.
+    PushSubscriptionInput:
+      type: object
+      required: [endpoint, keys]
+      properties:
+        endpoint: { type: string, format: uri, description: Must be https. }
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh: { type: string }
+            auth: { type: string }
+        name:
+          type: string
+          description: Optional display name. Defaults to one derived from the User-Agent.
+    PushSettings:
+      type: object
+      description: >
+        Whether each kind of Notification is sent to the Member's Push
+        Subscriptions. Notifications of a kind that is off are still stored.
+      required: [assignment, task_reminder, appointment_reminder]
+      properties:
+        assignment: { type: boolean, description: Assignment Notifications. }
+        task_reminder: { type: boolean, description: Task Reminders. }
+        appointment_reminder: { type: boolean, description: Appointment Reminders. }
+    PushSettingsInput:
+      type: object
+      description: Kinds to change. Omitted kinds keep their current setting.
+      properties:
+        assignment: { type: boolean }
+        task_reminder: { type: boolean }
+        appointment_reminder: { type: boolean }
     Dashboard:
       type: object
       properties:
@@ -1850,10 +2162,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Routine"
-        notices:
-          type: array
-          items:
-            $ref: "#/components/schemas/RoutineNotice"
         tile_order:
           type: array
           items:
@@ -1864,6 +2172,10 @@ components:
             $ref: "#/components/schemas/DashboardTile"
         budget_app_url:
           type: string
+        notifications:
+          allOf:
+            - $ref: "#/components/schemas/NotificationList"
+          description: The current Member's latest Notifications and Unread count, for the bell.
     CalendarEntry:
       type: object
       properties:
@@ -1875,6 +2187,10 @@ components:
         meta: { type: string }
         status: { type: string }
         priority: { type: string }
+        attendees:
+          type: array
+          description: Appointment entries only. Omitted when the Appointment is for the whole Household.
+          items: { $ref: "#/components/schemas/Attendee" }
     CalendarDay:
       type: object
       properties:

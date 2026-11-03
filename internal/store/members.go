@@ -197,6 +197,17 @@ func (s *Store) RemoveMember(ctx context.Context, householdID, memberID, actorID
 	`, householdID, memberID); err != nil {
 		return err
 	}
+	// A removed Member's devices must stop receiving household information,
+	// so their Push Subscriptions, Notifications and pending Reminders go too.
+	for _, query := range []string{
+		`DELETE FROM push_subscriptions WHERE household_id = $1 AND user_id = $2`,
+		`DELETE FROM notifications WHERE household_id = $1 AND recipient_id = $2`,
+		`DELETE FROM scheduled_reminders WHERE household_id = $1 AND recipient_id = $2 AND sent_at IS NULL`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, householdID, memberID); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM household_members
 		WHERE household_id = $1 AND user_id = $2
@@ -335,6 +346,11 @@ func (s *Store) ActivatePreauthorizedOAuthUser(ctx context.Context, providerSubj
 		return User{}, Household{}, err
 	}
 	return user, household, nil
+}
+
+// IsMember reports whether userID is currently a Member of the household.
+func (s *Store) IsMember(ctx context.Context, householdID, userID int64) (bool, error) {
+	return s.userInHousehold(ctx, householdID, userID)
 }
 
 func (s *Store) userInHousehold(ctx context.Context, householdID, userID int64) (bool, error) {

@@ -9,11 +9,23 @@ const appTemplate = `
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{ .Title }}</title>
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+	<link rel="manifest" href="/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+	<meta name="theme-color" content="#5865f2">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-title" content="Homebase">
+	<meta name="apple-mobile-web-app-status-bar-style" content="default">
 	<script>
 		(function () {
 			var saved = localStorage.getItem("homebase-theme");
 			if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
 		})();
+		if ("serviceWorker" in navigator) {
+			window.addEventListener("load", function () {
+				navigator.serviceWorker.register("/sw.js").catch(function () {});
+			});
+		}
 	</script>
 	<style>
 		:root { color-scheme: light; --ink:#2e3338; --muted:#5c6470; --line:#d7dae2; --paper:#f2f3f5; --panel:#ffffff; --panel-soft:#f6f7f9; --field:#ffffff; --accent:#5865f2; --accent-hover:#4752c4; --accent-ink:#ffffff; --danger:#d83c3e; --danger-soft:#fff0f1; --shadow:0 14px 38px rgba(32, 34, 37, .14); }
@@ -196,6 +208,12 @@ const appTemplate = `
 		label { display:grid; gap:5px; color:var(--muted); font-size:13px; min-width:0; }
 		input, textarea, select { width:100%; min-width:0; min-height:38px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; background:var(--field); color:var(--ink); }
 		textarea { min-height:74px; resize:vertical; }
+		.attendee-picker { display:grid; gap:6px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin:0; min-width:0; }
+		.attendee-picker legend { color:var(--muted); font-size:13px; padding:0 4px; }
+		.attendee-picker .hint { color:var(--muted); font-size:12px; }
+		.attendee-picker .options { display:flex; flex-wrap:wrap; gap:6px 14px; }
+		.attendee-picker label { display:inline-flex; align-items:center; gap:6px; color:var(--ink); }
+		.attendee-picker input[type="checkbox"] { width:auto; min-height:0; }
 		.form-row { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; min-width:0; }
 		.filter-row { margin-bottom:14px; grid-template-columns:minmax(0, 1fr) minmax(160px, 220px) minmax(160px, 220px); align-items:end; }
 		.modules { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; }
@@ -271,6 +289,11 @@ const appTemplate = `
 		.profile-panel { position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(320px, calc(100vw - 32px)); background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:12px; display:grid; gap:12px; }
 		.profile-panel form { display:block; }
 		.notice-list { display:grid; gap:8px; max-height:340px; overflow:auto; }
+		.notice-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+		.notice-item { width:100%; min-height:0; display:grid; justify-items:start; gap:2px; padding:12px; border:1px solid var(--line); background:var(--panel-soft); text-align:left; color:var(--ink); white-space:normal; }
+		.notice-item:hover { border-color:var(--accent); background:var(--panel-soft); color:var(--ink); }
+		.notice-item.unread { border-left:3px solid var(--accent); }
+		.notice-item.unread strong::after { content:""; display:inline-block; width:7px; height:7px; margin-left:6px; border-radius:50%; background:var(--accent); vertical-align:middle; }
 		.theme-row { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:13px; }
 		.switch { position:relative; width:48px; height:26px; display:inline-block; }
 		.switch input { position:absolute; opacity:0; width:1px; height:1px; }
@@ -395,6 +418,7 @@ const appTemplate = `
 			</a>
 			<nav class="topbar-right">
 				{{ if .Dashboard.CurrentUser.Email }}
+					<span hidden data-app-badge="{{ .Dashboard.Notifications.UnreadCount }}"></span>
 					<div class="universal-search" role="search">
 						<span class="search-leading-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
 						<input type="search" autocomplete="off" placeholder="Search tasks, projects, docs..." aria-label="Search" data-universal-search>
@@ -402,18 +426,26 @@ const appTemplate = `
 					</div>
 					<details class="floating-menu">
 						<summary aria-label="Notifications">
-							<span class="icon-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>{{ if .Dashboard.Notices }}<span class="notice-dot">{{ len .Dashboard.Notices }}</span>{{ end }}</span>
+							<span class="icon-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>{{ if .Dashboard.Notifications.UnreadCount }}<span class="notice-dot" data-unread-count>{{ .Dashboard.Notifications.UnreadCount }}</span>{{ end }}</span>
 						</summary>
 						<div class="profile-panel">
-							<strong>Notifications</strong>
+							<div class="notice-head">
+								<strong>Notifications</strong>
+								{{ if .Dashboard.Notifications.UnreadCount }}
+									<form method="post" action="/notifications/read-all"><button class="link-button" type="submit">Mark all read</button></form>
+								{{ end }}
+							</div>
 							<div class="notice-list">
-								{{ range .Dashboard.Notices }}
-									<a class="item" href="/routines/{{ .Routine.ID }}">
-										<strong>{{ .Message }}</strong>
-										{{ if .Routine.NextDueAt }}<div class="meta">Due {{ date .Routine.NextDueAt }} · {{ .Kind }}</div>{{ end }}
-									</a>
+								{{ range .Dashboard.Notifications.Notifications }}
+									<form method="post" action="/notifications/{{ .ID }}/open">
+										<button class="item notice-item{{ if not .ReadAt }} unread{{ end }}" type="submit">
+											<strong>{{ .Title }}</strong>
+											{{ if .Body }}<span>{{ .Body }}</span>{{ end }}
+											<span class="meta">{{ datetime .CreatedAt }}</span>
+										</button>
+									</form>
 								{{ else }}
-									<p class="empty">No routine notifications.</p>
+									<p class="empty">No notifications.</p>
 								{{ end }}
 							</div>
 						</div>
@@ -488,6 +520,124 @@ const appTemplate = `
 	{{ end }}
 	<script>
 		(function () {
+			// App-icon badge: the page refreshes it from the Unread count on
+			// every load, including the redirect after marking read.
+			var appBadge = document.querySelector("[data-app-badge]");
+			if (appBadge && "setAppBadge" in navigator) {
+				var unread = parseInt(appBadge.getAttribute("data-app-badge"), 10) || 0;
+				Promise.resolve(unread > 0 ? navigator.setAppBadge(unread) : navigator.clearAppBadge()).catch(function () {});
+			}
+
+			// Settings > Notifications. The permission prompt is only ever
+			// triggered by the Enable button.
+			var pushPanel = document.querySelector("[data-push-settings]");
+			if (pushPanel) {
+				var pushPart = function (name) { return pushPanel.querySelector("[data-push-" + name + "]"); };
+				var showPush = function (name, on) { var el = pushPart(name); if (el) el.hidden = !on; };
+				var pushFailed = function (message) {
+					var el = pushPart("error");
+					el.textContent = message;
+					el.hidden = false;
+				};
+				var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+				var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+				var pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+				var keyBytes = function (base64url) {
+					var padded = (base64url + "===".slice((base64url.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+					var raw = atob(padded);
+					var bytes = new Uint8Array(raw.length);
+					for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+					return bytes;
+				};
+				var deviceCard = function (endpoint) {
+					var cards = pushPanel.querySelectorAll("[data-push-endpoint]");
+					for (var i = 0; i < cards.length; i++) {
+						if (cards[i].getAttribute("data-push-endpoint") === endpoint) return cards[i];
+					}
+					return null;
+				};
+				var jsonOrError = function (response) {
+					return response.json().catch(function () { return {}; }).then(function (body) {
+						if (!response.ok) throw new Error(body.error || "Request failed");
+						return body;
+					});
+				};
+
+				if (!pushSupported) {
+					showPush(isIOS && !standalone ? "ios-hint" : "unsupported", true);
+				} else if (Notification.permission === "denied") {
+					showPush("blocked", true);
+				} else {
+					navigator.serviceWorker.ready.then(function (registration) {
+						return registration.pushManager.getSubscription();
+					}).then(function (subscription) {
+						var card = subscription && deviceCard(subscription.endpoint);
+						if (card) {
+							card.querySelector("[data-push-this-device]").hidden = false;
+							showPush("disable", true);
+						} else {
+							showPush("enable", true);
+						}
+					}).catch(function () {
+						showPush("enable", true);
+					});
+				}
+
+				pushPart("enable").addEventListener("click", function () {
+					var button = this;
+					button.disabled = true;
+					var asked = Notification.requestPermission();
+					Promise.resolve(asked).then(function (permission) {
+						if (permission !== "granted") {
+							showPush("enable", false);
+							showPush("blocked", permission === "denied");
+							throw null;
+						}
+						return Promise.all([
+							navigator.serviceWorker.ready,
+							fetch("/push/vapid-public-key", { credentials: "same-origin" }).then(jsonOrError)
+						]);
+					}).then(function (results) {
+						var registration = results[0];
+						return registration.pushManager.getSubscription().then(function (existing) {
+							return existing || registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(results[1].public_key) });
+						});
+					}).then(function (subscription) {
+						return fetch("/push-subscriptions", {
+							method: "POST",
+							credentials: "same-origin",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(subscription.toJSON())
+						}).then(jsonOrError);
+					}).then(function () {
+						window.location.reload();
+					}).catch(function (err) {
+						button.disabled = false;
+						if (err) pushFailed("Notifications could not be enabled: " + err.message);
+					});
+				});
+
+				pushPart("disable").addEventListener("click", function () {
+					var button = this;
+					button.disabled = true;
+					navigator.serviceWorker.ready.then(function (registration) {
+						return registration.pushManager.getSubscription();
+					}).then(function (subscription) {
+						if (!subscription) return null;
+						var card = deviceCard(subscription.endpoint);
+						var removed = card
+							? fetch("/push-subscriptions/" + card.getAttribute("data-push-id"), { method: "DELETE", credentials: "same-origin" }).then(jsonOrError)
+							: Promise.resolve();
+						return removed.then(function () { return subscription.unsubscribe(); });
+					}).then(function () {
+						window.location.reload();
+					}).catch(function (err) {
+						button.disabled = false;
+						pushFailed("Notifications could not be disabled: " + err.message);
+					});
+				});
+			}
+
 			function openModal(id) {
 				var modal = document.getElementById(id);
 				if (modal) modal.classList.add("open");
@@ -1228,7 +1378,7 @@ const appTemplate = `
 				{{ range eventsForDayOffset .Dashboard.Events .Now 0 }}
 					<article class="item">
 						<strong><a href="/events/{{ .ID }}">{{ .Title }}</a></strong>
-						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}</div>
+						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}{{ if .Attendees }} · {{ attendeeNames .Attendees }}{{ end }}</div>
 					</article>
 				{{ else }}
 					<p class="empty">No appointments today.</p>
@@ -1237,7 +1387,7 @@ const appTemplate = `
 				{{ range eventsForDayOffset .Dashboard.Events .Now 1 }}
 					<article class="item">
 						<strong><a href="/events/{{ .ID }}">{{ .Title }}</a></strong>
-						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}</div>
+						<div class="meta">{{ datetime .StartsAt }}{{ if .Location }} · {{ .Location }}{{ end }}{{ if .Attendees }} · {{ attendeeNames .Attendees }}{{ end }}</div>
 					</article>
 				{{ else }}
 					<p class="empty">No appointments tomorrow.</p>
@@ -1360,6 +1510,7 @@ const appTemplate = `
 				<label>Starts<input name="starts_at" type="datetime-local" required></label>
 				<label>Ends<input name="ends_at" type="datetime-local" required></label>
 			</div>
+			{{ template "attendeePicker" (dict "Members" .Dashboard.Members) }}
 			<label>Description<textarea name="description"></textarea></label>
 			<button type="submit">Add appointment</button>
 		</form>
@@ -1516,7 +1667,19 @@ const appTemplate = `
 	{{ if .Time }}{{ if entryTime .Time }}<span class="meta">{{ entryTime .Time }}</span>{{ end }}{{ end }}
 	<strong>{{ .Title }}</strong>
 	{{ if .Meta }}<span class="meta">{{ .Meta }}</span>{{ end }}
+	{{ if .Attendees }}<span class="meta">{{ attendeeNames .Attendees }}</span>{{ end }}
 </a>
+{{ end }}
+
+{{ define "attendeePicker" }}
+<fieldset class="attendee-picker">
+	<legend>Attendees</legend>
+	<div class="options">
+		{{ $selected := .Selected }}
+		{{ range .Members }}<label><input type="checkbox" name="attendee_ids" value="{{ .ID }}"{{ if hasID $selected .ID }} checked{{ end }}>{{ .Name }}</label>{{ end }}
+	</div>
+	<span class="hint">None selected means the whole household.</span>
+</fieldset>
 {{ end }}
 
 {{ define "calendarWeekView" }}
@@ -1897,6 +2060,42 @@ const appTemplate = `
 		<pre class="code-block">{{ .CreatedAPIToken.Token }}</pre>
 	</section>
 	{{ end }}
+
+	<section class="panel" data-push-settings>
+		<div class="tile-head">
+			<h2>Notifications</h2>
+		</div>
+		<p class="empty" data-push-ios-hint hidden>To get notifications on iPhone or iPad, add Homebase to your Home Screen first: tap Share, then Add to Home Screen, and open Homebase from there. This needs iOS 16.4 or later.</p>
+		<p class="empty" data-push-blocked hidden>Notifications are blocked for Homebase in this browser. Allow them in the browser's site settings (on iPhone or iPad: Settings, Notifications, Homebase), then reload this page.</p>
+		<p class="empty" data-push-unsupported hidden>This browser can't receive push notifications.</p>
+		<p class="error" data-push-error hidden></p>
+		<button type="button" data-push-enable hidden>Enable notifications on this device</button>
+		<button type="button" class="secondary" data-push-disable hidden>Disable notifications on this device</button>
+		<div class="cards" style="margin-top:16px;">
+			{{ range .PushSubscriptions }}
+			<article class="item" data-push-endpoint="{{ .Endpoint }}" data-push-id="{{ .ID }}">
+				<div class="item-head">
+					<div>
+						<strong>{{ .Name }}</strong> <span class="pill active" data-push-this-device hidden>This device</span>
+						<div class="meta">Added {{ datetime .CreatedAt }} · {{ if .LastUsedAt }}Last used {{ datetime .LastUsedAt }}{{ else }}Not used yet{{ end }}</div>
+					</div>
+					<form method="post" action="/settings/push-subscriptions/{{ .ID }}/remove">
+						<button class="danger compact" type="submit" title="Remove device" aria-label="Remove device">X</button>
+					</form>
+				</div>
+			</article>
+			{{ else }}
+			<p class="empty">No devices receive notifications yet.</p>
+			{{ end }}
+		</div>
+		<form method="post" action="/settings/push-settings" class="push-kinds" style="margin-top:16px;">
+			<p class="meta">Choose what is sent to your devices. Everything still appears in the bell.</p>
+			<label class="theme-row"><span>Assignments</span><span class="switch"><input type="checkbox" name="assignment"{{ if .PushSettings.Assignment }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<label class="theme-row"><span>Task Reminders</span><span class="switch"><input type="checkbox" name="task_reminder"{{ if .PushSettings.TaskReminder }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<label class="theme-row"><span>Appointment Reminders</span><span class="switch"><input type="checkbox" name="appointment_reminder"{{ if .PushSettings.AppointmentReminder }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
+			<noscript><button type="submit" class="secondary">Save</button></noscript>
+		</form>
+	</section>
 
 	<section class="panel">
 		<div class="tile-head">
@@ -3528,6 +3727,7 @@ const appTemplate = `
 					<h1>{{ .Event.Title }}</h1>
 					{{ template "titleActionMenu" (dict "DeleteForm" "event-delete" "DeleteLabel" "Delete") }}
 				</div>
+				<p class="meta">For {{ attendeeNames .Event.Attendees }}</p>
 			</div>
 		</div>
 	</section>
@@ -3544,6 +3744,7 @@ const appTemplate = `
 				<label>Starts<input name="starts_at" type="datetime-local" value="{{ datetimeInput .Event.StartsAt }}" required></label>
 				<label>Ends<input name="ends_at" type="datetime-local" value="{{ datetimeInput .Event.EndsAt }}" required></label>
 			</div>
+			{{ template "attendeePicker" (dict "Members" .Dashboard.Members "Selected" .Event.AttendeeIDs) }}
 			<label>Description<textarea name="description">{{ .Event.Description }}</textarea></label>
 			<button type="submit">Save appointment</button>
 		</form>

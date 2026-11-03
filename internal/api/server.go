@@ -17,7 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"homebase/internal/clock"
 	"homebase/internal/config"
+	"homebase/internal/notify"
+	"homebase/internal/push"
 	"homebase/internal/store"
 )
 
@@ -39,18 +42,89 @@ type Server struct {
 	cfg    config.Config
 	store  *store.Store
 	logger *slog.Logger
+	clock  clock.Clock
 	mux    *http.ServeMux
+
+	// notifier decides and records every Notification. Domain handlers report
+	// changes to it and never create Notifications themselves.
+	notifier *notify.Notifier
+
+	// pushSender sends Push to Push Subscriptions. The default is Web Push
+	// with the VAPID keys stored in the database.
+	pushSender push.Sender
+	// pushDelivery sends Push in the background so requests never wait on
+	// push services.
+	pushDelivery *push.Delivery
 }
 
-func New(cfg config.Config, st *store.Store, logger *slog.Logger) *Server {
+// Option overrides one of the Server's default dependencies.
+type Option func(*Server)
+
+// WithPushSender sets how Push is sent to Push Subscriptions. The default is
+// standard Web Push with VAPID; tests pass a recording fake.
+func WithPushSender(sender push.Sender) Option {
+	return func(s *Server) {
+		s.pushSender = sender
+	}
+}
+
+// WithClock sets the Server's source of "now". The default is the real clock.
+func WithClock(c clock.Clock) Option {
+	return func(s *Server) {
+		s.clock = c
+	}
+}
+
+func New(cfg config.Config, st *store.Store, logger *slog.Logger, opts ...Option) *Server {
 	s := &Server{
 		cfg:    cfg,
 		store:  st,
 		logger: logger,
+		clock:  clock.Real(),
 		mux:    http.NewServeMux(),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.pushSender == nil {
+		subject := cfg.VAPIDSubject
+		if subject == "" {
+			subject = cfg.BootstrapOwnerEmail
+		}
+		s.pushSender = push.NewWebPush(st, subject)
+	}
+	s.pushDelivery = push.NewDelivery(st, s.pushSender, s.clock, logger)
+	s.notifier = notify.New(st, s.clock, logger, notify.WithDelivery(s.pushDelivery))
 	s.routes()
 	return s
+}
+
+// Close stops background work: it waits for queued Push to be sent, until
+// ctx ends. Call it after the HTTP server and the loops have stopped.
+func (s *Server) Close(ctx context.Context) error {
+	return s.pushDelivery.Close(ctx)
+}
+
+// WaitForPush blocks until every Push queued so far has been sent. Push goes
+// out in the background; tests call this to observe it deterministically.
+func (s *Server) WaitForPush() {
+	s.pushDelivery.Wait()
+}
+
+// SendDueReminders sends every Reminder due as of asOf. The API process runs
+// it every minute; tests call it with the fake Clock's time.
+func (s *Server) SendDueReminders(ctx context.Context, asOf time.Time) (int, error) {
+	return s.notifier.SendDueReminders(ctx, asOf)
+}
+
+// NotificationRetention is how long a read Notification is kept.
+const NotificationRetention = 90 * 24 * time.Hour
+
+// ExpireNotifications permanently deletes read Notifications older than
+// NotificationRetention as of asOf. The API process runs it alongside the
+// Reminder runner; tests call it with the fake Clock's time.
+func (s *Server) ExpireNotifications(ctx context.Context, asOf time.Time) (int, error) {
+	return s.store.DeleteReadNotificationsBefore(ctx, asOf.Add(-NotificationRetention))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +155,25 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.createAPIToken(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/api-tokens/"):
 		s.revokeAPIToken(w, r, strings.TrimPrefix(path, "/api-tokens/"))
+	case r.Method == http.MethodGet && path == "/notifications":
+		s.listNotifications(w, r)
+	case r.Method == http.MethodPost && path == "/notifications/read-all":
+		s.markAllNotificationsRead(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/notifications/") && strings.HasSuffix(path, "/read"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/notifications/"), "/read")
+		s.markNotificationRead(w, r, id)
+	case r.Method == http.MethodGet && path == "/push/vapid-public-key":
+		s.vapidPublicKey(w, r)
+	case r.Method == http.MethodGet && path == "/push-subscriptions":
+		s.listPushSubscriptions(w, r)
+	case r.Method == http.MethodPost && path == "/push-subscriptions":
+		s.registerPushSubscription(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/push-subscriptions/"):
+		s.deletePushSubscription(w, r, strings.TrimPrefix(path, "/push-subscriptions/"))
+	case r.Method == http.MethodGet && path == "/push-settings":
+		s.getPushSettings(w, r)
+	case r.Method == http.MethodPatch && path == "/push-settings":
+		s.updatePushSettings(w, r)
 	case r.Method == http.MethodGet && path == "/households/current":
 		s.currentHousehold(w, r)
 	case r.Method == http.MethodGet && path == "/dashboard":
@@ -416,6 +509,67 @@ func (s *Server) revokeAPIToken(w http.ResponseWriter, r *http.Request, rawID st
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	limit, err := optionalQueryInt(query.Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+		return
+	}
+	beforeID, err := optionalQueryInt(query.Get("before_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "before_id must be a positive integer")
+		return
+	}
+	list, err := s.store.ListNotifications(r.Context(), householdFrom(r).ID, userFrom(r).ID, int(limit), beforeID)
+	if err != nil {
+		s.logger.Error("list notifications", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list notifications")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) markNotificationRead(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	notification, err := s.store.MarkNotificationRead(r.Context(), householdFrom(r).ID, userFrom(r).ID, id, s.clock.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "notification not found")
+		return
+	}
+	if err != nil {
+		s.logger.Error("mark notification read", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mark notification read")
+		return
+	}
+	writeJSON(w, http.StatusOK, notification)
+}
+
+func (s *Server) markAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.MarkAllNotificationsRead(r.Context(), householdFrom(r).ID, userFrom(r).ID, s.clock.Now()); err != nil {
+		s.logger.Error("mark all notifications read", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to mark notifications read")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// optionalQueryInt parses an optional positive integer query parameter. An
+// empty value is 0.
+func optionalQueryInt(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, errors.New("invalid")
+	}
+	return value, nil
+}
+
 func (s *Server) currentHousehold(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, householdFrom(r))
 }
@@ -431,7 +585,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) calendar(w http.ResponseWriter, r *http.Request) {
-	month := time.Now()
+	now := s.clock.Now()
+	month := now
 	if raw := strings.TrimSpace(r.URL.Query().Get("month")); raw != "" {
 		parsed, err := time.ParseInLocation("2006-01", raw, time.Local)
 		if err != nil {
@@ -441,7 +596,7 @@ func (s *Server) calendar(w http.ResponseWriter, r *http.Request) {
 		month = parsed
 	}
 
-	calendar, err := s.store.CalendarMonth(r.Context(), householdFrom(r).ID, month)
+	calendar, err := s.store.CalendarMonth(r.Context(), householdFrom(r).ID, month, now)
 	if err != nil {
 		s.logger.Error("calendar", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to load calendar")
@@ -512,7 +667,16 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusCreated, member)
+}
+
+// membersChanged reports a Member joining or leaving to the Notifier, logging
+// rather than failing the already-saved request.
+func (s *Server) membersChanged(ctx context.Context, householdID int64) {
+	if err := s.notifier.MembersChanged(ctx, householdID); err != nil {
+		s.logger.Error("notify members changed", "household_id", householdID, "error", err)
+	}
 }
 
 func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, id string) {
@@ -567,6 +731,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, id string)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.membersChanged(r.Context(), householdFrom(r).ID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -628,7 +793,16 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, rawID str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.projectChanged(r.Context(), project.HouseholdID, project.ID)
 	writeJSON(w, http.StatusOK, project)
+}
+
+// projectChanged reports a Project update or archive to the Notifier, which
+// keeps its Tasks' Reminders in line, logging rather than failing the request.
+func (s *Server) projectChanged(ctx context.Context, householdID, projectID int64) {
+	if err := s.notifier.ProjectChanged(ctx, householdID, projectID); err != nil {
+		s.logger.Error("notify project changed", "project_id", projectID, "error", err)
+	}
 }
 
 func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -643,6 +817,7 @@ func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request, rawID st
 		writeError(w, http.StatusInternalServerError, "failed to archive project")
 		return
 	}
+	s.projectChanged(r.Context(), householdFrom(r).ID, id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -728,12 +903,46 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	task, err := s.store.CreateTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	task, err := s.store.CreateTask(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, After: task})
 	writeJSON(w, http.StatusCreated, task)
+}
+
+// taskChanged reports a Task change to the Notifier. The change is already
+// saved, so a Notification failure is logged rather than failing the request.
+func (s *Server) taskChanged(ctx context.Context, change notify.TaskChange) {
+	if err := s.notifier.TaskChanged(ctx, change); err != nil {
+		s.logger.Error("notify task changed", "task_id", change.After.ID, "error", err)
+	}
+}
+
+// listItemChanged reports a List Item change to the Notifier, logging rather
+// than failing the already-saved request.
+func (s *Server) listItemChanged(ctx context.Context, change notify.ListItemChange) {
+	if err := s.notifier.ListItemChanged(ctx, change); err != nil {
+		s.logger.Error("notify list item changed", "list_item_id", change.After.ID, "error", err)
+	}
+}
+
+// routineChanged reports a Routine change to the Notifier, logging rather
+// than failing the already-saved request.
+func (s *Server) routineChanged(ctx context.Context, change notify.RoutineChange) {
+	if err := s.notifier.RoutineChanged(ctx, change); err != nil {
+		s.logger.Error("notify routine changed", "routine_id", change.After.ID, "error", err)
+	}
+}
+
+// taskStatusChanged reports a Task completed, reopened or archived to the
+// Notifier, logging rather than failing the request.
+func (s *Server) taskStatusChanged(ctx context.Context, task store.Task) {
+	if err := s.notifier.TaskStatusChanged(ctx, task); err != nil {
+		s.logger.Error("notify task status changed", "task_id", task.ID, "error", err)
+	}
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -762,7 +971,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	task, err := s.store.UpdateTask(r.Context(), householdFrom(r).ID, id, input)
+	task, previous, err := s.store.UpdateTask(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -771,6 +980,8 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, Before: &previous, After: task})
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -788,6 +999,7 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID stri
 		writeError(w, http.StatusInternalServerError, "failed to complete task")
 		return
 	}
+	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -805,6 +1017,7 @@ func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusInternalServerError, "failed to reopen task")
 		return
 	}
+	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -819,6 +1032,11 @@ func (s *Server) archiveTask(w http.ResponseWriter, r *http.Request, rawID strin
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to archive task")
 		return
+	}
+	if task, err := s.store.GetTask(r.Context(), householdFrom(r).ID, id); err != nil {
+		s.logger.Error("load archived task", "task_id", id, "error", err)
+	} else {
+		s.taskStatusChanged(r.Context(), task)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -838,12 +1056,23 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	event, err := s.store.CreateEvent(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	event, err := s.store.CreateEvent(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, After: event})
 	writeJSON(w, http.StatusCreated, event)
+}
+
+// appointmentChanged reports an Appointment change to the Notifier. The change
+// is already saved, so a Notification failure is logged rather than failing
+// the request.
+func (s *Server) appointmentChanged(ctx context.Context, change notify.AppointmentChange) {
+	if err := s.notifier.AppointmentChanged(ctx, change); err != nil {
+		s.logger.Error("notify appointment changed", "event_id", change.After.ID, "error", err)
+	}
 }
 
 func (s *Server) getEvent(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -872,7 +1101,7 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	event, err := s.store.UpdateEvent(r.Context(), householdFrom(r).ID, id, input)
+	event, previous, err := s.store.UpdateEvent(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -881,6 +1110,8 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, Before: &previous, After: event})
 	writeJSON(w, http.StatusOK, event)
 }
 
@@ -895,6 +1126,9 @@ func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete event")
 		return
+	}
+	if err := s.notifier.AppointmentRemoved(r.Context(), householdFrom(r).ID, id); err != nil {
+		s.logger.Error("notify appointment removed", "event_id", id, "error", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -914,11 +1148,13 @@ func (s *Server) createRoutine(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	routine, err := s.store.CreateRoutine(r.Context(), householdFrom(r).ID, userFrom(r).ID, input)
+	actor := userFrom(r)
+	routine, err := s.store.CreateRoutine(r.Context(), householdFrom(r).ID, actor.ID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.routineChanged(r.Context(), notify.RoutineChange{Actor: &actor, After: routine})
 	writeJSON(w, http.StatusCreated, routine)
 }
 
@@ -948,7 +1184,7 @@ func (s *Server) updateRoutine(w http.ResponseWriter, r *http.Request, rawID str
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	routine, err := s.store.UpdateRoutine(r.Context(), householdFrom(r).ID, id, input)
+	routine, previous, err := s.store.UpdateRoutine(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "routine not found")
 		return
@@ -957,6 +1193,8 @@ func (s *Server) updateRoutine(w http.ResponseWriter, r *http.Request, rawID str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.routineChanged(r.Context(), notify.RoutineChange{Actor: &actor, Before: &previous, After: routine})
 	writeJSON(w, http.StatusOK, routine)
 }
 
@@ -980,7 +1218,7 @@ func (s *Server) generateRoutineTask(w http.ResponseWriter, r *http.Request, raw
 	if !ok {
 		return
 	}
-	task, err := s.store.GenerateRoutineTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
+	task, created, err := s.store.GenerateRoutineTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "routine not found")
 		return
@@ -988,6 +1226,10 @@ func (s *Server) generateRoutineTask(w http.ResponseWriter, r *http.Request, raw
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if created {
+		// A Generated Task has no acting Member, even when one asked for it.
+		s.taskChanged(r.Context(), notify.TaskChange{After: task})
 	}
 	writeJSON(w, http.StatusCreated, task)
 }
@@ -1091,11 +1333,13 @@ func (s *Server) createListItem(w http.ResponseWriter, r *http.Request, rawListI
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.store.CreateListItem(r.Context(), householdFrom(r).ID, userFrom(r).ID, listID, input)
+	actor := userFrom(r)
+	item, err := s.store.CreateListItem(r.Context(), householdFrom(r).ID, actor.ID, listID, input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.listItemChanged(r.Context(), notify.ListItemChange{Actor: &actor, After: item})
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -1108,7 +1352,7 @@ func (s *Server) updateListItem(w http.ResponseWriter, r *http.Request, rawID st
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.store.UpdateListItem(r.Context(), householdFrom(r).ID, id, input)
+	item, previous, err := s.store.UpdateListItem(r.Context(), householdFrom(r).ID, id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "list item not found")
 		return
@@ -1117,6 +1361,8 @@ func (s *Server) updateListItem(w http.ResponseWriter, r *http.Request, rawID st
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	actor := userFrom(r)
+	s.listItemChanged(r.Context(), notify.ListItemChange{Actor: &actor, Before: &previous, After: item})
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -1453,7 +1699,7 @@ func (s *Server) generateAssetMaintenanceTask(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	task, err := s.store.GenerateAssetMaintenanceItemTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
+	task, created, err := s.store.GenerateAssetMaintenanceItemTask(r.Context(), householdFrom(r).ID, userFrom(r).ID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "maintenance item not found")
 		return
@@ -1461,6 +1707,10 @@ func (s *Server) generateAssetMaintenanceTask(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if created {
+		// A Generated Task has no acting Member, even when one asked for it.
+		s.taskChanged(r.Context(), notify.TaskChange{After: task})
 	}
 	writeJSON(w, http.StatusCreated, task)
 }

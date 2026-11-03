@@ -188,6 +188,9 @@ func (s *Store) SessionContext(ctx context.Context, sessionID string) (User, Hou
 	return user, household, nil
 }
 
+// dashboardNotificationLimit is how many Notifications the bell shows.
+const dashboardNotificationLimit = 20
+
 func (s *Store) Dashboard(ctx context.Context, user User, household Household, budgetURL string) (Dashboard, error) {
 	members, err := s.ListMembers(ctx, household.ID)
 	if err != nil {
@@ -214,7 +217,7 @@ func (s *Store) Dashboard(ctx context.Context, user User, household Household, b
 		return Dashboard{}, err
 	}
 
-	notices, err := s.RoutineNotices(ctx, household.ID)
+	notifications, err := s.ListNotifications(ctx, household.ID, user.ID, dashboardNotificationLimit, 0)
 	if err != nil {
 		return Dashboard{}, err
 	}
@@ -232,7 +235,7 @@ func (s *Store) Dashboard(ctx context.Context, user User, household Household, b
 		Tasks:          tasks,
 		Events:         events,
 		Routines:       routines,
-		Notices:        notices,
+		Notifications:  notifications,
 		TileOrder:      tileOrder,
 		AvailableTiles: DashboardTiles(),
 		BudgetAppURL:   budgetURL,

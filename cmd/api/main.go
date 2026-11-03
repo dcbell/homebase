@@ -12,6 +12,7 @@ import (
 
 	"homebase/internal/api"
 	"homebase/internal/config"
+	"homebase/internal/push"
 	"homebase/internal/store"
 )
 
@@ -43,11 +44,23 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	go runRoutineScheduler(ctx, logger, st, cfg.RoutineCheckInterval)
+	// The VAPID key pair lives in the database (ADR 0003); create it on first
+	// start so every API instance signs Push with the same keys.
+	if _, err := push.EnsureVAPIDKeys(ctx, st); err != nil {
+		logger.Error("ensure VAPID keys", "error", err)
+		os.Exit(1)
+	}
+	if cfg.VAPIDSubject == "" && cfg.BootstrapOwnerEmail == "" {
+		logger.Warn("no VAPID subject: set VAPID_SUBJECT or BOOTSTRAP_OWNER_EMAIL, or some push services will reject Push")
+	}
+
+	apiServer := api.New(cfg, st, logger)
+	go runRoutineScheduler(ctx, logger, apiServer, cfg.RoutineCheckInterval)
+	go runReminderLoop(ctx, logger, apiServer, time.Minute)
 
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.New(cfg, st, logger),
+		Handler:           apiServer,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -66,9 +79,13 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("api shutdown", "error", err)
 	}
+	// Send the Push still queued, within what is left of the shutdown time.
+	if err := apiServer.Close(shutdownCtx); err != nil {
+		logger.Error("push delivery shutdown", "error", err)
+	}
 }
 
-func runRoutineScheduler(ctx context.Context, logger *slog.Logger, st *store.Store, interval time.Duration) {
+func runRoutineScheduler(ctx context.Context, logger *slog.Logger, apiServer *api.Server, interval time.Duration) {
 	if interval <= 0 {
 		interval = 15 * time.Minute
 	}
@@ -76,21 +93,45 @@ func runRoutineScheduler(ctx context.Context, logger *slog.Logger, st *store.Sto
 	run := func() {
 		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		count, err := st.GenerateDueRoutineTasks(jobCtx, time.Now())
-		if err != nil {
-			logger.Error("generate due routine tasks", "error", err)
+		if err := apiServer.GenerateDueTasks(jobCtx); err != nil {
+			logger.Error("generate due tasks", "error", err)
+		}
+	}
+
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			run()
 		}
-		if count > 0 {
-			logger.Info("generated due routine tasks", "count", count)
-		}
-		assetCount, err := st.GenerateDueAssetMaintenanceTasks(jobCtx, time.Now())
+	}
+}
+
+// runReminderLoop sends due Reminders and deletes expired read Notifications
+// every interval. It is separate from the
+// Routine scheduler so that loop keeps its own cadence.
+func runReminderLoop(ctx context.Context, logger *slog.Logger, server *api.Server, interval time.Duration) {
+	run := func() {
+		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		sent, err := server.SendDueReminders(jobCtx, time.Now())
 		if err != nil {
-			logger.Error("generate due asset maintenance tasks", "error", err)
-			return
+			logger.Error("send due reminders", "error", err)
 		}
-		if assetCount > 0 {
-			logger.Info("generated due asset maintenance tasks", "count", assetCount)
+		if sent > 0 {
+			logger.Info("sent due reminders", "count", sent)
+		}
+		expired, err := server.ExpireNotifications(jobCtx, time.Now())
+		if err != nil {
+			logger.Error("expire notifications", "error", err)
+		}
+		if expired > 0 {
+			logger.Info("deleted expired notifications", "count", expired)
 		}
 	}
 

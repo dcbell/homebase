@@ -51,6 +51,31 @@ func (s *Store) ListTasks(ctx context.Context, householdID int64) ([]Task, error
 	return tasks, rows.Err()
 }
 
+// ListProjectTasks returns every Task of a Project, whatever its status.
+func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int64) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		FROM tasks t
+		LEFT JOIN users assigned ON assigned.id = t.assigned_to
+		WHERE t.household_id = $1 AND t.project_id = $2
+		ORDER BY t.id
+	`, householdID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks := []Task{}
+	for rows.Next() {
+		var t Task
+		if err := scanTask(rows, &t); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
 func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input TaskInput) (Task, error) {
 	if err := s.validateTaskInput(ctx, householdID, &input); err != nil {
 		return Task{}, err
@@ -88,20 +113,27 @@ func (s *Store) GetTask(ctx context.Context, householdID, id int64) (Task, error
 	return t, err
 }
 
-func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input TaskInput) (Task, error) {
+// UpdateTask replaces a Task's fields. It also returns the Task as it was
+// just before the update, so callers can tell what changed (a new assignee,
+// due date or status).
+func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input TaskInput) (updated Task, previous Task, err error) {
 	if err := s.validateTaskInput(ctx, householdID, &input); err != nil {
-		return Task{}, err
+		return Task{}, Task{}, err
 	}
 	if input.Status == "" {
 		input.Status = "open"
 	}
 	if input.Status != "open" && input.Status != "done" && input.Status != "archived" {
-		return Task{}, errors.New("status must be open, done, or archived")
+		return Task{}, Task{}, errors.New("status must be open, done, or archived")
 	}
 
-	var t Task
-	err := s.db.QueryRowContext(ctx, `
-		WITH updated AS (
+	var t, p Task
+	err = s.db.QueryRowContext(ctx, `
+		WITH previous AS (
+			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			FROM tasks
+			WHERE household_id = $1 AND id = $2
+		), updated AS (
 			UPDATE tasks
 			SET project_id = $3,
 				project_folder_id = $4,
@@ -123,26 +155,33 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 			WHERE household_id = $1 AND id = $2
 			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at,
+			previous.id, previous.household_id, previous.project_id, previous.project_folder_id, previous.routine_id, previous.asset_id, previous.asset_maintenance_item_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.priority, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at
 		FROM updated
+		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
+		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Status, input.Priority, input.DueAt).Scan(
 		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Task{}, ErrNotFound
+		return Task{}, Task{}, ErrNotFound
 	}
-	if err == nil && t.RoutineID != nil && t.Status == "done" {
+	if err != nil {
+		return Task{}, Task{}, err
+	}
+	if t.RoutineID != nil && t.Status == "done" {
 		if advanceErr := s.CompleteRoutine(ctx, householdID, *t.RoutineID); advanceErr != nil {
-			return Task{}, advanceErr
+			return Task{}, Task{}, advanceErr
 		}
 	}
-	if err == nil && t.AssetMaintenanceItemID != nil && t.Status == "done" {
+	if t.AssetMaintenanceItemID != nil && t.Status == "done" {
 		if advanceErr := s.CompleteAssetMaintenance(ctx, householdID, *t.AssetMaintenanceItemID); advanceErr != nil {
-			return Task{}, advanceErr
+			return Task{}, Task{}, advanceErr
 		}
 	}
-	return t, err
+	return t, p, nil
 }
 
 func (s *Store) ArchiveTask(ctx context.Context, householdID, id int64) error {

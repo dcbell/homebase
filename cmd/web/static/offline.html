@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#5865f2">
+	<title>Offline · Homebase</title>
+	<style>
+		:root { color-scheme: light dark; --ink:#2e3338; --muted:#5c6470; --paper:#f2f3f5; --panel:#ffffff; --accent:#5865f2; --accent-hover:#4752c4; }
+		@media (prefers-color-scheme: dark) { :root { --ink:#f2f3f5; --muted:#b5bac1; --paper:#313338; --panel:#2b2d31; --accent:#7983f5; --accent-hover:#5865f2; } }
+		* { box-sizing: border-box; }
+		body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px 16px; background:var(--paper); color:var(--ink); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+		main { max-width:360px; padding:32px 24px; border-radius:16px; background:var(--panel); text-align:center; }
+		svg { width:64px; height:64px; }
+		h1 { margin:16px 0 8px; font-size:1.375rem; }
+		p { margin:0 0 24px; color:var(--muted); }
+		button { padding:10px 18px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+		button:hover { background:var(--accent-hover); }
+	</style>
+</head>
+<body>
+	<main>
+		<svg viewBox="0 0 512 512" aria-hidden="true">
+			<rect width="512" height="512" rx="112" fill="#5865f2"/>
+			<path fill="#fff" d="M132 112h248q18 0 18 18v144q0 12-9 20L265 407q-9 8-18 0L123 294q-9-8-9-20V130q0-18 18-18Z"/>
+		</svg>
+		<h1>You're offline</h1>
+		<p>Homebase can't reach the server. Check your connection and try again.</p>
+		<button type="button" onclick="location.reload()">Try again</button>
+	</main>
+</body>
+</html>

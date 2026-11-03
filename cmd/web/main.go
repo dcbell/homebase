@@ -69,6 +69,8 @@ type pageData struct {
 	Assets                []store.Asset
 	AssetMaintenanceItems []store.AssetMaintenanceItem
 	APITokens             []store.APIToken
+	PushSubscriptions     []store.PushSubscription
+	PushSettings          store.PushSettings
 	CreatedAPIToken       store.APITokenWithSecret
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
@@ -92,6 +94,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	s := newWebServer(cfg, logger)
+
+	server := &http.Server{
+		Addr:              cfg.WebAddr,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("web listening", "addr", cfg.WebAddr, "timezone", cfg.Timezone)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("web server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("web shutdown", "error", err)
+	}
+}
+
+func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 	s := &webServer{
 		cfg:    cfg,
 		logger: logger,
@@ -104,6 +135,8 @@ func main() {
 		"datetimeInput":         formatDateTimeInput,
 		"datetimeInputPtr":      formatDateTimeInputPtr,
 		"selectedID":            selectedID,
+		"hasID":                 hasID,
+		"attendeeNames":         attendeeNames,
 		"selectedString":        selectedString,
 		"idValue":               idValue,
 		"initials":              initials,
@@ -166,13 +199,18 @@ func main() {
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
 	}).Parse(appTemplate))
+	return s
+}
 
+func (s *webServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /favicon.svg", favicon)
+	s.pwaRoutes(mux)
+	s.pushRoutes(mux)
 	mux.HandleFunc("GET /docs", s.swaggerDocs)
 	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /openapi.yaml", s.openapi)
@@ -182,6 +220,8 @@ func main() {
 	mux.HandleFunc("GET /settings", s.settings)
 	mux.HandleFunc("POST /settings/api-tokens", s.createAPIToken)
 	mux.HandleFunc("POST /settings/api-tokens/{id}/revoke", s.revokeAPIToken)
+	mux.HandleFunc("POST /notifications/read-all", s.markAllNotificationsRead)
+	mux.HandleFunc("POST /notifications/{id}/open", s.openNotification)
 	mux.HandleFunc("POST /dashboard/tiles/move", s.moveDashboardTile)
 	mux.HandleFunc("POST /dashboard/tiles/order", s.setDashboardTileOrder)
 	mux.HandleFunc("POST /members", s.addMember)
@@ -274,31 +314,7 @@ func main() {
 	mux.HandleFunc("POST /tasks/{taskID}/assets/{linkID}/remove", s.unlinkTaskAsset)
 	mux.HandleFunc("POST /tasks/complete", s.completeTask)
 	mux.HandleFunc("POST /logout", s.logout)
-
-	server := &http.Server{
-		Addr:              cfg.WebAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		logger.Info("web listening", "addr", cfg.WebAddr, "timezone", cfg.Timezone)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("web server", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-ctx.Done()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("web shutdown", "error", err)
-	}
+	return mux
 }
 
 func (s *webServer) swaggerDocs(w http.ResponseWriter, _ *http.Request) {
@@ -752,17 +768,31 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 			pageError = err.Error()
 		}
 	}
+	var pushSubscriptions []store.PushSubscription
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/push-subscriptions", nil, &pushSubscriptions); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
+	pushSettings := store.PushSettings{Assignment: true, TaskReminder: true, AppointmentReminder: true}
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/push-settings", nil, &pushSettings); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
 	if pageError == "" {
 		pageError = userFacingError(r.URL.Query().Get("error"))
 	}
 	s.render(w, http.StatusOK, pageData{
-		Title:           "Settings",
-		Error:           pageError,
-		Dashboard:       dashboard,
-		APITokens:       tokens,
-		CreatedAPIToken: created,
-		SettingsPage:    true,
-		Now:             time.Now(),
+		Title:             "Settings",
+		Error:             pageError,
+		Dashboard:         dashboard,
+		APITokens:         tokens,
+		PushSubscriptions: pushSubscriptions,
+		PushSettings:      pushSettings,
+		CreatedAPIToken:   created,
+		SettingsPage:      true,
+		Now:               time.Now(),
 	})
 }
 
@@ -798,7 +828,7 @@ func (s *webServer) createProject(w http.ResponseWriter, r *http.Request) {
 		"priority":    defaultValue(r.FormValue("priority"), "normal"),
 	}
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
-		payload["due_date"] = due + "T00:00:00Z"
+		payload["due_date"] = formTime(due)
 	}
 	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil)
 	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/"), http.StatusSeeOther)
@@ -915,7 +945,7 @@ func (s *webServer) updateProject(w http.ResponseWriter, r *http.Request) {
 		"priority":    defaultValue(r.FormValue("priority"), "normal"),
 	}
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
-		payload["due_date"] = due + "T00:00:00Z"
+		payload["due_date"] = formTime(due)
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/projects/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -1146,11 +1176,12 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{
-		"title":       r.FormValue("title"),
-		"description": r.FormValue("description"),
-		"location":    r.FormValue("location"),
-		"starts_at":   r.FormValue("starts_at") + ":00Z",
-		"ends_at":     r.FormValue("ends_at") + ":00Z",
+		"title":        r.FormValue("title"),
+		"description":  r.FormValue("description"),
+		"location":     r.FormValue("location"),
+		"starts_at":    formTime(r.FormValue("starts_at")),
+		"ends_at":      formTime(r.FormValue("ends_at")),
+		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	_ = s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -1184,11 +1215,12 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{
-		"title":       r.FormValue("title"),
-		"description": r.FormValue("description"),
-		"location":    r.FormValue("location"),
-		"starts_at":   r.FormValue("starts_at") + ":00Z",
-		"ends_at":     r.FormValue("ends_at") + ":00Z",
+		"title":        r.FormValue("title"),
+		"description":  r.FormValue("description"),
+		"location":     r.FormValue("location"),
+		"starts_at":    formTime(r.FormValue("starts_at")),
+		"ends_at":      formTime(r.FormValue("ends_at")),
+		"attendee_ids": attendeeIDsFromForm(r),
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -2266,6 +2298,25 @@ func formatDateInput(t *time.Time) string {
 	return t.Format("2006-01-02")
 }
 
+// formTimeLayouts are what date and datetime-local inputs submit.
+var formTimeLayouts = []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02"}
+
+// formTime turns a date or datetime-local form value into an RFC3339 time
+// for the API. The value is a wall-clock time in the application timezone
+// (APP_TIMEZONE, which ApplyTimezone makes time.Local), the same zone the
+// pages display times in, so a time shown in a form and saved unchanged
+// stays the same instant. A date alone is midnight on that date. A value
+// that is not a date is passed through for the API to reject.
+func formTime(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range formTimeLayouts {
+		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return raw
+}
+
 func formatDateTimeInput(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -2640,6 +2691,41 @@ func selectedString(current, value string) template.HTMLAttr {
 	return ""
 }
 
+// attendeeIDsFromForm reads the checked Attendee checkboxes. It always returns
+// a list, so an edit with none checked makes the Appointment whole-Household.
+func attendeeIDsFromForm(r *http.Request) []int64 {
+	ids := []int64{}
+	for _, raw := range r.Form["attendee_ids"] {
+		if id, ok := optionalInt64(raw); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// hasID reports whether id is in ids, which may be absent (nil) in a template.
+func hasID(ids any, id int64) bool {
+	list, _ := ids.([]int64)
+	for _, candidate := range list {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
+}
+
+// attendeeNames describes who an Appointment is for.
+func attendeeNames(attendees []store.Attendee) string {
+	if len(attendees) == 0 {
+		return "the whole household"
+	}
+	names := make([]string, len(attendees))
+	for i, a := range attendees {
+		names[i] = a.Name
+	}
+	return strings.Join(names, ", ")
+}
+
 func optionalInt64(value string) (int64, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -2660,7 +2746,7 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
-		payload["next_due_at"] = nextDue + "T00:00:00Z"
+		payload["next_due_at"] = formTime(nextDue)
 	}
 	return payload
 }
@@ -2684,11 +2770,7 @@ func listItemPayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
-		if strings.Contains(due, "T") {
-			payload["due_at"] = due + ":00Z"
-		} else {
-			payload["due_at"] = due + "T00:00:00Z"
-		}
+		payload["due_at"] = formTime(due)
 	}
 	return payload
 }
@@ -2715,10 +2797,10 @@ func assetPayloadFromForm(r *http.Request) map[string]any {
 		"status":        defaultValue(r.FormValue("status"), "active"),
 	}
 	if warranty := strings.TrimSpace(r.FormValue("warranty_expires_at")); warranty != "" {
-		payload["warranty_expires_at"] = warranty + "T00:00:00Z"
+		payload["warranty_expires_at"] = formTime(warranty)
 	}
 	if purchaseDate := strings.TrimSpace(r.FormValue("purchase_date")); purchaseDate != "" {
-		payload["purchase_date"] = purchaseDate + "T00:00:00Z"
+		payload["purchase_date"] = formTime(purchaseDate)
 	}
 	if cost := strings.TrimSpace(r.FormValue("purchase_cost")); cost != "" {
 		if parsed, err := strconv.ParseFloat(cost, 64); err == nil {
@@ -2736,7 +2818,7 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 		"status":  defaultValue(r.FormValue("status"), "active"),
 	}
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
-		payload["next_due_at"] = nextDue + "T00:00:00Z"
+		payload["next_due_at"] = formTime(nextDue)
 	}
 	return payload
 }
@@ -2786,11 +2868,7 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 		payload["assigned_to"] = assignedTo
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
-		if strings.Contains(due, "T") {
-			payload["due_at"] = due + ":00Z"
-		} else {
-			payload["due_at"] = due + "T00:00:00Z"
-		}
+		payload["due_at"] = formTime(due)
 	}
 	return payload
 }

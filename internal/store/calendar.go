@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month time.Time) (CalendarMonth, error) {
+func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month, now time.Time) (CalendarMonth, error) {
 	location := time.Local
 	if month.IsZero() {
-		month = time.Now()
+		month = now
 	}
 	monthStart := time.Date(month.In(location).Year(), month.In(location).Month(), 1, 0, 0, 0, 0, location)
 	gridStart := monthStart.AddDate(0, 0, -int(monthStart.Weekday()))
@@ -30,7 +30,7 @@ func (s *Store) CalendarMonth(ctx context.Context, householdID int64, month time
 		return CalendarMonth{}, err
 	}
 
-	todayKey := dayKey(time.Now())
+	todayKey := dayKey(now)
 	days := make([]CalendarDay, 0, 42)
 	for day := gridStart; day.Before(gridEnd); day = day.AddDate(0, 0, 1) {
 		key := dayKey(day)
@@ -81,27 +81,39 @@ func (s *Store) addCalendarEvents(ctx context.Context, householdID int64, start,
 	}
 	defer rows.Close()
 
+	events := []Event{}
 	for rows.Next() {
-		var id int64
-		var title, location string
-		var startsAt time.Time
-		if err := rows.Scan(&id, &title, &startsAt, &location); err != nil {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.Title, &e.StartsAt, &e.Location); err != nil {
 			return err
 		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if err := loadAttendees(ctx, s.db, events); err != nil {
+		return err
+	}
+
+	for _, e := range events {
 		meta := "Appointment"
-		if location != "" {
-			meta = location
+		if e.Location != "" {
+			meta = e.Location
 		}
+		startsAt := e.StartsAt
 		entries[dayKey(startsAt)] = append(entries[dayKey(startsAt)], CalendarEntry{
-			Type:  "appointment",
-			ID:    id,
-			Title: title,
-			URL:   fmt.Sprintf("/events/%d", id),
-			Time:  &startsAt,
-			Meta:  meta,
+			Type:      "appointment",
+			ID:        e.ID,
+			Title:     e.Title,
+			URL:       fmt.Sprintf("/events/%d", e.ID),
+			Time:      &startsAt,
+			Meta:      meta,
+			Attendees: e.Attendees,
 		})
 	}
-	return rows.Err()
+	return nil
 }
 
 func (s *Store) addCalendarTasks(ctx context.Context, householdID int64, start, end time.Time, entries map[string][]CalendarEntry) error {

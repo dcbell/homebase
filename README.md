@@ -22,10 +22,12 @@ Homebase is a self-hosted household operations application for projects, tasks, 
 - [Architecture](#architecture)
 - [Run Locally](#run-locally)
 - [Production Deployment](#production-deployment)
+- [Push Notifications](#push-notifications)
 - [OAuth/OIDC](#oauthoidc)
 - [API and Tokens](#api-and-tokens)
 - [Configuration](#configuration)
 - [Development Notes](#development-notes)
+- [Running Tests](#running-tests)
 
 ## Features
 
@@ -55,6 +57,7 @@ Homebase is a self-hosted household operations application for projects, tasks, 
 - Responsive card layouts for project and task workflows
 - Dark and light themes
 - In-app routine notifications
+- Push notifications to phones and computers, with an Unread badge on the installed app's icon
 
 ### Integration and security
 
@@ -253,7 +256,22 @@ Persistent data lives in:
 - `homebase_pgdata`: PostgreSQL database
 - `homebase_uploads`: uploaded document files
 
-Back up both volumes together.
+Back up both volumes together. The database also holds the VAPID key pair that signs Push, so restoring `homebase_pgdata` keeps every device's notifications working. If the database is lost or replaced, every Member has to enable notifications on their devices again.
+
+## Push Notifications
+
+Homebase sends Notifications to Members' phones and computers with standard Web Push, straight to each browser's own push service. There is no third-party notification account to set up ([ADR 0003](docs/adr/0003-self-hosted-web-push.md)).
+
+To turn them on, a Member opens **Profile > Settings > Notifications** and taps **Enable notifications on this device**. The browser asks for permission only then, never on page load. Each device a Member enables is listed there with when it was last used, and can be removed. Devices that uninstall the app or revoke permission are removed automatically the next time a Notification is sent. Tapping a Notification marks it read and opens the related item, and the installed app's icon badge shows the Unread count.
+
+Requirements:
+
+- **HTTPS.** Browsers only allow Push and service workers on a secure origin (plain `http://localhost` also works for development).
+- **iPhone and iPad:** iOS/iPadOS 16.4 or later, with Homebase added to the Home Screen (Share, then **Add to Home Screen**) and opened from there. In a Safari tab, Settings shows this hint instead of the button.
+- **Android, desktop Chrome, Edge and Firefox:** enable in the browser or the installed app.
+- If notifications were blocked, Settings says so. Allow them again in the browser's site settings (on iOS: Settings > Notifications > Homebase).
+
+The API generates the VAPID key pair on first start and stores it in PostgreSQL, so there is nothing to configure. `VAPID_SUBJECT` (an email address or `https://` URL that push services can contact) defaults to `BOOTSTRAP_OWNER_EMAIL`. Set one of them: Apple rejects Push without a valid subject.
 
 ## OAuth/OIDC
 
@@ -324,6 +342,7 @@ Important environment variables:
 | `APP_TIMEZONE` | IANA timezone used for calendar dates and "today", such as `America/Chicago` |
 | `OAUTH_*` | OAuth/OIDC provider configuration |
 | `BOOTSTRAP_OWNER_*` | Initial production household owner |
+| `VAPID_SUBJECT` | Contact for push services (email or `https://` URL); defaults to `BOOTSTRAP_OWNER_EMAIL` |
 | `ROUTINE_CHECK_INTERVAL_SECONDS` | Routine scheduler interval; defaults to 900 seconds |
 | `DOCUMENT_MAX_UPLOAD_MB` | Maximum uploaded document size; defaults to 25 MiB |
 | `BUDGET_APP_URL` | Optional external budget application link |
@@ -338,3 +357,17 @@ See [`.env.example`](.env.example) for the complete list.
 - Documents are reusable records. A single upload can be linked to multiple projects, tasks, and assets.
 - Dashboard tile order and the selected dashboard list are retained per user/browser.
 - Current follow-up work, including archive recovery and additional real-device QA, is tracked in [GitHub Issues](https://github.com/dcbell/homebase/issues).
+
+## Running Tests
+
+The API tests run against the docker compose PostgreSQL. Start it, then run the tests:
+
+```sh
+docker compose up -d db
+go test ./...
+```
+
+- `TEST_DATABASE_URL` locates the PostgreSQL server. It defaults to `postgres://homebase:homebase@localhost:5432/homebase?sslmode=disable`.
+- Tests never use the database named in that URL. They create a separate `homebase_test` database on the same server and give each test its own schema, migrated with the embedded migrations and dropped when the test ends. Development data is never touched, and several test runs can share the server at once.
+- Tests that need the database skip with a message when it is unreachable.
+- API tests use `internal/apitest`: it builds the API server with a fake clock, seeds a Household with an Owner and a Member, and sends requests as either one.
