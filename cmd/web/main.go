@@ -92,6 +92,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	s := newWebServer(cfg, logger)
+
+	server := &http.Server{
+		Addr:              cfg.WebAddr,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("web listening", "addr", cfg.WebAddr, "timezone", cfg.Timezone)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("web server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("web shutdown", "error", err)
+	}
+}
+
+func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 	s := &webServer{
 		cfg:    cfg,
 		logger: logger,
@@ -166,13 +195,17 @@ func main() {
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
 	}).Parse(appTemplate))
+	return s
+}
 
+func (s *webServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /favicon.svg", favicon)
+	s.pwaRoutes(mux)
 	mux.HandleFunc("GET /docs", s.swaggerDocs)
 	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /openapi.yaml", s.openapi)
@@ -274,31 +307,7 @@ func main() {
 	mux.HandleFunc("POST /tasks/{taskID}/assets/{linkID}/remove", s.unlinkTaskAsset)
 	mux.HandleFunc("POST /tasks/complete", s.completeTask)
 	mux.HandleFunc("POST /logout", s.logout)
-
-	server := &http.Server{
-		Addr:              cfg.WebAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		logger.Info("web listening", "addr", cfg.WebAddr, "timezone", cfg.Timezone)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("web server", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-ctx.Done()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("web shutdown", "error", err)
-	}
+	return mux
 }
 
 func (s *webServer) swaggerDocs(w http.ResponseWriter, _ *http.Request) {

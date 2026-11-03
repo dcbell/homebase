@@ -9,11 +9,23 @@ const appTemplate = `
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{{ .Title }}</title>
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+	<link rel="manifest" href="/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+	<meta name="theme-color" content="#5865f2">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-title" content="Homebase">
+	<meta name="apple-mobile-web-app-status-bar-style" content="default">
 	<script>
 		(function () {
 			var saved = localStorage.getItem("homebase-theme");
 			if (saved === "dark" || saved === "light") document.documentElement.dataset.theme = saved;
 		})();
+		if ("serviceWorker" in navigator) {
+			window.addEventListener("load", function () {
+				navigator.serviceWorker.register("/sw.js").catch(function () {});
+			});
+		}
 	</script>
 	<style>
 		:root { color-scheme: light; --ink:#2e3338; --muted:#5c6470; --line:#d7dae2; --paper:#f2f3f5; --panel:#ffffff; --panel-soft:#f6f7f9; --field:#ffffff; --accent:#5865f2; --accent-hover:#4752c4; --accent-ink:#ffffff; --danger:#d83c3e; --danger-soft:#fff0f1; --shadow:0 14px 38px rgba(32, 34, 37, .14); }
