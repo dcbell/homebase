@@ -215,6 +215,8 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("GET /settings", s.settings)
 	mux.HandleFunc("POST /settings/api-tokens", s.createAPIToken)
 	mux.HandleFunc("POST /settings/api-tokens/{id}/revoke", s.revokeAPIToken)
+	mux.HandleFunc("POST /notifications/read-all", s.markAllNotificationsRead)
+	mux.HandleFunc("POST /notifications/{id}/open", s.openNotification)
 	mux.HandleFunc("POST /dashboard/tiles/move", s.moveDashboardTile)
 	mux.HandleFunc("POST /dashboard/tiles/order", s.setDashboardTileOrder)
 	mux.HandleFunc("POST /members", s.addMember)

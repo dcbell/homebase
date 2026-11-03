@@ -240,10 +240,26 @@ type RelatedAsset struct {
 	Asset  Asset `json:"asset"`
 }
 
-type RoutineNotice struct {
-	Routine Routine `json:"routine"`
-	Kind    string  `json:"kind"`
-	Message string  `json:"message"`
+// Notification is a message to one Member, shown in the bell. URL opens its
+// subject in the web app.
+type Notification struct {
+	ID          int64      `json:"id"`
+	HouseholdID int64      `json:"household_id"`
+	RecipientID int64      `json:"recipient_id"`
+	Kind        string     `json:"kind"`
+	Stage       string     `json:"stage,omitempty"`
+	SubjectType string     `json:"subject_type"`
+	SubjectID   int64      `json:"subject_id"`
+	URL         string     `json:"url"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ReadAt      *time.Time `json:"read_at,omitempty"`
+}
+
+type NotificationList struct {
+	Notifications []Notification `json:"notifications"`
+	UnreadCount   int            `json:"unread_count"`
 }
 
 type DashboardTile struct {
@@ -269,10 +285,12 @@ type Dashboard struct {
 	Tasks          []Task          `json:"tasks"`
 	Events         []Event         `json:"events"`
 	Routines       []Routine       `json:"routines"`
-	Notices        []RoutineNotice `json:"notices"`
 	TileOrder      []string        `json:"tile_order"`
 	AvailableTiles []DashboardTile `json:"available_tiles"`
 	BudgetAppURL   string          `json:"budget_app_url"`
+	// Notifications is the current Member's latest Notifications and Unread
+	// count, for the bell on every page.
+	Notifications NotificationList `json:"notifications"`
 }
 
 type CalendarEntry struct {

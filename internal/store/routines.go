@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -217,38 +216,6 @@ func (s *Store) CompleteRoutine(ctx context.Context, householdID, id int64) erro
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id, nextDue)
 	return err
-}
-
-func (s *Store) RoutineNotices(ctx context.Context, householdID int64) ([]RoutineNotice, error) {
-	routines, err := s.ListRoutines(ctx, householdID)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	soon := now.Add(7 * 24 * time.Hour)
-	notices := []RoutineNotice{}
-	for _, routine := range routines {
-		if routine.NextDueAt == nil {
-			continue
-		}
-		if routine.NextDueAt.Before(now) {
-			notices = append(notices, RoutineNotice{
-				Routine: routine,
-				Kind:    "overdue",
-				Message: fmt.Sprintf("%s is overdue", routine.Title),
-			})
-			continue
-		}
-		if routine.NextDueAt.Before(soon) {
-			notices = append(notices, RoutineNotice{
-				Routine: routine,
-				Kind:    "upcoming",
-				Message: fmt.Sprintf("%s is due soon", routine.Title),
-			})
-		}
-	}
-	return notices, nil
 }
 
 func (s *Store) validateRoutineInput(ctx context.Context, householdID int64, input *RoutineInput) error {

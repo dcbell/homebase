@@ -283,6 +283,11 @@ const appTemplate = `
 		.profile-panel { position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(320px, calc(100vw - 32px)); background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:12px; display:grid; gap:12px; }
 		.profile-panel form { display:block; }
 		.notice-list { display:grid; gap:8px; max-height:340px; overflow:auto; }
+		.notice-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+		.notice-item { width:100%; min-height:0; display:grid; justify-items:start; gap:2px; padding:12px; border:1px solid var(--line); background:var(--panel-soft); text-align:left; color:var(--ink); white-space:normal; }
+		.notice-item:hover { border-color:var(--accent); background:var(--panel-soft); color:var(--ink); }
+		.notice-item.unread { border-left:3px solid var(--accent); }
+		.notice-item.unread strong::after { content:""; display:inline-block; width:7px; height:7px; margin-left:6px; border-radius:50%; background:var(--accent); vertical-align:middle; }
 		.theme-row { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:13px; }
 		.switch { position:relative; width:48px; height:26px; display:inline-block; }
 		.switch input { position:absolute; opacity:0; width:1px; height:1px; }
@@ -414,18 +419,26 @@ const appTemplate = `
 					</div>
 					<details class="floating-menu">
 						<summary aria-label="Notifications">
-							<span class="icon-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>{{ if .Dashboard.Notices }}<span class="notice-dot">{{ len .Dashboard.Notices }}</span>{{ end }}</span>
+							<span class="icon-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>{{ if .Dashboard.Notifications.UnreadCount }}<span class="notice-dot" data-unread-count>{{ .Dashboard.Notifications.UnreadCount }}</span>{{ end }}</span>
 						</summary>
 						<div class="profile-panel">
-							<strong>Notifications</strong>
+							<div class="notice-head">
+								<strong>Notifications</strong>
+								{{ if .Dashboard.Notifications.UnreadCount }}
+									<form method="post" action="/notifications/read-all"><button class="link-button" type="submit">Mark all read</button></form>
+								{{ end }}
+							</div>
 							<div class="notice-list">
-								{{ range .Dashboard.Notices }}
-									<a class="item" href="/routines/{{ .Routine.ID }}">
-										<strong>{{ .Message }}</strong>
-										{{ if .Routine.NextDueAt }}<div class="meta">Due {{ date .Routine.NextDueAt }} · {{ .Kind }}</div>{{ end }}
-									</a>
+								{{ range .Dashboard.Notifications.Notifications }}
+									<form method="post" action="/notifications/{{ .ID }}/open">
+										<button class="item notice-item{{ if not .ReadAt }} unread{{ end }}" type="submit">
+											<strong>{{ .Title }}</strong>
+											{{ if .Body }}<span>{{ .Body }}</span>{{ end }}
+											<span class="meta">{{ datetime .CreatedAt }}</span>
+										</button>
+									</form>
 								{{ else }}
-									<p class="empty">No routine notifications.</p>
+									<p class="empty">No notifications.</p>
 								{{ end }}
 							</div>
 						</div>
