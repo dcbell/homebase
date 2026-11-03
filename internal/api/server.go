@@ -1088,6 +1088,9 @@ func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusInternalServerError, "failed to delete event")
 		return
 	}
+	if err := s.notifier.AppointmentRemoved(r.Context(), householdFrom(r).ID, id); err != nil {
+		s.logger.Error("notify appointment removed", "event_id", id, "error", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
