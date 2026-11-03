@@ -69,14 +69,20 @@ func (s *Store) CreateRoutine(ctx context.Context, householdID, userID int64, in
 	return routine, err
 }
 
-func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input RoutineInput) (Routine, error) {
+// UpdateRoutine replaces a Routine's fields. It also returns the Routine as it
+// was just before the update, so callers can tell what changed.
+func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input RoutineInput) (updated Routine, previous Routine, err error) {
 	if err := s.validateRoutineInput(ctx, householdID, &input); err != nil {
-		return Routine{}, err
+		return Routine{}, Routine{}, err
 	}
 
-	var routine Routine
-	err := s.db.QueryRowContext(ctx, `
-		WITH updated AS (
+	var routine, prev Routine
+	err = s.db.QueryRowContext(ctx, `
+		WITH previous AS (
+			SELECT id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+			FROM routines
+			WHERE household_id = $1 AND id = $2
+		), updated AS (
 			UPDATE routines
 			SET assigned_to = $3,
 				title = $4,
@@ -88,16 +94,23 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 			WHERE household_id = $1 AND id = $2
 			RETURNING id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
 		)
-		SELECT updated.id, updated.household_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.cadence, updated.status, updated.next_due_at, updated.last_completed_at, updated.created_by, updated.created_at, updated.updated_at
+		SELECT updated.id, updated.household_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.cadence, updated.status, updated.next_due_at, updated.last_completed_at, updated.created_by, updated.created_at, updated.updated_at,
+			previous.id, previous.household_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.cadence, previous.status, previous.next_due_at, previous.last_completed_at, previous.created_by, previous.created_at, previous.updated_at
 		FROM updated
+		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
+		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt).Scan(
 		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt,
+		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Routine{}, ErrNotFound
+		return Routine{}, Routine{}, ErrNotFound
 	}
-	return routine, err
+	if err != nil {
+		return Routine{}, Routine{}, err
+	}
+	return routine, prev, nil
 }
 
 func (s *Store) ArchiveRoutine(ctx context.Context, householdID, id int64) error {
@@ -119,21 +132,24 @@ func (s *Store) ArchiveRoutine(ctx context.Context, householdID, id int64) error
 	return nil
 }
 
-func (s *Store) GenerateRoutineTask(ctx context.Context, householdID, userID, id int64) (Task, error) {
+// GenerateRoutineTask creates the Task for a Routine's next due date. It is
+// idempotent: when an open Task for that due date already exists it is
+// returned with created false.
+func (s *Store) GenerateRoutineTask(ctx context.Context, householdID, userID, id int64) (task Task, created bool, err error) {
 	routine, err := s.GetRoutine(ctx, householdID, id)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	if routine.Status == "archived" {
-		return Task{}, errors.New("routine is archived")
+		return Task{}, false, errors.New("routine is archived")
 	}
 	if routine.NextDueAt != nil {
 		task, err := s.getOpenRoutineTaskForDue(ctx, routine.ID, *routine.NextDueAt)
 		if err == nil {
-			return task, nil
+			return task, false, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
-			return Task{}, err
+			return Task{}, false, err
 		}
 	}
 
@@ -145,7 +161,11 @@ func (s *Store) GenerateRoutineTask(ctx context.Context, householdID, userID, id
 		Priority:   "normal",
 		DueAt:      routine.NextDueAt,
 	}
-	return s.CreateTask(ctx, householdID, userID, input)
+	task, err = s.CreateTask(ctx, householdID, userID, input)
+	if err != nil {
+		return Task{}, false, err
+	}
+	return task, true, nil
 }
 
 func (s *Store) getOpenRoutineTaskForDue(ctx context.Context, routineID int64, dueAt time.Time) (Task, error) {
@@ -167,34 +187,47 @@ func (s *Store) getOpenRoutineTaskForDue(ctx context.Context, routineID int64, d
 	return task, err
 }
 
-func (s *Store) GenerateDueRoutineTasks(ctx context.Context, now time.Time) (int64, error) {
+// GenerateDueRoutineTasks creates the Task for every active Routine due as of
+// now that has no open Task for that due date yet, and returns the Tasks it
+// created.
+func (s *Store) GenerateDueRoutineTasks(ctx context.Context, now time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		INSERT INTO tasks (household_id, routine_id, assigned_to, title, notes, priority, due_at, created_by)
-		SELECT r.household_id, r.id, r.assigned_to, r.title, r.notes, 'normal', r.next_due_at, r.created_by
-		FROM routines r
-		WHERE r.status = 'active'
-			AND r.next_due_at IS NOT NULL
-			AND r.next_due_at <= $1
-			AND NOT EXISTS (
-				SELECT 1
-				FROM tasks t
-				WHERE t.routine_id = r.id
-					AND t.status = 'open'
-					AND t.due_at IS NOT DISTINCT FROM r.next_due_at
-			)
-		ON CONFLICT DO NOTHING
-		RETURNING id
+		WITH inserted AS (
+			INSERT INTO tasks (household_id, routine_id, assigned_to, title, notes, priority, due_at, created_by)
+			SELECT r.household_id, r.id, r.assigned_to, r.title, r.notes, 'normal', r.next_due_at, r.created_by
+			FROM routines r
+			WHERE r.status = 'active'
+				AND r.next_due_at IS NOT NULL
+				AND r.next_due_at <= $1
+				AND NOT EXISTS (
+					SELECT 1
+					FROM tasks t
+					WHERE t.routine_id = r.id
+						AND t.status = 'open'
+						AND t.due_at IS NOT DISTINCT FROM r.next_due_at
+				)
+			ON CONFLICT DO NOTHING
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+		)
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at
+		FROM inserted
+		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
+		ORDER BY inserted.id
 	`, now)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var count int64
+	tasks := []Task{}
 	for rows.Next() {
-		count++
+		var task Task
+		if err := scanTask(rows, &task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
 	}
-	return count, rows.Err()
+	return tasks, rows.Err()
 }
 
 func (s *Store) CompleteRoutine(ctx context.Context, householdID, id int64) error {
