@@ -120,6 +120,21 @@ func (s *Store) ScheduleReminders(ctx context.Context, subject ReminderSubject, 
 	return tx.Commit()
 }
 
+// ReleaseReminders returns claimed Reminders to pending, so the next
+// ClaimDueReminders picks them up again. It is for Reminders whose
+// Notification could not be created.
+func (s *Store) ReleaseReminders(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE scheduled_reminders
+		SET sent_at = NULL
+		WHERE id = ANY($1) AND sent_at IS NOT NULL
+	`, ids)
+	return err
+}
+
 // ClaimDueReminders atomically marks up to limit pending Reminders due as of
 // asOf as sent and returns them. Rows locked by a concurrent claim are
 // skipped, so two runners never claim the same Reminder.

@@ -119,9 +119,24 @@ func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 // SendDueReminders sends every Reminder due as of asOf and returns how many
 // Notifications it created. Each Reminder is claimed atomically before it is
 // sent, so running it again, or on two instances at once, sends nothing twice.
-func (n *Notifier) SendDueReminders(ctx context.Context, asOf time.Time) (int, error) {
-	sent := 0
+//
+// A Reminder whose Notification could not be created (a database error, an
+// expired deadline) is released at the end of the run, so the next run tries
+// it again. A Reminder its renderer drops as no longer applying stays used.
+func (n *Notifier) SendDueReminders(ctx context.Context, asOf time.Time) (sent int, err error) {
 	var errs []error
+	var failed []int64
+	defer func() {
+		if len(failed) == 0 {
+			return
+		}
+		// Release even when ctx is what failed, or the Reminders are lost.
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if releaseErr := n.store.ReleaseReminders(releaseCtx, failed); releaseErr != nil {
+			err = errors.Join(err, fmt.Errorf("release %d failed reminders: %w", len(failed), releaseErr))
+		}
+	}()
 	for {
 		claimed, err := n.store.ClaimDueReminders(ctx, asOf, reminderBatchSize)
 		if err != nil {
@@ -134,13 +149,15 @@ func (n *Notifier) SendDueReminders(ctx context.Context, asOf time.Time) (int, e
 			return claimed[i].ID < claimed[j].ID
 		})
 		for _, r := range claimed {
-			ok, err := n.sendReminder(ctx, r)
+			created, err := n.sendReminder(ctx, r)
+			if created {
+				sent++
+			}
 			if err != nil {
 				errs = append(errs, err)
-				continue
-			}
-			if ok {
-				sent++
+				if !created {
+					failed = append(failed, r.ID)
+				}
 			}
 		}
 		if len(claimed) < reminderBatchSize {
@@ -149,7 +166,9 @@ func (n *Notifier) SendDueReminders(ctx context.Context, asOf time.Time) (int, e
 	}
 }
 
-func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) (bool, error) {
+// sendReminder creates the Notification for one claimed Reminder. created
+// reports whether it was stored, even if a later step failed.
+func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) (created bool, err error) {
 	render, found := n.reminderRenderers[r.SubjectType]
 	if !found {
 		return false, fmt.Errorf("no reminder renderer for %s", r.SubjectType)
