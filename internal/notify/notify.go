@@ -48,6 +48,10 @@ type Notifier struct {
 	clock    clock.Clock
 	logger   *slog.Logger
 	delivery Delivery
+
+	// reminderRenderers build the Notification for a due Reminder, by
+	// subject type.
+	reminderRenderers map[string]reminderRenderer
 }
 
 func New(st *store.Store, c clock.Clock, logger *slog.Logger, opts ...Option) *Notifier {
@@ -56,6 +60,9 @@ func New(st *store.Store, c clock.Clock, logger *slog.Logger, opts ...Option) *N
 		clock:    c,
 		logger:   logger,
 		delivery: DeliveryFunc(func(context.Context, store.Notification) {}),
+	}
+	n.reminderRenderers = map[string]reminderRenderer{
+		store.SubjectTask: n.renderTaskReminder,
 	}
 	for _, opt := range opts {
 		opt(n)
@@ -74,9 +81,15 @@ type TaskChange struct {
 	After store.Task
 }
 
-// TaskChanged is called after every Task create or update.
+// TaskChanged is called after every Task create, update, completion, reopen
+// or archive. It keeps the Task's Reminders following its current assignee,
+// due date and status, and sends an Assignment Notification when the Task
+// became someone's.
 func (n *Notifier) TaskChanged(ctx context.Context, change TaskChange) error {
 	task := change.After
+	if err := n.taskReminders(ctx, task); err != nil {
+		return err
+	}
 	if task.AssignedTo == nil {
 		return nil
 	}

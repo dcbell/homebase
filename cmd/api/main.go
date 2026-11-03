@@ -45,9 +45,12 @@ func main() {
 	}
 	go runRoutineScheduler(ctx, logger, st, cfg.RoutineCheckInterval)
 
+	handler := api.New(cfg, st, logger)
+	go runReminderLoop(ctx, logger, handler, time.Minute)
+
 	server := &http.Server{
 		Addr:              cfg.APIAddr,
-		Handler:           api.New(cfg, st, logger),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -91,6 +94,35 @@ func runRoutineScheduler(ctx context.Context, logger *slog.Logger, st *store.Sto
 		}
 		if assetCount > 0 {
 			logger.Info("generated due asset maintenance tasks", "count", assetCount)
+		}
+	}
+
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
+}
+
+// runReminderLoop sends due Reminders every interval. It is separate from the
+// Routine scheduler so that loop keeps its own cadence.
+func runReminderLoop(ctx context.Context, logger *slog.Logger, server *api.Server, interval time.Duration) {
+	run := func() {
+		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		sent, err := server.SendDueReminders(jobCtx, time.Now())
+		if err != nil {
+			logger.Error("send due reminders", "error", err)
+		}
+		if sent > 0 {
+			logger.Info("sent due reminders", "count", sent)
 		}
 	}
 
