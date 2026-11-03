@@ -1653,6 +1653,20 @@ components:
         starts_at: { $ref: "#/components/schemas/Timestamp" }
         ends_at: { $ref: "#/components/schemas/Timestamp" }
         location: { type: string }
+        attendee_ids:
+          type: array
+          items: { type: integer, format: int64 }
+          description: >-
+            Member ids of the Attendees, the Members the Appointment is for. Every id must be a
+            Member of the Household (400 otherwise). Empty means the whole Household. On update,
+            omitting the field keeps the current Attendees and an empty list clears them. Adding
+            another Member sends them an Assignment Notification; adding yourself sends nothing.
+    Attendee:
+      type: object
+      description: A Member an Appointment is for.
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
     Event:
       allOf:
         - $ref: "#/components/schemas/EventInput"
@@ -1664,6 +1678,10 @@ components:
             source: { type: string }
             external_id: { type: string }
             sync_status: { type: string }
+            attendees:
+              type: array
+              description: The Attendees ordered by name. Empty means the whole Household.
+              items: { $ref: "#/components/schemas/Attendee" }
     RoutineInput:
       type: object
       properties:
@@ -1980,6 +1998,10 @@ components:
         meta: { type: string }
         status: { type: string }
         priority: { type: string }
+        attendees:
+          type: array
+          description: Appointment entries only. Omitted when the Appointment is for the whole Household.
+          items: { $ref: "#/components/schemas/Attendee" }
     CalendarDay:
       type: object
       properties:
