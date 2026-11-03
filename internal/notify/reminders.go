@@ -22,10 +22,12 @@ type ReminderStage struct {
 
 // TaskReminderStages are a Task's Reminders: Due Soon 24h before, Due Now at
 // the due time, and Overdue at 08:00 APP_TIMEZONE on the first morning after
-// the due date.
+// the due date. A Task due at exactly local midnight has a due date with no
+// time of day, so its Due Soon and Due Now go out at 08:00 the day before and
+// on the day instead of in the night.
 var TaskReminderStages = []ReminderStage{
-	{Stage: store.ReminderDueSoon, SendAt: before(24 * time.Hour)},
-	{Stage: store.ReminderDueNow, SendAt: before(0)},
+	{Stage: store.ReminderDueSoon, SendAt: allDayAware(before(24*time.Hour), morningOf(-1))},
+	{Stage: store.ReminderDueNow, SendAt: allDayAware(before(0), morningOf(0))},
 	{Stage: store.ReminderOverdue, SendAt: overdueMorning},
 }
 
@@ -33,12 +35,32 @@ func before(d time.Duration) func(time.Time) time.Time {
 	return func(due time.Time) time.Time { return due.Add(-d) }
 }
 
+// allDayAware uses allDay for a due time of exactly local midnight (a date
+// with no time of day) and timed for any other.
+func allDayAware(timed, allDay func(time.Time) time.Time) func(time.Time) time.Time {
+	return func(due time.Time) time.Time {
+		local := due.In(time.Local)
+		if local.Hour() == 0 && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0 {
+			return allDay(due)
+		}
+		return timed(due)
+	}
+}
+
+// morningOf is 08:00 local time the given number of days from due's local
+// date.
+func morningOf(days int) func(time.Time) time.Time {
+	return func(due time.Time) time.Time {
+		local := due.In(time.Local)
+		return time.Date(local.Year(), local.Month(), local.Day()+days, 8, 0, 0, 0, time.Local)
+	}
+}
+
 // overdueMorning is 08:00 on the calendar day after due. The day is the one
 // the calendar shows the due time on: the stored instant read in time.Local,
 // which the API sets to APP_TIMEZONE.
 func overdueMorning(due time.Time) time.Time {
-	local := due.In(time.Local)
-	return time.Date(local.Year(), local.Month(), local.Day()+1, 8, 0, 0, 0, time.Local)
+	return morningOf(1)(due)
 }
 
 // reminderRenderer turns a claimed Reminder into the Notification to store.
