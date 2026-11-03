@@ -161,7 +161,7 @@ application remains usable on phones and tablets:
 
 Real-device responsive testing remains an ongoing part of development,
 especially for drag-and-drop workflows and newly added controls. Current
-follow-up items are tracked in [`TODO.md`](TODO.md).
+follow-up items are tracked in [GitHub Issues](https://github.com/dcbell/homebase/issues).
 
 ## Architecture
 
@@ -337,4 +337,4 @@ See [`.env.example`](.env.example) for the complete list.
 - Due routines are checked at API startup and then on the configured interval.
 - Documents are reusable records. A single upload can be linked to multiple projects, tasks, and assets.
 - Dashboard tile order and the selected dashboard list are retained per user/browser.
-- Current follow-up work, including archive recovery and additional real-device QA, is tracked in [`TODO.md`](TODO.md).
+- Current follow-up work, including archive recovery and additional real-device QA, is tracked in [GitHub Issues](https://github.com/dcbell/homebase/issues).
