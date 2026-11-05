@@ -231,6 +231,8 @@ const appTemplate = `
 		.login { min-height:calc(100vh - 64px); display:grid; place-items:center; }
 		.login-box { width:min(440px, 100%); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:24px; }
 		.error { border-color:var(--danger); color:var(--danger); background:var(--danger-soft); }
+		.toast { position:fixed; left:50%; bottom:max(24px, env(safe-area-inset-bottom)); z-index:50; transform:translateX(-50%); padding:10px 16px; border:1px solid var(--accent); border-radius:999px; background:var(--panel); color:var(--ink); box-shadow:var(--shadow); font-weight:700; white-space:nowrap; pointer-events:none; animation:toast-fade .4s ease 1s forwards; }
+		@keyframes toast-fade { to { opacity:0; visibility:hidden; } }
 		.inline-form { display:inline-grid; }
 		.subtasks { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); display:grid; gap:8px; }
 		.subtask { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
@@ -518,7 +520,19 @@ const appTemplate = `
 	{{ else }}
 		{{ template "login" . }}
 	{{ end }}
+	{{ if .Saved }}<div class="toast" role="status">Saved ✓</div>{{ end }}
 	<script>
+		(function () {
+			// The "Saved ✓" toast is for the save that just happened, so drop
+			// saved from the URL before a refresh or bookmark can repeat it.
+			var params = new URLSearchParams(window.location.search);
+			if (params.has("saved")) {
+				params.delete("saved");
+				var query = params.toString();
+				history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+			}
+		})();
+
 		(function () {
 			// App-icon badge: the page refreshes it from the Unread count on
 			// every load, including the redirect after marking read.
@@ -843,8 +857,9 @@ const appTemplate = `
 				});
 			});
 			document.querySelectorAll("[data-filter-kind]").forEach(function (select) {
+				var scope = select.closest("[data-filter-scope]") || document;
+				applyFilter(scope);
 				select.addEventListener("change", function () {
-					var scope = select.closest("[data-filter-scope]") || document;
 					applyFilter(scope);
 				});
 			});
@@ -1811,9 +1826,9 @@ const appTemplate = `
 		</div>
 		<div class="form-row filter-row">
 			<label>Search<input type="search" data-filter-input placeholder="Search tasks"></label>
-			<label>Status<select data-filter-kind>
+			<label>Status<select data-filter-kind autocomplete="off">
 				<option value="">All statuses</option>
-				<option value="open">open</option>
+				<option value="open" selected>open</option>
 				<option value="done">done</option>
 			</select></label>
 			<label>Due<select data-filter-due>
@@ -1842,7 +1857,7 @@ const appTemplate = `
 				{{ if $task.AssetID }}<input type="hidden" name="asset_id" value="{{ idValue $task.AssetID }}">{{ end }}
 				{{ if $task.AssetMaintenanceItemID }}<input type="hidden" name="asset_maintenance_item_id" value="{{ idValue $task.AssetMaintenanceItemID }}">{{ end }}
 			</form>
-			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $task.Status }}" data-filter-due="{{ taskDueBucket $task $.Now }}" data-filter-text="{{ $task.Title }} {{ $task.Notes }} {{ $task.Status }} {{ $task.Priority }} {{ $task.AssignedName }}">
+			<article class="item task-index-card" data-filter-item data-filter-kind="{{ $task.Status }}"{{ if ne $task.Status "open" }} hidden{{ end }} data-filter-due="{{ taskDueBucket $task $.Now }}" data-filter-text="{{ $task.Title }} {{ $task.Notes }} {{ $task.Status }} {{ $task.Priority }} {{ $task.AssignedName }}">
 				<div class="item-head">
 					<div>
 						<strong><a href="/tasks/{{ $task.ID }}">{{ $task.Title }}</a></strong>

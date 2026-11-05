@@ -33,6 +33,7 @@ type webServer struct {
 type pageData struct {
 	Title                 string
 	Error                 string
+	Saved                 bool
 	Dashboard             store.Dashboard
 	Project               store.Project
 	Task                  store.Task
@@ -314,7 +315,7 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{taskID}/assets/{linkID}/remove", s.unlinkTaskAsset)
 	mux.HandleFunc("POST /tasks/complete", s.completeTask)
 	mux.HandleFunc("POST /logout", s.logout)
-	return mux
+	return withSavedSignal(mux)
 }
 
 func (s *webServer) swaggerDocs(w http.ResponseWriter, _ *http.Request) {
@@ -377,7 +378,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			s.render(w, http.StatusOK, pageData{
+			s.render(w, r, http.StatusOK, pageData{
 				Title:      "Homebase",
 				Error:      pageError,
 				APIBaseURL: s.cfg.APIBaseURL,
@@ -386,7 +387,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Homebase", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Homebase", Error: err.Error(), Now: time.Now()})
 		return
 	}
 
@@ -438,7 +439,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:         "Homebase",
 		Error:         pageError,
 		Dashboard:     dashboard,
@@ -459,10 +460,10 @@ func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Calendar", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Calendar", Error: err.Error(), Now: time.Now()})
 		return
 	}
 
@@ -472,11 +473,11 @@ func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
 	}
 	var calendar store.CalendarMonth
 	if err := s.apiJSON(r, http.MethodGet, path, nil, &calendar); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: "Calendar", Error: err.Error(), Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Calendar", Error: err.Error(), Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:         "Calendar",
 		Error:         userFacingError(r.URL.Query().Get("error")),
 		Dashboard:     dashboard,
@@ -496,7 +497,10 @@ func (s *webServer) moveDashboardTile(w http.ResponseWriter, r *http.Request) {
 			"tile":      r.FormValue("tile"),
 			"direction": r.FormValue("direction"),
 		}
-		_ = s.apiJSON(r, http.MethodPost, "/api/v1/dashboard/tiles/move", payload, nil)
+		if err := s.apiJSON(r, http.MethodPost, "/api/v1/dashboard/tiles/move", payload, nil); err != nil {
+			http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -706,13 +710,13 @@ func (s *webServer) memberIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Users", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Users", Error: err.Error(), Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:       "Users",
 		Error:       userFacingError(r.URL.Query().Get("error")),
 		Dashboard:   dashboard,
@@ -756,10 +760,10 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Settings", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Settings", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var tokens []store.APIToken
@@ -783,7 +787,7 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 	if pageError == "" {
 		pageError = userFacingError(r.URL.Query().Get("error"))
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:             "Settings",
 		Error:             pageError,
 		Dashboard:         dashboard,
@@ -791,6 +795,7 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 		PushSubscriptions: pushSubscriptions,
 		PushSettings:      pushSettings,
 		CreatedAPIToken:   created,
+		Saved:             created.Token != "",
 		SettingsPage:      true,
 		Now:               time.Now(),
 	})
@@ -800,13 +805,13 @@ func (s *webServer) projectIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Projects", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Projects", Error: err.Error(), Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:        "Projects",
 		Error:        userFacingError(r.URL.Query().Get("error")),
 		Dashboard:    dashboard,
@@ -830,57 +835,61 @@ func (s *webServer) createProject(w http.ResponseWriter, r *http.Request) {
 	if due := strings.TrimSpace(r.FormValue("due_date")); due != "" {
 		payload["due_date"] = formTime(due)
 	}
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/"), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/")
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/projects", payload, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var project store.Project
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/projects/"+url.PathEscape(id), nil, &project); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Project", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Project", Error: err.Error(), Now: time.Now()})
 		return
 	}
 
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Now: time.Now()})
 		return
 	}
 
 	var folders []store.ProjectFolder
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/projects/"+url.PathEscape(id)+"/folders", nil, &folders); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var documents []store.Document
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents", nil, &documents); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var contacts []store.Contact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts", nil, &contacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var assets []store.Asset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets", nil, &assets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedDocs []store.RelatedDocument
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-documents?entity_type=project&entity_id="+url.QueryEscape(id), nil, &relatedDocs); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedContacts []store.RelatedContact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-contacts?entity_type=project&entity_id="+url.QueryEscape(id), nil, &relatedContacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedAssets []store.RelatedAsset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-assets?entity_type=project&entity_id="+url.QueryEscape(id), nil, &relatedAssets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	tasks := projectTasks(dashboard.Tasks, project.ID)
@@ -891,27 +900,27 @@ func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
 		var docs []store.RelatedDocument
 		path := "/api/v1/related-documents?entity_type=task&entity_id=" + url.QueryEscape(strconv.FormatInt(task.ID, 10))
 		if err := s.apiJSON(r, http.MethodGet, path, nil, &docs); err != nil {
-			s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+			s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 			return
 		}
 		taskDocuments[task.ID] = docs
 		var linkedContacts []store.RelatedContact
 		contactsPath := "/api/v1/related-contacts?entity_type=task&entity_id=" + url.QueryEscape(strconv.FormatInt(task.ID, 10))
 		if err := s.apiJSON(r, http.MethodGet, contactsPath, nil, &linkedContacts); err != nil {
-			s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+			s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 			return
 		}
 		taskContacts[task.ID] = linkedContacts
 		var linkedAssets []store.RelatedAsset
 		assetsPath := "/api/v1/related-assets?entity_type=task&entity_id=" + url.QueryEscape(strconv.FormatInt(task.ID, 10))
 		if err := s.apiJSON(r, http.MethodGet, assetsPath, nil, &linkedAssets); err != nil {
-			s.render(w, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
+			s.render(w, r, http.StatusBadGateway, pageData{Title: project.Title, Error: err.Error(), Project: project, Dashboard: dashboard, Now: time.Now()})
 			return
 		}
 		taskAssets[task.ID] = linkedAssets
 	}
 
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:           project.Title,
 		Error:           userFacingError(r.URL.Query().Get("error")),
 		Project:         project,
@@ -956,7 +965,10 @@ func (s *webServer) updateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveProject(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/projects/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/projects/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
@@ -996,7 +1008,10 @@ func (s *webServer) updateProjectFolder(w http.ResponseWriter, r *http.Request) 
 func (s *webServer) archiveProjectFolder(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	folderID := r.PathValue("folderID")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/project-folders/"+url.PathEscape(folderID)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/project-folders/"+url.PathEscape(folderID)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1038,21 +1053,30 @@ func (s *webServer) updateProjectTask(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) completeProjectTask(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	taskID := r.PathValue("taskID")
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(taskID)+"/complete", nil, nil)
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(taskID)+"/complete", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
 func (s *webServer) reopenProjectTask(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	taskID := r.PathValue("taskID")
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(taskID)+"/reopen", nil, nil)
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(taskID)+"/reopen", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
 func (s *webServer) archiveProjectTask(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	taskID := r.PathValue("taskID")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(taskID)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(taskID)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1062,21 +1086,25 @@ func (s *webServer) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := taskPayloadFromForm(r)
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/tasks", payload, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/"), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/")
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/tasks", payload, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) taskIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Tasks", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Tasks", Error: err.Error(), Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     "Tasks",
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Dashboard: dashboard,
@@ -1093,47 +1121,47 @@ func (s *webServer) taskDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var task store.Task
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(id), nil, &task); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Task", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Task", Error: err.Error(), Now: time.Now()})
 		return
 	}
 
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Now: time.Now()})
 		return
 	}
 	var documents []store.Document
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents", nil, &documents); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var contacts []store.Contact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts", nil, &contacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var assets []store.Asset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets", nil, &assets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedDocs []store.RelatedDocument
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-documents?entity_type=task&entity_id="+url.QueryEscape(id), nil, &relatedDocs); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedContacts []store.RelatedContact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-contacts?entity_type=task&entity_id="+url.QueryEscape(id), nil, &relatedContacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedAssets []store.RelatedAsset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-assets?entity_type=task&entity_id="+url.QueryEscape(id), nil, &relatedAssets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: task.Title, Error: err.Error(), Task: task, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:           task.Title,
 		Error:           userFacingError(r.URL.Query().Get("error")),
 		Task:            task,
@@ -1166,7 +1194,10 @@ func (s *webServer) updateTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks", http.StatusSeeOther)
 }
 
@@ -1183,7 +1214,10 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
+		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -1191,15 +1225,15 @@ func (s *webServer) eventDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var event store.Event
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/events/"+url.PathEscape(id), nil, &event); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Appointment", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Appointment", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: event.Title, Error: err.Error(), Event: event, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: event.Title, Error: err.Error(), Event: event, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     event.Title,
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Event:     event,
@@ -1231,7 +1265,10 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id), nil, nil); err != nil {
+		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -1252,13 +1289,13 @@ func (s *webServer) routineIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Routines", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Routines", Error: err.Error(), Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:        "Routines",
 		Error:        userFacingError(r.URL.Query().Get("error")),
 		Dashboard:    dashboard,
@@ -1273,15 +1310,15 @@ func (s *webServer) routineDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var routine store.Routine
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/routines/"+url.PathEscape(id), nil, &routine); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Routine", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Routine", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: routine.Title, Error: err.Error(), Routine: routine, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: routine.Title, Error: err.Error(), Routine: routine, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     routine.Title,
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Routine:   routine,
@@ -1307,7 +1344,10 @@ func (s *webServer) updateRoutine(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveRoutine(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/routines/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/routines/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/routines/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/routines", http.StatusSeeOther)
 }
 
@@ -1324,18 +1364,18 @@ func (s *webServer) listIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Lists", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Lists", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var lists []store.HouseholdList
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/lists", nil, &lists); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: "Lists", Error: err.Error(), Dashboard: dashboard, ListIndex: true, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Lists", Error: err.Error(), Dashboard: dashboard, ListIndex: true, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     "Lists",
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Dashboard: dashboard,
@@ -1363,20 +1403,20 @@ func (s *webServer) listDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var list store.HouseholdList
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/lists/"+url.PathEscape(id), nil, &list); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "List", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "List", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: list.Title, Error: err.Error(), List: list, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: list.Title, Error: err.Error(), List: list, Now: time.Now()})
 		return
 	}
 	var items []store.ListItem
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/lists/"+url.PathEscape(id)+"/items", nil, &items); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: list.Title, Error: err.Error(), Dashboard: dashboard, List: list, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: list.Title, Error: err.Error(), Dashboard: dashboard, List: list, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     list.Title,
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Dashboard: dashboard,
@@ -1403,7 +1443,10 @@ func (s *webServer) updateList(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/lists/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/lists/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/lists/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/lists", http.StatusSeeOther)
 }
 
@@ -1440,22 +1483,33 @@ func (s *webServer) completeListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
 	_ = r.ParseForm()
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/complete", nil, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID)), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID))
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/complete", nil, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) reopenListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
 	_ = r.ParseForm()
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/reopen", nil, nil)
-	http.Redirect(w, r, safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID)), http.StatusSeeOther)
+	returnTo := safeReturnTo(r.FormValue("return_to"), "/lists/"+url.PathEscape(listID))
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/list-items/"+url.PathEscape(itemID)+"/reopen", nil, nil); err != nil {
+		http.Redirect(w, r, withErrorQuery(returnTo, err), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 func (s *webServer) archiveListItem(w http.ResponseWriter, r *http.Request) {
 	listID := r.PathValue("listID")
 	itemID := r.PathValue("itemID")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/list-items/"+url.PathEscape(itemID)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/list-items/"+url.PathEscape(itemID)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/lists/"+url.PathEscape(listID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/lists/"+url.PathEscape(listID), http.StatusSeeOther)
 }
 
@@ -1463,18 +1517,18 @@ func (s *webServer) contactIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Contacts", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Contacts", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var contacts []store.Contact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts", nil, &contacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: "Contacts", Error: err.Error(), Dashboard: dashboard, ContactIndex: true, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Contacts", Error: err.Error(), Dashboard: dashboard, ContactIndex: true, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:        "Contacts",
 		Error:        userFacingError(r.URL.Query().Get("error")),
 		Dashboard:    dashboard,
@@ -1501,15 +1555,15 @@ func (s *webServer) contactDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var contact store.Contact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts/"+url.PathEscape(id), nil, &contact); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Contact", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Contact", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: contact.Name, Error: err.Error(), Contact: contact, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: contact.Name, Error: err.Error(), Contact: contact, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:     contact.Name,
 		Error:     userFacingError(r.URL.Query().Get("error")),
 		Dashboard: dashboard,
@@ -1533,7 +1587,10 @@ func (s *webServer) updateContact(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveContact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/contacts/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/contacts/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/contacts/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/contacts", http.StatusSeeOther)
 }
 
@@ -1541,18 +1598,18 @@ func (s *webServer) assetIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Assets", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Assets", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var assets []store.Asset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets", nil, &assets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: "Assets", Error: err.Error(), Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Assets", Error: err.Error(), Dashboard: dashboard, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:      "Assets",
 		Error:      userFacingError(r.URL.Query().Get("error")),
 		Dashboard:  dashboard,
@@ -1579,40 +1636,40 @@ func (s *webServer) assetDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var asset store.Asset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets/"+url.PathEscape(id), nil, &asset); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Asset", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Asset", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Now: time.Now()})
 		return
 	}
 	var documents []store.Document
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents", nil, &documents); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var contacts []store.Contact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/contacts", nil, &contacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedDocs []store.RelatedDocument
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-documents?entity_type=asset&entity_id="+url.QueryEscape(id), nil, &relatedDocs); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var relatedContacts []store.RelatedContact
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/related-contacts?entity_type=asset&entity_id="+url.QueryEscape(id), nil, &relatedContacts); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var maintenanceItems []store.AssetMaintenanceItem
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets/"+url.PathEscape(id)+"/maintenance", nil, &maintenanceItems); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: asset.Name, Error: err.Error(), Asset: asset, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:                 asset.Name,
 		Error:                 userFacingError(r.URL.Query().Get("error")),
 		Dashboard:             dashboard,
@@ -1642,7 +1699,10 @@ func (s *webServer) updateAsset(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/assets/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/assets/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets", http.StatusSeeOther)
 }
 
@@ -1697,18 +1757,18 @@ func (s *webServer) documentIndex(w http.ResponseWriter, r *http.Request) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectToSignIn(w, r)
 			return
 		}
-		s.render(w, http.StatusBadGateway, pageData{Title: "Documents", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Documents", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var documents []store.Document
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents", nil, &documents); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: "Documents", Error: err.Error(), Dashboard: dashboard, DocumentIndex: true, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: "Documents", Error: err.Error(), Dashboard: dashboard, DocumentIndex: true, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:         "Documents",
 		Error:         userFacingError(r.URL.Query().Get("error")),
 		Dashboard:     dashboard,
@@ -1735,25 +1795,25 @@ func (s *webServer) documentDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var document store.Document
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents/"+url.PathEscape(id), nil, &document); err != nil {
-		s.render(w, http.StatusNotFound, pageData{Title: "Document", Error: err.Error(), Now: time.Now()})
+		s.render(w, r, http.StatusNotFound, pageData{Title: "Document", Error: err.Error(), Now: time.Now()})
 		return
 	}
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Now: time.Now()})
 		return
 	}
 	var relatedItems []store.RelatedItem
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/documents/"+url.PathEscape(id)+"/related-items", nil, &relatedItems); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
 	var assets []store.Asset
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/assets", nil, &assets); err != nil {
-		s.render(w, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Dashboard: dashboard, Now: time.Now()})
+		s.render(w, r, http.StatusBadGateway, pageData{Title: document.Title, Error: err.Error(), Document: document, Dashboard: dashboard, Now: time.Now()})
 		return
 	}
-	s.render(w, http.StatusOK, pageData{
+	s.render(w, r, http.StatusOK, pageData{
 		Title:        document.Title,
 		Error:        userFacingError(r.URL.Query().Get("error")),
 		Dashboard:    dashboard,
@@ -1812,7 +1872,10 @@ func (s *webServer) downloadDocument(w http.ResponseWriter, r *http.Request) {
 
 func (s *webServer) archiveDocument(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPost, "/api/v1/documents/"+url.PathEscape(id)+"/archive", nil, nil)
+	if err := s.apiJSON(r, http.MethodPost, "/api/v1/documents/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+		http.Redirect(w, r, "/documents/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/documents", http.StatusSeeOther)
 }
 
@@ -1836,7 +1899,10 @@ func (s *webServer) linkDocumentRelatedItem(w http.ResponseWriter, r *http.Reque
 func (s *webServer) unlinkDocumentFromDocumentPage(w http.ResponseWriter, r *http.Request) {
 	documentID := r.PathValue("documentID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/documents/"+url.PathEscape(documentID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/documents/"+url.PathEscape(documentID), http.StatusSeeOther)
 }
 
@@ -1852,7 +1918,10 @@ func (s *webServer) attachProjectDocument(w http.ResponseWriter, r *http.Request
 func (s *webServer) unlinkProjectDocument(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1869,7 +1938,10 @@ func (s *webServer) attachProjectTaskDocument(w http.ResponseWriter, r *http.Req
 func (s *webServer) unlinkProjectTaskDocument(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1886,7 +1958,10 @@ func (s *webServer) attachProjectTaskContact(w http.ResponseWriter, r *http.Requ
 func (s *webServer) unlinkProjectTaskContact(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1903,7 +1978,10 @@ func (s *webServer) attachProjectTaskAsset(w http.ResponseWriter, r *http.Reques
 func (s *webServer) unlinkProjectTaskAsset(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1919,7 +1997,10 @@ func (s *webServer) attachTaskDocument(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkTaskDocument(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("taskID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID), http.StatusSeeOther)
 }
 
@@ -1935,7 +2016,10 @@ func (s *webServer) attachProjectContact(w http.ResponseWriter, r *http.Request)
 func (s *webServer) unlinkProjectContact(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1951,7 +2035,10 @@ func (s *webServer) attachTaskContact(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkTaskContact(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("taskID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID), http.StatusSeeOther)
 }
 
@@ -1967,7 +2054,10 @@ func (s *webServer) attachProjectAsset(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkProjectAsset(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("projectID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/projects/"+url.PathEscape(projectID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/projects/"+url.PathEscape(projectID), http.StatusSeeOther)
 }
 
@@ -1983,7 +2073,10 @@ func (s *webServer) attachTaskAsset(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkTaskAsset(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("taskID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/asset-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks/"+url.PathEscape(taskID), http.StatusSeeOther)
 }
 
@@ -1999,7 +2092,10 @@ func (s *webServer) attachAssetDocument(w http.ResponseWriter, r *http.Request) 
 func (s *webServer) unlinkAssetDocument(w http.ResponseWriter, r *http.Request) {
 	assetID := r.PathValue("assetID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/document-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(assetID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets/"+url.PathEscape(assetID), http.StatusSeeOther)
 }
 
@@ -2015,7 +2111,10 @@ func (s *webServer) attachAssetContact(w http.ResponseWriter, r *http.Request) {
 func (s *webServer) unlinkAssetContact(w http.ResponseWriter, r *http.Request) {
 	assetID := r.PathValue("assetID")
 	linkID := r.PathValue("linkID")
-	_ = s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil)
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/contact-links/"+url.PathEscape(linkID), nil, nil); err != nil {
+		http.Redirect(w, r, "/assets/"+url.PathEscape(assetID)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/assets/"+url.PathEscape(assetID), http.StatusSeeOther)
 }
 
@@ -2096,16 +2195,24 @@ func (s *webServer) attachDocument(w http.ResponseWriter, r *http.Request, entit
 }
 
 func (s *webServer) completeTask(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err == nil {
-		id := url.PathEscape(r.FormValue("id"))
-		_ = s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+id+"/complete", nil, nil)
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/?error=form", http.StatusSeeOther)
+		return
+	}
+	id := url.PathEscape(r.FormValue("id"))
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+id+"/complete", nil, nil); err != nil {
+		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *webServer) reopenTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_ = s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(id)+"/reopen", nil, nil)
+	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(id)+"/reopen", nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
 }
 
@@ -2262,7 +2369,11 @@ func documentFileFromForm(r *http.Request) *multipart.FileHeader {
 	return files[0]
 }
 
-func (s *webServer) render(w http.ResponseWriter, status int, data pageData) {
+// render writes the page in the shared layout. The "Saved ✓" toast shows after
+// a save (see withSavedSignal), or when a handler that renders straight after
+// saving sets data.Saved, unless the page also has an error to show.
+func (s *webServer) render(w http.ResponseWriter, r *http.Request, status int, data pageData) {
+	data.Saved = (data.Saved || r.URL.Query().Get(savedQueryKey) == "1") && data.Error == ""
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := s.templates.ExecuteTemplate(w, "layout", data); err != nil {
@@ -3208,6 +3319,27 @@ func safeReturnTo(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// withErrorQuery adds err as the error query value to target, keeping any query
+// and fragment target already has.
+func withErrorQuery(target string, err error) string {
+	return withQueryValue(target, "error", err.Error())
+}
+
+// withQueryValue adds key=value to target's query, keeping any query and
+// fragment target already has.
+func withQueryValue(target, key, value string) string {
+	path, fragment, hasFragment := strings.Cut(target, "#")
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	path += sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+	if hasFragment {
+		path += "#" + fragment
+	}
+	return path
 }
 
 func userFacingError(value string) string {

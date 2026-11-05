@@ -158,8 +158,8 @@ func TestRemovingADeviceInSettingsReturnsToSettings(t *testing.T) {
 
 	rec := serve(web.routes(), browserRequest(http.MethodPost, "/settings/push-subscriptions/7/remove", ""))
 
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings" {
-		t.Errorf("got %d to %q, want a redirect to /settings", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/settings?saved=1" {
+		t.Errorf("got %d to %q, want a redirect to /settings?saved=1", rec.Code, rec.Header().Get("Location"))
 	}
 	if calls := api.Calls(); len(calls) != 1 || calls[0].Method != http.MethodDelete {
 		t.Errorf("API calls = %+v, want one DELETE", calls)
