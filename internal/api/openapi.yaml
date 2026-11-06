@@ -227,8 +227,12 @@ paths:
         Requires a browser session. Creates a Calendar Connection for a CalDAV
         app. For kind `other` the response carries the server address,
         username and secret for manual setup; this is the only time the
-        secret is available. Devices log in to `/caldav/` with HTTP Basic auth
-        (username and secret); `/.well-known/caldav` redirects there.
+        secret is available. For kind `ios` the response carries no secret,
+        only `profile_url`: a single-use link, valid for 10 minutes, that
+        downloads an iPhone setup profile holding the secret (see
+        `GET /api/v1/calendar-profiles/{token}`). Devices log in to `/caldav/`
+        with HTTP Basic auth (username and secret); `/.well-known/caldav`
+        redirects there.
       requestBody:
         required: true
         content:
@@ -237,11 +241,13 @@ paths:
               $ref: "#/components/schemas/CalendarConnectionInput"
       responses:
         "201":
-          description: Created Calendar Connection with its connection details.
+          description: Created Calendar Connection with its connection details (`other`) or its setup profile link (`ios`).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CreatedCalendarConnection"
+                oneOf:
+                  - $ref: "#/components/schemas/CreatedCalendarConnection"
+                  - $ref: "#/components/schemas/CreatedIPhoneCalendarConnection"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -266,6 +272,39 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+
+  /api/v1/calendar-profiles/{token}:
+    get:
+      tags: [Calendar Connections]
+      summary: Download an iPhone setup profile
+      operationId: downloadCalendarProfile
+      security: []
+      description: |
+        Needs no session: the token from an `ios` connection's `profile_url`
+        is the credential. Works once, within 10 minutes of creating the
+        connection, while the connection is active. Downloading issues the
+        connection's secret, which exists only inside the profile: an
+        unsigned configuration profile with one CalDAV account (host, port
+        and TLS from the public web base URL, the Member's email as username,
+        the principal URL, description "Homebase").
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The setup profile, as an attachment named Homebase.mobileconfig.
+          content:
+            application/x-apple-aspen-config:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: The link is unknown, expired, already used, or its connection was disconnected.
+          content:
+            text/plain:
+              schema: { type: string }
 
   /api/v1/notifications:
     get:
@@ -2124,8 +2163,8 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [other]
-          description: Only `other` (manual setup) for now. iPhone setup profiles are not available yet.
+          enum: [ios, other]
+          description: "`ios` sets up an iPhone or iPad with a setup profile; `other` is manual setup."
     CreatedCalendarConnection:
       type: object
       properties:
@@ -2133,6 +2172,14 @@ components:
         server_url: { type: string, example: "https://homebase.example.com/caldav/" }
         username: { type: string, format: email, description: The Member's email. }
         secret: { type: string, description: Shown only in this response. }
+    CreatedIPhoneCalendarConnection:
+      type: object
+      properties:
+        connection: { $ref: "#/components/schemas/CalendarConnection" }
+        profile_url:
+          type: string
+          example: "https://homebase.example.com/api/v1/calendar-profiles/abc123"
+          description: Single-use setup profile link, valid for 10 minutes.
     ModuleItem:
       type: object
       properties:

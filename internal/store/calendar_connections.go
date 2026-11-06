@@ -88,28 +88,100 @@ func (s *Store) ListCalendarConnections(ctx context.Context, userID, householdID
 // CreateCalendarConnection generates a secret for a new Calendar Connection
 // and stores only its hash.
 func (s *Store) CreateCalendarConnection(ctx context.Context, userID, householdID int64, input CalendarConnectionInput) (CalendarConnectionWithSecret, error) {
-	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" {
-		return CalendarConnectionWithSecret{}, errors.New("name is required")
-	}
-	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
-	if input.Kind != CalendarConnectionIOS && input.Kind != CalendarConnectionOther {
-		return CalendarConnectionWithSecret{}, errors.New("kind must be ios or other")
-	}
-
-	secret, err := generateSecret(calendarSecretPrefix)
-	if err != nil {
-		return CalendarConnectionWithSecret{}, err
-	}
-	c, err := scanCalendarConnection(s.db.QueryRowContext(ctx, `
-		INSERT INTO calendar_connections (user_id, household_id, name, kind, secret_hash, secret_prefix)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING `+calendarConnectionColumns+`
-	`, userID, householdID, input.Name, input.Kind, hashAPIToken(secret), tokenDisplayPrefix(secret)))
+	c, secret, _, err := s.insertCalendarConnection(ctx, userID, householdID, input, nil)
 	if err != nil {
 		return CalendarConnectionWithSecret{}, err
 	}
 	return CalendarConnectionWithSecret{CalendarConnection: c, Secret: secret}, nil
+}
+
+// CreateCalendarConnectionWithProfileLink creates a Calendar Connection whose
+// secret is never revealed and returns a token for a single-use setup profile
+// link that expires at linkExpiresAt. Redeeming the link issues the secret.
+func (s *Store) CreateCalendarConnectionWithProfileLink(ctx context.Context, userID, householdID int64, input CalendarConnectionInput, linkExpiresAt time.Time) (CalendarConnection, string, error) {
+	c, _, token, err := s.insertCalendarConnection(ctx, userID, householdID, input, &linkExpiresAt)
+	return c, token, err
+}
+
+func (s *Store) insertCalendarConnection(ctx context.Context, userID, householdID int64, input CalendarConnectionInput, linkExpiresAt *time.Time) (CalendarConnection, string, string, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return CalendarConnection{}, "", "", errors.New("name is required")
+	}
+	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+	if input.Kind != CalendarConnectionIOS && input.Kind != CalendarConnectionOther {
+		return CalendarConnection{}, "", "", errors.New("kind must be ios or other")
+	}
+
+	secret, err := generateSecret(calendarSecretPrefix)
+	if err != nil {
+		return CalendarConnection{}, "", "", err
+	}
+	var token string
+	var tokenHash *string
+	if linkExpiresAt != nil {
+		if token, err = generateSecret(""); err != nil {
+			return CalendarConnection{}, "", "", err
+		}
+		hash := hashAPIToken(token)
+		tokenHash = &hash
+	}
+	c, err := scanCalendarConnection(s.db.QueryRowContext(ctx, `
+		INSERT INTO calendar_connections (user_id, household_id, name, kind, secret_hash, secret_prefix, profile_token_hash, profile_token_expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING `+calendarConnectionColumns+`
+	`, userID, householdID, input.Name, input.Kind, hashAPIToken(secret), tokenDisplayPrefix(secret), tokenHash, linkExpiresAt))
+	if err != nil {
+		return CalendarConnection{}, "", "", err
+	}
+	return c, secret, token, nil
+}
+
+// CalendarProfile is what a redeemed setup profile link carries: the
+// connection, its Member, and the connection's newly issued secret.
+type CalendarProfile struct {
+	Connection CalendarConnection
+	User       User
+	Secret     string
+}
+
+// RedeemCalendarProfileLink uses up a setup profile link: if token belongs to
+// an active Calendar Connection, its Member still belongs to the Household and
+// the link hasn't expired as of now, it issues the connection a new secret and
+// clears the link. Any failure is ErrNotFound.
+func (s *Store) RedeemCalendarProfileLink(ctx context.Context, token string, now time.Time) (CalendarProfile, error) {
+	if strings.TrimSpace(token) == "" {
+		return CalendarProfile{}, ErrNotFound
+	}
+	secret, err := generateSecret(calendarSecretPrefix)
+	if err != nil {
+		return CalendarProfile{}, err
+	}
+	profile := CalendarProfile{Secret: secret}
+	c := &profile.Connection
+	u := &profile.User
+	err = s.db.QueryRowContext(ctx, `
+		UPDATE calendar_connections cc
+		SET secret_hash = $3, secret_prefix = $4, profile_token_hash = NULL, profile_token_expires_at = NULL
+		FROM users u, household_members hm
+		WHERE cc.profile_token_hash = $1
+		  AND cc.profile_token_expires_at > $2
+		  AND cc.revoked_at IS NULL
+		  AND u.id = cc.user_id
+		  AND hm.user_id = cc.user_id AND hm.household_id = cc.household_id
+		RETURNING cc.id, cc.user_id, cc.household_id, cc.name, cc.kind, cc.secret_prefix, cc.last_used_at, cc.revoked_at, cc.created_at,
+		          u.id, u.email, u.name, u.avatar_url, u.created_at
+	`, hashAPIToken(token), now, hashAPIToken(secret), tokenDisplayPrefix(secret)).Scan(
+		&c.ID, &c.UserID, &c.HouseholdID, &c.Name, &c.Kind, &c.SecretPrefix, &c.LastUsedAt, &c.RevokedAt, &c.CreatedAt,
+		&u.ID, &u.Email, &u.Name, &u.AvatarURL, &u.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CalendarProfile{}, ErrNotFound
+	}
+	if err != nil {
+		return CalendarProfile{}, err
+	}
+	return profile, nil
 }
 
 // RevokeCalendarConnection disconnects one of a Member's Calendar

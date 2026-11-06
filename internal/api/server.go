@@ -141,6 +141,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/logout", s.logout)
 
 	s.mux.Handle("/api/v1/", s.requireSession(http.HandlerFunc(s.apiRoute)))
+	s.mux.HandleFunc("GET "+calendarProfilePath+"{token}", s.downloadCalendarProfile)
 	s.caldavRoutes()
 }
 

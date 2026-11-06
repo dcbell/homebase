@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"homebase/internal/caldav"
 	"homebase/internal/store"
@@ -16,6 +17,22 @@ type createdCalendarConnection struct {
 	Username   string                   `json:"username"`
 	Secret     string                   `json:"secret"`
 }
+
+// createdIPhoneConnection answers creating an ios Calendar Connection. It
+// carries no secret: the secret exists only inside the setup profile served
+// once from ProfileURL.
+type createdIPhoneConnection struct {
+	Connection store.CalendarConnection `json:"connection"`
+	ProfileURL string                   `json:"profile_url"`
+}
+
+// calendarProfilePath is where setup profile links are served. It needs no
+// session: Safari fetches it, and the token is the credential.
+const calendarProfilePath = "/api/v1/calendar-profiles/"
+
+// calendarProfileLinkTTL is how long a setup profile link works. The web form
+// sends the browser straight to it, so it only has to outlast a slow tap.
+const calendarProfileLinkTTL = 10 * time.Minute
 
 func (s *Server) requireBrowserSession(w http.ResponseWriter, r *http.Request) bool {
 	if authKindFrom(r) != authKindSession {
@@ -46,9 +63,8 @@ func (s *Server) createCalendarConnection(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	// iPhone setup profiles arrive with #37; until then only manual setup.
-	if input.Kind != store.CalendarConnectionOther {
-		writeError(w, http.StatusBadRequest, "kind must be other")
+	if input.Kind == store.CalendarConnectionIOS {
+		s.createIPhoneConnection(w, r, input)
 		return
 	}
 	created, err := s.store.CreateCalendarConnection(r.Context(), userFrom(r).ID, householdFrom(r).ID, input)
@@ -62,6 +78,51 @@ func (s *Server) createCalendarConnection(w http.ResponseWriter, r *http.Request
 		Username:   userFrom(r).Email,
 		Secret:     created.Secret,
 	})
+}
+
+func (s *Server) createIPhoneConnection(w http.ResponseWriter, r *http.Request, input store.CalendarConnectionInput) {
+	connection, token, err := s.store.CreateCalendarConnectionWithProfileLink(r.Context(), userFrom(r).ID, householdFrom(r).ID, input,
+		s.clock.Now().Add(calendarProfileLinkTTL))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, createdIPhoneConnection{
+		Connection: connection,
+		ProfileURL: s.cfg.WebBaseURL + calendarProfilePath + token,
+	})
+}
+
+// downloadCalendarProfile serves an iPhone setup profile once, issuing the
+// connection's secret inside it.
+func (s *Server) downloadCalendarProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	profile, err := s.store.RedeemCalendarProfileLink(r.Context(), r.PathValue("token"), s.clock.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "This setup link has expired or was already used. Set up your iPhone again from Settings.", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.logger.Error("redeem calendar profile link", "error", err)
+		http.Error(w, "The setup profile could not be made.", http.StatusInternalServerError)
+		return
+	}
+	body, err := caldav.Profile{
+		WebBaseURL:   s.cfg.WebBaseURL,
+		ConnectionID: profile.Connection.ID,
+		DeviceName:   profile.Connection.Name,
+		UserID:       profile.User.ID,
+		Username:     profile.User.Email,
+		Secret:       profile.Secret,
+	}.Render()
+	if err != nil {
+		s.logger.Error("render calendar profile", "error", err)
+		http.Error(w, "The setup profile could not be made.", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", caldav.ProfileContentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+caldav.ProfileFilename+`"`)
+	_, _ = w.Write(body)
 }
 
 func (s *Server) revokeCalendarConnection(w http.ResponseWriter, r *http.Request, rawID string) {
