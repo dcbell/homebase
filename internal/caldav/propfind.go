@@ -239,14 +239,14 @@ func (s *Server) resources(r *http.Request, p davPath, children bool) ([]*resour
 	return nil, http.StatusNotFound, nil
 }
 
-func (s *Server) rootResource(m Member) *resource {
+func (s *Server) rootResource(m CalendarLogin) *resource {
 	res := newResource(Root)
 	res.set(nsDAV, "resourcetype", "<D:collection/>")
 	res.set(nsDAV, "current-user-principal", hrefXML(principalPath(m.UserID)))
 	return res
 }
 
-func (s *Server) principalResource(m Member) *resource {
+func (s *Server) principalResource(m CalendarLogin) *resource {
 	res := newResource(principalPath(m.UserID))
 	res.set(nsDAV, "resourcetype", "<D:collection/><D:principal/>")
 	res.set(nsDAV, "displayname", escape(m.Name))
@@ -256,7 +256,7 @@ func (s *Server) principalResource(m Member) *resource {
 	return res
 }
 
-func (s *Server) homeResource(m Member) *resource {
+func (s *Server) homeResource(m CalendarLogin) *resource {
 	res := newResource(homePath(m.UserID))
 	res.set(nsDAV, "resourcetype", "<D:collection/>")
 	res.set(nsDAV, "current-user-principal", hrefXML(principalPath(m.UserID)))
@@ -264,7 +264,7 @@ func (s *Server) homeResource(m Member) *resource {
 	return res
 }
 
-func (s *Server) collectionResource(r *http.Request, m Member, c Collection) (*resource, error) {
+func (s *Server) collectionResource(r *http.Request, m CalendarLogin, c Collection) (*resource, error) {
 	objects, err := s.objects(r.Context(), c)
 	if err != nil {
 		return nil, err

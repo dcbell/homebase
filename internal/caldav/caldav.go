@@ -34,9 +34,9 @@ const Root = "/caldav/"
 // Root.
 const WellKnownPath = "/.well-known/caldav"
 
-// Member is who a CalDAV request is logged in as: the Member and Household of
-// one Calendar Connection.
-type Member struct {
+// CalendarLogin is who a CalDAV request is logged in as: the Member and
+// Household of one Calendar Connection.
+type CalendarLogin struct {
 	UserID       int64
 	HouseholdID  int64
 	Email        string
@@ -57,7 +57,7 @@ type Collection interface {
 	Color() string
 	// Objects returns everything in the Member's view of the collection as of
 	// now. It is called at most once per request.
-	Objects(ctx context.Context, m Member, now time.Time) ([]Object, error)
+	Objects(ctx context.Context, m CalendarLogin, now time.Time) ([]Object, error)
 }
 
 // Object is one calendar object resource in a Collection.

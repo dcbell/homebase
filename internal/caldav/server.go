@@ -23,7 +23,7 @@ var ErrUnauthorized = errors.New("caldav: unauthorized")
 // and the password a Calendar Connection secret. It records the connection's
 // last use. Refused logins return ErrUnauthorized.
 type Authenticator interface {
-	AuthenticateCalendar(ctx context.Context, username, password string) (Member, error)
+	AuthenticateCalendar(ctx context.Context, username, password string) (CalendarLogin, error)
 }
 
 // Server serves CalDAV under Root and the well-known redirect.
@@ -111,7 +111,7 @@ func challenge(w http.ResponseWriter) {
 // each collection's objects once loaded (a write forgets its collection's),
 // and the If-Match header, which go-webdav doesn't pass on DELETE.
 type request struct {
-	member  Member
+	member  CalendarLogin
 	now     time.Time
 	objects map[string][]object
 	ifMatch webdav.ConditionalMatch

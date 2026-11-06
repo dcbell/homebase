@@ -31,12 +31,12 @@ type Writable interface {
 	Collection
 	// Find returns the object with this UID in the Member's view, whether
 	// or not it falls inside the Window. ok is false when there is none.
-	Find(ctx context.Context, m Member, uid string) (o Object, ok bool, err error)
+	Find(ctx context.Context, m CalendarLogin, uid string) (o Object, ok bool, err error)
 	// Put creates the object with this UID (exists false) or replaces it
 	// with comp.
-	Put(ctx context.Context, m Member, uid string, comp *ical.Component, exists bool) error
+	Put(ctx context.Context, m CalendarLogin, uid string, comp *ical.Component, exists bool) error
 	// Delete removes the object with this UID, which Find found.
-	Delete(ctx context.Context, m Member, uid string) error
+	Delete(ctx context.Context, m CalendarLogin, uid string) error
 }
 
 // refuse is a 403 carrying a CalDAV precondition (RFC 4791 section 5.3.2.1)

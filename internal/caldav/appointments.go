@@ -29,9 +29,9 @@ type Appointments struct {
 // AppointmentSaves are the shared Appointment save operations, acting as the
 // connected Member in their Household.
 type AppointmentSaves interface {
-	CreateAppointment(ctx context.Context, m Member, input store.EventInput) (store.Event, error)
-	UpdateAppointment(ctx context.Context, m Member, id int64, input store.EventInput) (store.Event, error)
-	ArchiveAppointment(ctx context.Context, m Member, id int64) error
+	CreateAppointment(ctx context.Context, m CalendarLogin, input store.EventInput) (store.Event, error)
+	UpdateAppointment(ctx context.Context, m CalendarLogin, id int64, input store.EventInput) (store.Event, error)
+	ArchiveAppointment(ctx context.Context, m CalendarLogin, id int64) error
 }
 
 var _ Writable = Appointments{}
@@ -41,7 +41,7 @@ func (Appointments) DisplayName() string { return "Homebase" }
 func (Appointments) Component() string   { return ical.CompEvent }
 func (Appointments) Color() string       { return "#2563EBFF" }
 
-func (c Appointments) Objects(ctx context.Context, m Member, now time.Time) ([]Object, error) {
+func (c Appointments) Objects(ctx context.Context, m CalendarLogin, now time.Time) ([]Object, error) {
 	from, to := Window(now)
 	events, err := c.Store.ListAppointmentsConcerning(ctx, m.HouseholdID, m.UserID, from, to)
 	if err != nil {
@@ -76,7 +76,7 @@ func (c Appointments) uids() uids[store.Event] {
 
 // appointment returns the active Appointment with this UID that concerns
 // the Member, or store.ErrNotFound.
-func (c Appointments) appointment(ctx context.Context, m Member, uid string) (store.Event, error) {
+func (c Appointments) appointment(ctx context.Context, m CalendarLogin, uid string) (store.Event, error) {
 	e, err := c.uids().lookup(ctx, m.HouseholdID, uid)
 	if err != nil {
 		return store.Event{}, err
@@ -99,7 +99,7 @@ func concerns(e store.Event, userID int64) bool {
 	return false
 }
 
-func (c Appointments) Find(ctx context.Context, m Member, uid string) (Object, bool, error) {
+func (c Appointments) Find(ctx context.Context, m CalendarLogin, uid string) (Object, bool, error) {
 	e, err := c.appointment(ctx, m, uid)
 	if errors.Is(err, store.ErrNotFound) {
 		return Object{}, false, nil
@@ -113,7 +113,7 @@ func (c Appointments) Find(ctx context.Context, m Member, uid string) (Object, b
 // Put creates an Appointment for the Member alone, keeping the device's UID,
 // or edits one's title, times, location and notes. Attendees never change
 // from a device.
-func (c Appointments) Put(ctx context.Context, m Member, uid string, comp *ical.Component, exists bool) error {
+func (c Appointments) Put(ctx context.Context, m CalendarLogin, uid string, comp *ical.Component, exists bool) error {
 	input, err := eventInput(comp)
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (c Appointments) Put(ctx context.Context, m Member, uid string, comp *ical.
 }
 
 // Delete archives the Appointment.
-func (c Appointments) Delete(ctx context.Context, m Member, uid string) error {
+func (c Appointments) Delete(ctx context.Context, m CalendarLogin, uid string) error {
 	e, err := c.appointment(ctx, m, uid)
 	if err != nil {
 		return err

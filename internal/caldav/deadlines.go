@@ -26,7 +26,7 @@ func (Deadlines) DisplayName() string { return "Homebase Deadlines" }
 func (Deadlines) Component() string   { return ical.CompEvent }
 func (Deadlines) Color() string       { return "#D97706FF" }
 
-func (d Deadlines) Objects(ctx context.Context, m Member, now time.Time) ([]Object, error) {
+func (d Deadlines) Objects(ctx context.Context, m CalendarLogin, now time.Time) ([]Object, error) {
 	from, to := Window(now)
 	projects, err := d.Store.ListProjectsDueBetween(ctx, m.HouseholdID, from, to)
 	if err != nil {

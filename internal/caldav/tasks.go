@@ -30,11 +30,11 @@ type Tasks struct {
 // TaskSaves are the shared Task save operations, acting as the connected
 // Member in their Household.
 type TaskSaves interface {
-	CreateTask(ctx context.Context, m Member, input store.TaskInput) (store.Task, error)
-	UpdateTask(ctx context.Context, m Member, id int64, input store.TaskInput) (store.Task, error)
-	CompleteTask(ctx context.Context, m Member, id int64) (store.Task, error)
-	ReopenTask(ctx context.Context, m Member, id int64) (store.Task, error)
-	ArchiveTask(ctx context.Context, m Member, id int64) error
+	CreateTask(ctx context.Context, m CalendarLogin, input store.TaskInput) (store.Task, error)
+	UpdateTask(ctx context.Context, m CalendarLogin, id int64, input store.TaskInput) (store.Task, error)
+	CompleteTask(ctx context.Context, m CalendarLogin, id int64) (store.Task, error)
+	ReopenTask(ctx context.Context, m CalendarLogin, id int64) (store.Task, error)
+	ArchiveTask(ctx context.Context, m CalendarLogin, id int64) error
 }
 
 var _ Writable = Tasks{}
@@ -44,7 +44,7 @@ func (Tasks) DisplayName() string { return "Homebase Tasks" }
 func (Tasks) Component() string   { return ical.CompToDo }
 func (Tasks) Color() string       { return "#16A34AFF" }
 
-func (c Tasks) Objects(ctx context.Context, m Member, now time.Time) ([]Object, error) {
+func (c Tasks) Objects(ctx context.Context, m CalendarLogin, now time.Time) ([]Object, error) {
 	from, to := Window(now)
 	tasks, err := c.Store.ListOpenTasksConcerning(ctx, m.HouseholdID, m.UserID, from, to)
 	if err != nil {
@@ -80,7 +80,7 @@ func (c Tasks) uids() uids[store.Task] {
 // task returns the Task with this UID that concerns the Member, open or
 // done, or store.ErrNotFound. Done Tasks stay findable so a device can
 // untick a to-do it has just ticked.
-func (c Tasks) task(ctx context.Context, m Member, uid string) (store.Task, error) {
+func (c Tasks) task(ctx context.Context, m CalendarLogin, uid string) (store.Task, error) {
 	t, err := c.uids().lookup(ctx, m.HouseholdID, uid)
 	if err != nil {
 		return store.Task{}, err
@@ -91,7 +91,7 @@ func (c Tasks) task(ctx context.Context, m Member, uid string) (store.Task, erro
 	return t, nil
 }
 
-func (c Tasks) Find(ctx context.Context, m Member, uid string) (Object, bool, error) {
+func (c Tasks) Find(ctx context.Context, m CalendarLogin, uid string) (Object, bool, error) {
 	t, err := c.task(ctx, m, uid)
 	if errors.Is(err, store.ErrNotFound) {
 		return Object{}, false, nil
@@ -107,7 +107,7 @@ func (c Tasks) Find(ctx context.Context, m Member, uid string) (Object, bool, er
 // Other fields never change from a device. Edits to a Task that is done and
 // stays done are ignored: saving a done Generated Task again would advance
 // its Routine a second time.
-func (c Tasks) Put(ctx context.Context, m Member, uid string, comp *ical.Component, exists bool) error {
+func (c Tasks) Put(ctx context.Context, m CalendarLogin, uid string, comp *ical.Component, exists bool) error {
 	in, err := readTodo(comp)
 	if err != nil {
 		return err
@@ -152,7 +152,7 @@ func (c Tasks) Put(ctx context.Context, m Member, uid string, comp *ical.Compone
 }
 
 // Delete archives the Task.
-func (c Tasks) Delete(ctx context.Context, m Member, uid string) error {
+func (c Tasks) Delete(ctx context.Context, m CalendarLogin, uid string) error {
 	t, err := c.task(ctx, m, uid)
 	if err != nil {
 		return err

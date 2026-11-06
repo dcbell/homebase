@@ -26,15 +26,15 @@ func (s *Server) caldavRoutes() {
 // calendarAuthenticator checks CalDAV logins against Calendar Connections.
 type calendarAuthenticator struct{ s *Server }
 
-func (a calendarAuthenticator) AuthenticateCalendar(ctx context.Context, username, password string) (caldav.Member, error) {
+func (a calendarAuthenticator) AuthenticateCalendar(ctx context.Context, username, password string) (caldav.CalendarLogin, error) {
 	login, err := a.s.store.AuthenticateCalendarConnection(ctx, username, password, a.s.clock.Now())
 	if errors.Is(err, store.ErrNotFound) {
-		return caldav.Member{}, caldav.ErrUnauthorized
+		return caldav.CalendarLogin{}, caldav.ErrUnauthorized
 	}
 	if err != nil {
-		return caldav.Member{}, err
+		return caldav.CalendarLogin{}, err
 	}
-	return caldav.Member{
+	return caldav.CalendarLogin{
 		UserID:       login.User.ID,
 		HouseholdID:  login.Household.ID,
 		Email:        login.User.Email,
@@ -47,46 +47,46 @@ func (a calendarAuthenticator) AuthenticateCalendar(ctx context.Context, usernam
 // the connected Member.
 type caldavSaves struct{ s *Server }
 
-func (c caldavSaves) actor(m caldav.Member) (store.Household, store.User) {
+func (c caldavSaves) actor(m caldav.CalendarLogin) (store.Household, store.User) {
 	return store.Household{ID: m.HouseholdID}, store.User{ID: m.UserID, Email: m.Email, Name: m.Name}
 }
 
-func (c caldavSaves) CreateAppointment(ctx context.Context, m caldav.Member, input store.EventInput) (store.Event, error) {
+func (c caldavSaves) CreateAppointment(ctx context.Context, m caldav.CalendarLogin, input store.EventInput) (store.Event, error) {
 	household, actor := c.actor(m)
 	return c.s.CreateAppointment(ctx, household, actor, input)
 }
 
-func (c caldavSaves) UpdateAppointment(ctx context.Context, m caldav.Member, id int64, input store.EventInput) (store.Event, error) {
+func (c caldavSaves) UpdateAppointment(ctx context.Context, m caldav.CalendarLogin, id int64, input store.EventInput) (store.Event, error) {
 	household, actor := c.actor(m)
 	return c.s.UpdateAppointment(ctx, household, actor, id, input)
 }
 
-func (c caldavSaves) ArchiveAppointment(ctx context.Context, m caldav.Member, id int64) error {
+func (c caldavSaves) ArchiveAppointment(ctx context.Context, m caldav.CalendarLogin, id int64) error {
 	household, actor := c.actor(m)
 	return c.s.ArchiveAppointment(ctx, household, actor, id)
 }
 
-func (c caldavSaves) CreateTask(ctx context.Context, m caldav.Member, input store.TaskInput) (store.Task, error) {
+func (c caldavSaves) CreateTask(ctx context.Context, m caldav.CalendarLogin, input store.TaskInput) (store.Task, error) {
 	household, actor := c.actor(m)
 	return c.s.CreateTask(ctx, household, actor, input)
 }
 
-func (c caldavSaves) UpdateTask(ctx context.Context, m caldav.Member, id int64, input store.TaskInput) (store.Task, error) {
+func (c caldavSaves) UpdateTask(ctx context.Context, m caldav.CalendarLogin, id int64, input store.TaskInput) (store.Task, error) {
 	household, actor := c.actor(m)
 	return c.s.UpdateTask(ctx, household, actor, id, input)
 }
 
-func (c caldavSaves) CompleteTask(ctx context.Context, m caldav.Member, id int64) (store.Task, error) {
+func (c caldavSaves) CompleteTask(ctx context.Context, m caldav.CalendarLogin, id int64) (store.Task, error) {
 	household, actor := c.actor(m)
 	return c.s.CompleteTask(ctx, household, actor, id)
 }
 
-func (c caldavSaves) ReopenTask(ctx context.Context, m caldav.Member, id int64) (store.Task, error) {
+func (c caldavSaves) ReopenTask(ctx context.Context, m caldav.CalendarLogin, id int64) (store.Task, error) {
 	household, actor := c.actor(m)
 	return c.s.ReopenTask(ctx, household, actor, id)
 }
 
-func (c caldavSaves) ArchiveTask(ctx context.Context, m caldav.Member, id int64) error {
+func (c caldavSaves) ArchiveTask(ctx context.Context, m caldav.CalendarLogin, id int64) error {
 	household, actor := c.actor(m)
 	return c.s.ArchiveTask(ctx, household, actor, id)
 }
