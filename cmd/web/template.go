@@ -1784,21 +1784,30 @@ their summaries and adds, edits and removes frames. */}}
 {{ end }}
 
 {{ define "personalReminderTimes" }}
-<section class="panel">
+{{/* While the caller uses the shared Reminder Times, the script shows them
+read-only and "Customize for me" opens the editor, seeded from them, with no
+request until Save; without the script the editor shows straight away. */}}
+<section class="panel personal-reminder-times" data-personal-reminders>
 	<div class="tile-head"><h2>Your Reminder Times</h2></div>
 	{{ if .Personal.UsingShared }}
-		<p class="hint">You get this {{ .Noun }}'s Reminder Times. Use your own to replace them for you alone.</p>
-	{{ else }}
-		<p class="hint">Your own Reminder Times replace this {{ .Noun }}'s for you. Only you see them.</p>
+	<div class="rt-shared" data-reminder-shared hidden>
+		<p class="hint">You get this {{ .Noun }}'s Reminder Times.</p>
+		<div class="rt-list">
+			{{ range .Form.Shown.Rows }}<div class="rt-frame static">{{ .Summary }}</div>{{ else }}<div class="rt-empty">No reminders</div>{{ end }}
+		</div>
+		<div class="rt-actions"><button class="secondary" type="button" data-reminder-customize>Customize for me</button></div>
+	</div>
 	{{ end }}
-	<form id="{{ .ID }}-personal-reminders" method="post" action="{{ .Path }}/personal-reminder-times">
+	<form id="{{ .ID }}-personal-reminders" method="post" action="{{ .Path }}/personal-reminder-times" data-reminder-custom>
+		<p class="hint">These replace this {{ .Noun }}'s Reminder Times for you. Only you see them.</p>
 		{{ template "reminderTimes" .Form }}
-		<button type="submit">{{ if .Personal.UsingShared }}Use your own Reminder Times{{ else }}Save your Reminder Times{{ end }}</button>
+		<div class="rt-actions">
+			<button type="submit">Save</button>
+			{{ if .Personal.UsingShared }}<button class="secondary rt-js" type="button" data-reminder-uncustomize>Use shared</button>{{ else }}<button class="secondary" type="submit" form="{{ .ID }}-use-shared-reminders">Use shared</button>{{ end }}
+		</div>
 	</form>
 	{{ if not .Personal.UsingShared }}
-	<form id="{{ .ID }}-use-shared-reminders" method="post" action="{{ .Path }}/personal-reminder-times/shared">
-		<button class="secondary" type="submit">Use shared Reminder Times</button>
-	</form>
+	<form id="{{ .ID }}-use-shared-reminders" method="post" action="{{ .Path }}/personal-reminder-times/shared"></form>
 	{{ end }}
 </section>
 {{ end }}
