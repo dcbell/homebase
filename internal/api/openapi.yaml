@@ -474,6 +474,33 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/v1/reminder-times/defaults:
+    get:
+      tags: [Notifications]
+      summary: Get the default Reminder Times
+      operationId: getDefaultReminderTimes
+      description: >
+        The built-in Reminder Times a new Task or Appointment gets when its
+        create request leaves reminder_times out, for prefilling create forms.
+      responses:
+        "200":
+          description: The built-in Reminder Times for each kind of subject.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timed_task:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+                  date_only_task:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+                  appointment:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+        "401":
+          $ref: "#/components/responses/Error"
   /api/v1/push-settings:
     get:
       tags: [Push]

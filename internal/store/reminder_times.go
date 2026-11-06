@@ -59,6 +59,24 @@ var (
 	AppointmentReminderTimes = []ReminderTime{{Minutes: -24 * 60}, {Minutes: -60}, {Minutes: 0}}
 )
 
+// ReminderTimeDefaults are the built-in Reminder Times for each kind of
+// subject, as the API serves them to prefill create forms.
+type ReminderTimeDefaults struct {
+	TimedTask    []ReminderTime `json:"timed_task"`
+	DateOnlyTask []ReminderTime `json:"date_only_task"`
+	Appointment  []ReminderTime `json:"appointment"`
+}
+
+// BuiltInReminderTimes are the built-in Reminder Times for every kind of
+// subject.
+func BuiltInReminderTimes() ReminderTimeDefaults {
+	return ReminderTimeDefaults{
+		TimedTask:    TimedTaskReminderTimes,
+		DateOnlyTask: DateOnlyTaskReminderTimes,
+		Appointment:  AppointmentReminderTimes,
+	}
+}
+
 // DefaultTaskReminderTimes are the built-in Reminder Times for a Task due at
 // due: the date-only ones for a due date with no time of day, otherwise the
 // timed ones.

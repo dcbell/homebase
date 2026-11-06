@@ -148,6 +148,17 @@ func TestReschedulingAppointmentMovesRemindersAtItsReminderTimes(t *testing.T) {
 	}
 }
 
+func TestDefaultAppointmentReminderTimesAreServedForCreateForms(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+
+	defaults := apitest.Decode[store.ReminderTimeDefaults](t, household.Member.Get("/api/v1/reminder-times/defaults").Expect(http.StatusOK))
+	if want := []store.ReminderTime{{Minutes: -24 * 60}, {Minutes: -60}, {Minutes: 0}}; fmt.Sprint(defaults.Appointment) != fmt.Sprint(want) {
+		t.Errorf("Appointment defaults = %v, want %v", defaults.Appointment, want)
+	}
+}
+
 func TestAppointmentFromBeforeReminderTimesKeepsTodaysReminders(t *testing.T) {
 	t.Parallel()
 	st, db := storetest.OpenBefore(t, "028_appointment_reminder_times.sql")
