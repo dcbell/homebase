@@ -149,3 +149,55 @@ func TestRemindersPendingAtUpgradeAreSentOnceAtTheirOriginalTimes(t *testing.T) 
 		t.Errorf("Appointment Reminder titles = %q, want %q", got, want)
 	}
 }
+
+func TestRoutinesAndMaintenanceSchedulesFromBeforeReminderTimesGenerateTasksWithTheDefaults(t *testing.T) {
+	t.Parallel()
+	st, db := storetest.OpenBefore(t, "030_routine_maintenance_reminder_times.sql")
+
+	householdID := insertID(t, db, `INSERT INTO households (name) VALUES ('Home') RETURNING id`)
+	memberID := insertID(t, db, `INSERT INTO users (email, name) VALUES ('member@example.test', 'Member') RETURNING id`)
+	if _, err := db.Exec(`INSERT INTO household_members (household_id, user_id, role) VALUES ($1, $2, 'owner')`, householdID, memberID); err != nil {
+		t.Fatalf("seed Member: %v", err)
+	}
+	routine := insertID(t, db, `INSERT INTO routines (household_id, assigned_to, title, cadence, next_due_at, created_by) VALUES ($1, $2, 'Water the plants', 'weekly', $3, $2) RETURNING id`,
+		householdID, memberID, localAt(20, 0, 0))
+	asset := insertID(t, db, `INSERT INTO assets (household_id, name, created_by) VALUES ($1, 'Boiler', $2) RETURNING id`, householdID, memberID)
+	item := insertID(t, db, `INSERT INTO asset_maintenance_items (household_id, asset_id, title, cadence, next_due_at, created_by) VALUES ($1, $2, 'Service the boiler', 'yearly', $3, $4) RETURNING id`,
+		householdID, asset, localAt(15, 0, 0), memberID)
+
+	if err := storetest.Migrate(t, st); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	h := apitest.NewWithStore(t, st)
+	member := h.SignIn(store.User{ID: memberID, Name: "Member"}, householdID)
+
+	defaults := "[{-1 08:00} {0 08:00} {1 08:00}]"
+	if got := dateOnlyReminderTimes(apitest.Decode[store.Routine](t, member.Get(fmt.Sprintf("/api/v1/routines/%d", routine)).Expect(http.StatusOK)).ReminderTimes); got != defaults {
+		t.Errorf("Routine Reminder Times = %s, want the date-only defaults %s", got, defaults)
+	}
+	items := apitest.Decode[[]store.AssetMaintenanceItem](t, member.Get(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset)).Expect(http.StatusOK))
+	if len(items) != 1 || dateOnlyReminderTimes(items[0].ReminderTimes) != defaults {
+		t.Errorf("Maintenance Schedules = %+v, want one with the date-only defaults %s", items, defaults)
+	}
+
+	routineTask := apitest.Decode[store.Task](t, member.Post(fmt.Sprintf("/api/v1/routines/%d/generate-task", routine), nil).Expect(http.StatusCreated))
+	generateDueTasks(t, h)
+	maintenanceTask := generatedTasksOf(t, member, func(task store.Task) bool {
+		return task.AssetMaintenanceItemID != nil && *task.AssetMaintenanceItemID == item
+	})
+	if len(maintenanceTask) != 1 {
+		t.Fatalf("Generated maintenance Tasks = %+v, want one", maintenanceTask)
+	}
+	updateTask(t, member, maintenanceTask[0], map[string]any{"assigned_to": memberID})
+
+	// Today's Reminders: the maintenance Task, due today, has only Overdue
+	// still ahead; the Routine's gets all three.
+	for _, day := range []int{16, 19, 20, 21} {
+		sendRemindersAt(t, h, localAt(day, 8, 0))
+	}
+	expectReminders(t, member,
+		fmt.Sprintf("overdue %d", maintenanceTask[0].ID),
+		fmt.Sprintf("due_soon %d", routineTask.ID),
+		fmt.Sprintf("due_now %d", routineTask.ID),
+		fmt.Sprintf("overdue %d", routineTask.ID))
+}
