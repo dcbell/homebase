@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-ical"
-	"github.com/emersion/go-webdav/caldav"
 
 	"homebase/internal/store"
 )
@@ -43,65 +41,43 @@ func (Appointments) DisplayName() string { return "Homebase" }
 func (Appointments) Component() string   { return ical.CompEvent }
 func (Appointments) Color() string       { return "#2563EBFF" }
 
-func (a Appointments) Objects(ctx context.Context, m Member, now time.Time) ([]Object, error) {
+func (c Appointments) Objects(ctx context.Context, m Member, now time.Time) ([]Object, error) {
 	from, to := Window(now)
-	events, err := a.Store.ListAppointmentsConcerning(ctx, m.HouseholdID, m.UserID, from, to)
+	events, err := c.Store.ListAppointmentsConcerning(ctx, m.HouseholdID, m.UserID, from, to)
 	if err != nil {
 		return nil, err
 	}
 	objects := make([]Object, len(events))
 	for i, e := range events {
-		objects[i] = a.object(e)
+		objects[i] = c.object(e)
 	}
 	return objects, nil
 }
 
-func (a Appointments) object(e store.Event) Object {
-	return Object{UID: appointmentUIDOf(e), Calendar: a.calendar(e), ModTime: e.UpdatedAt}
+func (c Appointments) object(e store.Event) Object {
+	return Object{UID: c.uids().of(e.ID, e), Calendar: c.calendar(e), ModTime: e.UpdatedAt}
 }
 
 const appointmentUIDPrefix = "homebase-appointment-"
 
 // AppointmentUID is the stable UID of a Homebase-originated Appointment.
 func AppointmentUID(id int64) string {
-	return fmt.Sprintf("%s%d", appointmentUIDPrefix, id)
+	return generatedUID(appointmentUIDPrefix, id)
 }
 
-// appointmentUIDOf is an Appointment's UID: the one the device chose when
-// it was created on a device, otherwise the generated one.
-func appointmentUIDOf(e store.Event) string {
-	if e.CalendarUID != "" {
-		return e.CalendarUID
+func (c Appointments) uids() uids[store.Event] {
+	return uids[store.Event]{
+		prefix:    appointmentUIDPrefix,
+		get:       c.Store.GetEvent,
+		find:      c.Store.FindEventByCalendarUID,
+		deviceUID: func(e store.Event) string { return e.CalendarUID },
 	}
-	return AppointmentUID(e.ID)
-}
-
-// appointmentID is the id in a generated UID.
-func appointmentID(uid string) (int64, bool) {
-	rest, ok := strings.CutPrefix(uid, appointmentUIDPrefix)
-	if !ok {
-		return 0, false
-	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 || AppointmentUID(id) != uid {
-		return 0, false
-	}
-	return id, true
 }
 
 // appointment returns the active Appointment with this UID that concerns
 // the Member, or store.ErrNotFound.
-func (a Appointments) appointment(ctx context.Context, m Member, uid string) (store.Event, error) {
-	var e store.Event
-	var err error
-	if id, ok := appointmentID(uid); ok {
-		e, err = a.Store.GetEvent(ctx, m.HouseholdID, id)
-		if err == nil && e.CalendarUID != "" {
-			err = store.ErrNotFound
-		}
-	} else {
-		e, err = a.Store.FindEventByCalendarUID(ctx, m.HouseholdID, uid)
-	}
+func (c Appointments) appointment(ctx context.Context, m Member, uid string) (store.Event, error) {
+	e, err := c.uids().lookup(ctx, m.HouseholdID, uid)
 	if err != nil {
 		return store.Event{}, err
 	}
@@ -123,58 +99,50 @@ func concerns(e store.Event, userID int64) bool {
 	return false
 }
 
-func (a Appointments) Find(ctx context.Context, m Member, uid string) (Object, bool, error) {
-	e, err := a.appointment(ctx, m, uid)
+func (c Appointments) Find(ctx context.Context, m Member, uid string) (Object, bool, error) {
+	e, err := c.appointment(ctx, m, uid)
 	if errors.Is(err, store.ErrNotFound) {
 		return Object{}, false, nil
 	}
 	if err != nil {
 		return Object{}, false, err
 	}
-	return a.object(e), true, nil
+	return c.object(e), true, nil
 }
 
 // Put creates an Appointment for the Member alone, keeping the device's UID,
 // or edits one's title, times, location and notes. Attendees never change
 // from a device.
-func (a Appointments) Put(ctx context.Context, m Member, uid string, comp *ical.Component, exists bool) error {
+func (c Appointments) Put(ctx context.Context, m Member, uid string, comp *ical.Component, exists bool) error {
 	input, err := eventInput(comp)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		if _, ours := appointmentID(uid); ours {
-			// A generated UID that isn't in the Member's view: archived, or
-			// not theirs. Devices never mint these.
-			return refuse(caldav.PreconditionNoUIDConflict)
-		}
-		if _, err := a.Store.FindEventByCalendarUID(ctx, m.HouseholdID, uid); err == nil {
-			// Another Member's device already used this UID.
-			return refuse(caldav.PreconditionNoUIDConflict)
-		} else if !errors.Is(err, store.ErrNotFound) {
+		if err := c.uids().checkNew(ctx, m.HouseholdID, uid); err != nil {
 			return err
 		}
 		input.CalendarUID = uid
 		input.AttendeeIDs = []int64{m.UserID}
-		_, err = a.Saves.CreateAppointment(ctx, m, input)
+		_, err = c.Saves.CreateAppointment(ctx, m, input)
 		return err
 	}
-	e, err := a.appointment(ctx, m, uid)
+	e, err := c.appointment(ctx, m, uid)
 	if err != nil {
 		return err
 	}
 	input.AttendeeIDs = nil
-	_, err = a.Saves.UpdateAppointment(ctx, m, e.ID, input)
+	_, err = c.Saves.UpdateAppointment(ctx, m, e.ID, input)
 	return err
 }
 
 // Delete archives the Appointment.
-func (a Appointments) Delete(ctx context.Context, m Member, uid string) error {
-	e, err := a.appointment(ctx, m, uid)
+func (c Appointments) Delete(ctx context.Context, m Member, uid string) error {
+	e, err := c.appointment(ctx, m, uid)
 	if err != nil {
 		return err
 	}
-	return a.Saves.ArchiveAppointment(ctx, m, e.ID)
+	return c.Saves.ArchiveAppointment(ctx, m, e.ID)
 }
 
 // eventInput reads an incoming VEVENT. An all-day event runs local midnight
@@ -229,9 +197,9 @@ func eventInput(comp *ical.Component) (store.EventInput, error) {
 	return input, nil
 }
 
-func (a Appointments) calendar(e store.Event) *ical.Calendar {
+func (c Appointments) calendar(e store.Event) *ical.Calendar {
 	event := ical.NewEvent()
-	event.Props.SetText(ical.PropUID, appointmentUIDOf(e))
+	event.Props.SetText(ical.PropUID, c.uids().of(e.ID, e))
 	// DTSTAMP follows the Appointment, never the request time, so the ETag
 	// only changes when the Appointment does.
 	event.Props.SetDateTime(ical.PropDateTimeStamp, e.UpdatedAt.UTC())
@@ -247,7 +215,7 @@ func (a Appointments) calendar(e store.Event) *ical.Calendar {
 		event.Props.SetText(ical.PropLocation, e.Location)
 	}
 	event.Props.SetText(ical.PropDescription, withAttendeeTrailer(e.Description, e.Attendees))
-	if link, err := url.Parse(fmt.Sprintf("%s/events/%d", a.WebBaseURL, e.ID)); err == nil {
+	if link, err := url.Parse(fmt.Sprintf("%s/events/%d", c.WebBaseURL, e.ID)); err == nil {
 		event.Props.SetURI(ical.PropURL, link)
 	}
 	event.Props.SetText(ical.PropTransparency, "OPAQUE")

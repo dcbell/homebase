@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/emersion/go-ical"
-	"github.com/emersion/go-webdav/caldav"
 
 	"homebase/internal/store"
 )
@@ -60,52 +58,30 @@ func (c Tasks) Objects(ctx context.Context, m Member, now time.Time) ([]Object, 
 }
 
 func (c Tasks) object(t store.Task) Object {
-	return Object{UID: taskUIDOf(t), Calendar: c.calendar(t), ModTime: t.UpdatedAt}
+	return Object{UID: c.uids().of(t.ID, t), Calendar: c.calendar(t), ModTime: t.UpdatedAt}
 }
 
 const taskUIDPrefix = "homebase-task-"
 
 // TaskUID is the stable UID of a Homebase-originated Task.
 func TaskUID(id int64) string {
-	return fmt.Sprintf("%s%d", taskUIDPrefix, id)
+	return generatedUID(taskUIDPrefix, id)
 }
 
-// taskUIDOf is a Task's UID: the one the device chose when it was created
-// on a device, otherwise the generated one.
-func taskUIDOf(t store.Task) string {
-	if t.CalendarUID != "" {
-		return t.CalendarUID
+func (c Tasks) uids() uids[store.Task] {
+	return uids[store.Task]{
+		prefix:    taskUIDPrefix,
+		get:       c.Store.GetTask,
+		find:      c.Store.FindTaskByCalendarUID,
+		deviceUID: func(t store.Task) string { return t.CalendarUID },
 	}
-	return TaskUID(t.ID)
-}
-
-// taskID is the id in a generated UID.
-func taskID(uid string) (int64, bool) {
-	rest, ok := strings.CutPrefix(uid, taskUIDPrefix)
-	if !ok {
-		return 0, false
-	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 || TaskUID(id) != uid {
-		return 0, false
-	}
-	return id, true
 }
 
 // task returns the Task with this UID that concerns the Member, open or
 // done, or store.ErrNotFound. Done Tasks stay findable so a device can
 // untick a to-do it has just ticked.
 func (c Tasks) task(ctx context.Context, m Member, uid string) (store.Task, error) {
-	var t store.Task
-	var err error
-	if id, ok := taskID(uid); ok {
-		t, err = c.Store.GetTask(ctx, m.HouseholdID, id)
-		if err == nil && t.CalendarUID != "" {
-			err = store.ErrNotFound
-		}
-	} else {
-		t, err = c.Store.FindTaskByCalendarUID(ctx, m.HouseholdID, uid)
-	}
+	t, err := c.uids().lookup(ctx, m.HouseholdID, uid)
 	if err != nil {
 		return store.Task{}, err
 	}
@@ -137,15 +113,7 @@ func (c Tasks) Put(ctx context.Context, m Member, uid string, comp *ical.Compone
 		return err
 	}
 	if !exists {
-		if _, ours := taskID(uid); ours {
-			// A generated UID that isn't in the Member's view: archived, or
-			// not theirs. Devices never mint these.
-			return refuse(caldav.PreconditionNoUIDConflict)
-		}
-		if _, err := c.Store.FindTaskByCalendarUID(ctx, m.HouseholdID, uid); err == nil {
-			// Another Member's device already used this UID.
-			return refuse(caldav.PreconditionNoUIDConflict)
-		} else if !errors.Is(err, store.ErrNotFound) {
+		if err := c.uids().checkNew(ctx, m.HouseholdID, uid); err != nil {
 			return err
 		}
 		assignee := m.UserID
@@ -259,7 +227,7 @@ var taskPriority = map[string]string{"high": "1", "normal": "5", "low": "9"}
 
 func (c Tasks) calendar(t store.Task) *ical.Calendar {
 	todo := ical.NewComponent(ical.CompToDo)
-	todo.Props.SetText(ical.PropUID, taskUIDOf(t))
+	todo.Props.SetText(ical.PropUID, c.uids().of(t.ID, t))
 	// DTSTAMP follows the Task, never the request time, so the ETag only
 	// changes when the Task does.
 	todo.Props.SetDateTime(ical.PropDateTimeStamp, t.UpdatedAt.UTC())
