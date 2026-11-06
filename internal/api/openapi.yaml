@@ -14,6 +14,8 @@ tags:
   - name: Health
   - name: Auth
   - name: Dashboard
+  - name: Calendar Connections
+    description: Phone and desktop calendar apps connected over CalDAV at /caldav/.
   - name: Notifications
   - name: Push
   - name: Members
@@ -194,6 +196,73 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
         "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/calendar-connections:
+    get:
+      tags: [Calendar Connections]
+      summary: List my Calendar Connections
+      operationId: listCalendarConnections
+      description: Requires a browser session. Secrets are never returned.
+      responses:
+        "200":
+          description: The current Member's Calendar Connections, active ones first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarConnection"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Calendar Connections]
+      summary: Connect a calendar app
+      operationId: createCalendarConnection
+      description: |
+        Requires a browser session. Creates a Calendar Connection for a CalDAV
+        app. For kind `other` the response carries the server address,
+        username and secret for manual setup; this is the only time the
+        secret is available. Devices log in to `/caldav/` with HTTP Basic auth
+        (username and secret); `/.well-known/caldav` redirects there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarConnectionInput"
+      responses:
+        "201":
+          description: Created Calendar Connection with its connection details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedCalendarConnection"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/calendar-connections/{id}:
+    delete:
+      tags: [Calendar Connections]
+      summary: Disconnect a calendar app
+      operationId: revokeCalendarConnection
+      description: Requires a browser session. The device stops syncing at once.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
@@ -2034,6 +2103,36 @@ components:
         scope:
           type: string
           enum: [read, write]
+    CalendarConnection:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        household_id: { type: integer, format: int64 }
+        name: { type: string, example: "David's iPhone" }
+        kind:
+          type: string
+          enum: [ios, other]
+        secret_prefix: { type: string, description: First characters of the secret. }
+        last_used_at: { $ref: "#/components/schemas/Timestamp" }
+        revoked_at: { $ref: "#/components/schemas/Timestamp" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+    CalendarConnectionInput:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind:
+          type: string
+          enum: [other]
+          description: Only `other` (manual setup) for now. iPhone setup profiles are not available yet.
+    CreatedCalendarConnection:
+      type: object
+      properties:
+        connection: { $ref: "#/components/schemas/CalendarConnection" }
+        server_url: { type: string, example: "https://homebase.example.com/caldav/" }
+        username: { type: string, format: email, description: The Member's email. }
+        secret: { type: string, description: Shown only in this response. }
     ModuleItem:
       type: object
       properties:

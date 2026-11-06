@@ -2111,6 +2111,51 @@ const appTemplate = `
 		</form>
 	</section>
 
+	<section class="panel" id="calendar" data-calendar-connections>
+		<div class="tile-head">
+			<h2>Calendar</h2>
+		</div>
+		<p class="meta">Connect a calendar app to see your Appointments in the Homebase calendar. Calendar apps refresh on their own schedule, often every 15 minutes or longer. The calendar is read-only for now.</p>
+		{{ if .CreatedCalendar.Secret }}
+		<div class="item" style="margin-top:12px;">
+			<strong>{{ .CreatedCalendar.Connection.Name }} is connected</strong>
+			<p class="empty">Enter these details in your calendar app now. The password will not be shown again.</p>
+			<div class="meta">Server address</div>
+			<pre class="code-block">{{ .CreatedCalendar.ServerURL }}</pre>
+			<div class="meta">Username</div>
+			<pre class="code-block">{{ .CreatedCalendar.Username }}</pre>
+			<div class="meta">Password</div>
+			<pre class="code-block">{{ .CreatedCalendar.Secret }}</pre>
+		</div>
+		{{ end }}
+		<form method="post" action="/settings/calendar-connections" style="margin-top:12px;">
+			<div class="form-row">
+				<label>Other device<input name="name" placeholder="Android phone, Thunderbird" required></label>
+			</div>
+			<button type="submit">Connect</button>
+		</form>
+		<div class="cards" style="margin-top:16px;">
+			{{ range .CalendarConnections }}
+			<article class="item">
+				<div class="item-head">
+					<div>
+						<strong>{{ .Name }}</strong>
+						<div class="meta">{{ if eq .Kind "ios" }}iPhone{{ else }}Other device{{ end }} · Created {{ datetime .CreatedAt }} · {{ if .LastUsedAt }}Last used {{ datetime .LastUsedAt }}{{ else }}Not used yet{{ end }}</div>
+						{{ if .RevokedAt }}<div class="meta">Disconnected {{ date .RevokedAt }}</div>{{ end }}
+					</div>
+					{{ if not .RevokedAt }}
+					<form method="post" action="/settings/calendar-connections/{{ .ID }}/disconnect">
+						<button class="danger compact" type="submit" title="Disconnect" aria-label="Disconnect {{ .Name }}">Disconnect</button>
+					</form>
+					{{ end }}
+				</div>
+			</article>
+			{{ else }}
+			<p class="empty">No calendar apps connected yet.</p>
+			{{ end }}
+		</div>
+	</section>
+
 	<section class="panel">
 		<div class="tile-head">
 			<h2>API Tokens</h2>

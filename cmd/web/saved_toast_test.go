@@ -196,11 +196,12 @@ func TestAnUnauthorizedSaveIsSentToSignInWithoutSaved(t *testing.T) {
 
 func TestCreatingAnAPITokenShowsTheSecretAndTheSavedToast(t *testing.T) {
 	_, web := newRecordingAPI(t, map[string]cannedResponse{
-		"POST /api/v1/api-tokens":        {http.StatusOK, `{"id":3,"name":"CLI","scope":"read","token":"hb_secret_123"}`},
-		"GET /api/v1/dashboard":          {http.StatusOK, tasksDashboard},
-		"GET /api/v1/api-tokens":         {http.StatusOK, `[]`},
-		"GET /api/v1/push-subscriptions": {http.StatusOK, `[]`},
-		"GET /api/v1/push-settings":      {http.StatusOK, `{}`},
+		"POST /api/v1/api-tokens":          {http.StatusOK, `{"id":3,"name":"CLI","scope":"read","token":"hb_secret_123"}`},
+		"GET /api/v1/dashboard":            {http.StatusOK, tasksDashboard},
+		"GET /api/v1/api-tokens":           {http.StatusOK, `[]`},
+		"GET /api/v1/push-subscriptions":   {http.StatusOK, `[]`},
+		"GET /api/v1/push-settings":        {http.StatusOK, `{}`},
+		"GET /api/v1/calendar-connections": {http.StatusOK, `[]`},
 	})
 
 	rec := postTaskAction(web.routes(), "/settings/api-tokens", url.Values{"name": {"CLI"}})

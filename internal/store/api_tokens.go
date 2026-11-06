@@ -49,7 +49,7 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID, householdID int64, i
 		return APITokenWithSecret{}, errors.New("scope must be read or write")
 	}
 
-	secret, err := generateAPITokenSecret()
+	secret, err := generateSecret(apiTokenPrefix)
 	if err != nil {
 		return APITokenWithSecret{}, err
 	}
@@ -166,12 +166,14 @@ func scanAPIToken(scanner interface {
 	return token, err
 }
 
-func generateAPITokenSecret() (string, error) {
+// generateSecret returns a random secret marked with prefix, used for API
+// tokens and Calendar Connections.
+func generateSecret(prefix string) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return apiTokenPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func hashAPIToken(token string) string {

@@ -141,6 +141,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/logout", s.logout)
 
 	s.mux.Handle("/api/v1/", s.requireSession(http.HandlerFunc(s.apiRoute)))
+	s.caldavRoutes()
 }
 
 func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +156,12 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.createAPIToken(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/api-tokens/"):
 		s.revokeAPIToken(w, r, strings.TrimPrefix(path, "/api-tokens/"))
+	case r.Method == http.MethodGet && path == "/calendar-connections":
+		s.listCalendarConnections(w, r)
+	case r.Method == http.MethodPost && path == "/calendar-connections":
+		s.createCalendarConnection(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/calendar-connections/"):
+		s.revokeCalendarConnection(w, r, strings.TrimPrefix(path, "/calendar-connections/"))
 	case r.Method == http.MethodGet && path == "/notifications":
 		s.listNotifications(w, r)
 	case r.Method == http.MethodPost && path == "/notifications/read-all":

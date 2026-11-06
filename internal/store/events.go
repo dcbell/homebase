@@ -108,6 +108,47 @@ func (s *Store) ListWholeHouseholdEventsAfter(ctx context.Context, householdID i
 	return events, rows.Err()
 }
 
+// ListAppointmentsConcerning returns the Household's active Appointments that
+// concern a Member, meaning the Member is an Attendee or there are no
+// Attendees, and that overlap [from, to). Attendees are included.
+func (s *Store) ListAppointmentsConcerning(ctx context.Context, householdID, userID int64, from, to time.Time) ([]Event, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+eventColumns+`
+		FROM events
+		WHERE household_id = $1
+		  AND status <> 'archived'
+		  AND ends_at > $3
+		  AND starts_at < $4
+		  AND (
+			EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id AND ea.user_id = $2)
+			OR NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id)
+		  )
+		ORDER BY starts_at, id
+	`, householdID, userID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := []Event{}
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	if err := loadAttendees(ctx, s.db, events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 func validateEventInput(input *EventInput) error {
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" {
