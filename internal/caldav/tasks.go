@@ -104,9 +104,7 @@ func (c Tasks) Find(ctx context.Context, m CalendarLogin, uid string) (Object, b
 
 // Put creates a Standalone Task assigned to the Member, keeping the device's
 // UID, or changes one's title, due date and notes and ticks or unticks it.
-// Other fields never change from a device. Edits to a Task that is done and
-// stays done are ignored: saving a done Generated Task again would advance
-// its Routine a second time.
+// Other fields never change from a device.
 func (c Tasks) Put(ctx context.Context, m CalendarLogin, uid string, comp *ical.Component, exists bool) error {
 	in, err := readTodo(comp)
 	if err != nil {
@@ -140,7 +138,7 @@ func (c Tasks) Put(ctx context.Context, m CalendarLogin, uid string, comp *ical.
 			return err
 		}
 	}
-	if !(wasDone && in.done) && in.differsFrom(t) {
+	if in.differsFrom(t) {
 		if _, err := c.Saves.UpdateTask(ctx, m, t.ID, in.edit(t)); err != nil {
 			return err
 		}
@@ -215,7 +213,7 @@ func (in todo) edit(t store.Task) store.TaskInput {
 		AssignedTo:             t.AssignedTo,
 		Title:                  in.title,
 		Notes:                  in.notes,
-		Status:                 "open",
+		Status:                 t.Status,
 		Priority:               t.Priority,
 		DueAt:                  in.due,
 	}
