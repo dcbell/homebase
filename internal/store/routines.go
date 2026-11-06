@@ -42,7 +42,7 @@ func (s *Store) GetRoutine(ctx context.Context, householdID, id int64) (Routine,
 		LEFT JOIN users assigned ON assigned.id = r.assigned_to
 		WHERE r.household_id = $1 AND r.id = $2
 	`, householdID, id).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, ErrNotFound
@@ -54,10 +54,7 @@ func (s *Store) CreateRoutine(ctx context.Context, householdID, userID int64, in
 	if err := s.validateRoutineInput(ctx, householdID, &input); err != nil {
 		return Routine{}, err
 	}
-	if input.ReminderTimes == nil {
-		input.ReminderTimes = DateOnlyTaskReminderTimes
-	}
-	reminderTimes, err := reminderTimesJSON(input.ReminderTimes)
+	reminderTimes, err := newReminderTimes(input.NextDueAt, input.ReminderTimes)
 	if err != nil {
 		return Routine{}, err
 	}
@@ -73,7 +70,7 @@ func (s *Store) CreateRoutine(ctx context.Context, householdID, userID int64, in
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
 	`, householdID, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
 	)
 	return routine, err
 }
@@ -84,13 +81,28 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 	if err := s.validateRoutineInput(ctx, householdID, &input); err != nil {
 		return Routine{}, Routine{}, err
 	}
-	reminderTimes, err := keptReminderTimesJSON(input.ReminderTimes)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Routine{}, Routine{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var previousDue *time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT next_due_at FROM routines WHERE household_id = $1 AND id = $2 FOR UPDATE
+	`, householdID, id).Scan(&previousDue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Routine{}, Routine{}, ErrNotFound
+	}
+	if err != nil {
+		return Routine{}, Routine{}, err
+	}
+	reminderTimes, err := updatedReminderTimes(previousDue, input.NextDueAt, input.ReminderTimes)
 	if err != nil {
 		return Routine{}, Routine{}, err
 	}
 
 	var routine, prev Routine
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		WITH previous AS (
 			SELECT id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 			FROM routines
@@ -115,8 +127,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
-		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt, routineReminderTimes{&prev.ReminderTimes},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
+		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt, sourceReminderTimes{&prev.ReminderTimes, &prev.NextDueAt},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, Routine{}, ErrNotFound
@@ -124,7 +136,7 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 	if err != nil {
 		return Routine{}, Routine{}, err
 	}
-	return routine, prev, nil
+	return routine, prev, tx.Commit()
 }
 
 func (s *Store) ArchiveRoutine(ctx context.Context, householdID, id int64) error {
@@ -285,11 +297,6 @@ func (s *Store) validateRoutineInput(ctx context.Context, householdID int64, inp
 	if input.Status != "active" && input.Status != "archived" {
 		return errors.New("status must be active or archived")
 	}
-	if input.ReminderTimes != nil {
-		if err := ValidateReminderTimes(input.ReminderTimes, SubjectTask, true); err != nil {
-			return err
-		}
-	}
 	if input.AssignedTo != nil {
 		ok, err := s.userInHousehold(ctx, householdID, *input.AssignedTo)
 		if err != nil {
@@ -368,31 +375,27 @@ type routineScanner interface {
 }
 
 func scanRoutine(scanner routineScanner, routine *Routine) error {
-	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes})
+	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt})
 }
 
-// routineReminderTimes scans the reminder_times column of a Routine or
-// Maintenance Schedule into its ReminderTimes.
-type routineReminderTimes struct {
-	times *[]ReminderTime
+// sourceReminderTimes scans the reminder_times column of a Routine or
+// Maintenance Schedule into its ReminderTimes. NULL means the built-in
+// defaults for its next due date, so it must come after next_due_at in the
+// Scan, which fills columns in order.
+type sourceReminderTimes struct {
+	times   *[]ReminderTime
+	nextDue **time.Time
 }
 
-func (s routineReminderTimes) Scan(src any) error {
+func (s sourceReminderTimes) Scan(src any) error {
 	switch v := src.(type) {
+	case nil:
+		*s.times = defaultTaskReminderTimes(*s.nextDue)
+		return nil
 	case string:
 		return json.Unmarshal([]byte(v), s.times)
 	case []byte:
 		return json.Unmarshal(v, s.times)
 	}
 	return fmt.Errorf("scan reminder_times: unexpected %T", src)
-}
-
-// keptReminderTimesJSON is a list of Reminder Times to store on an update:
-// NULL for nil, which keeps the stored ones.
-func keptReminderTimesJSON(times []ReminderTime) (sql.NullString, error) {
-	if times == nil {
-		return sql.NullString{}, nil
-	}
-	encoded, err := reminderTimesJSON(times)
-	return sql.NullString{String: encoded, Valid: true}, err
 }

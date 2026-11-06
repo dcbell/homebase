@@ -122,13 +122,7 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 	if err := s.validateTaskInput(ctx, householdID, &input); err != nil {
 		return Task{}, err
 	}
-	reminderTimes := input.ReminderTimes
-	if reminderTimes == nil {
-		reminderTimes = defaultTaskReminderTimes(input.DueAt)
-	} else if err := ValidateReminderTimes(reminderTimes, SubjectTask, taskDateOnly(input.DueAt)); err != nil {
-		return Task{}, err
-	}
-	reminderTimesJSON, err := json.Marshal(reminderTimes)
+	reminderTimes, err := newReminderTimes(input.DueAt, input.ReminderTimes)
 	if err != nil {
 		return Task{}, err
 	}
@@ -143,7 +137,7 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, ''), inserted.reminder_times
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
-	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID, input.CalendarUID, string(reminderTimesJSON)).Scan(
+	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID, input.CalendarUID, reminderTimes).Scan(
 		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 	)
 	return t, err
@@ -456,6 +450,19 @@ func (s taskReminderTimes) Scan(src any) error {
 		return json.Unmarshal(v, &s.task.ReminderTimes)
 	}
 	return fmt.Errorf("scan reminder_times: unexpected %T", src)
+}
+
+// newReminderTimes are the Reminder Times to store, as JSON, for a new Task,
+// Routine or Maintenance Schedule due at due: times, which must fit its kind
+// of due date, or the built-in defaults for that kind when times is nil.
+func newReminderTimes(due *time.Time, times []ReminderTime) (string, error) {
+	if times == nil {
+		times = defaultTaskReminderTimes(due)
+	} else if err := ValidateReminderTimes(times, SubjectTask, taskDateOnly(due)); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(times)
+	return string(encoded), err
 }
 
 // updatedReminderTimes are the Reminder Times to store for something due at

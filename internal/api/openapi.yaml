@@ -2006,8 +2006,8 @@ components:
             omitting the field gives the defaults for the kind of due date (see
             /reminder-times/defaults; a Task with no due date counts as timed). On update,
             omitting it keeps the current Reminder Times. An update that switches the due date
-            between a time of day and a date with none resets them to the new kind's defaults,
-            whatever is sent. An empty list means no Reminders. Changing them reschedules
+            between a time of day and a date with none resets them: to those sent when they fit
+            the new kind, otherwise to the new kind's defaults. An empty list means no Reminders. Changing them reschedules
             pending Reminders; any whose moment has passed are skipped.
           example: [{ minutes: -1440 }, { minutes: 0 }, { days: 1, at: "08:00" }]
     Task:
@@ -2124,10 +2124,13 @@ components:
           items: { $ref: "#/components/schemas/ReminderTime" }
           description: >-
             Copied onto each Task the Routine generates; later changes don't reach Tasks already
-            generated. Only the date-only form (days at a time of day), at most 30 days either
-            way, no repeats (400 otherwise). On create, omitting the field gives the date-only
-            Task defaults (see /reminder-times/defaults). On update, omitting it keeps the
-            current Reminder Times. An empty list means its Tasks get no Reminders.
+            generated. They must fit next_due_at as a Task's fit its due date: either form for a
+            time of day, only the date-only form (days at a time of day) for a date with none;
+            at most 30 days either way, no repeats (400 otherwise). On create, omitting the field
+            gives the Task defaults for the kind of next due date (see /reminder-times/defaults;
+            none counts as timed). On update, omitting it keeps the current Reminder Times, and
+            switching next_due_at between a time of day and a date with none resets them as for
+            a Task. An empty list means its Tasks get no Reminders.
           example: [{ days: -1, at: "08:00" }, { days: 0, at: "08:00" }, { days: 1, at: "08:00" }]
     Routine:
       allOf:
@@ -2228,10 +2231,8 @@ components:
           items: { $ref: "#/components/schemas/ReminderTime" }
           description: >-
             Copied onto each Task the Maintenance Schedule generates; later changes don't reach
-            Tasks already generated. Only the date-only form (days at a time of day), at most 30
-            days either way, no repeats (400 otherwise). On create, omitting the field gives the
-            date-only Task defaults (see /reminder-times/defaults). On update, omitting it keeps
-            the current Reminder Times. An empty list means its Tasks get no Reminders.
+            Tasks already generated. They must fit next_due_at, are defaulted and are reset as
+            for a Routine. An empty list means its Tasks get no Reminders.
           example: [{ days: -1, at: "08:00" }, { days: 0, at: "08:00" }, { days: 1, at: "08:00" }]
     AssetMaintenanceItem:
       allOf:

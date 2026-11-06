@@ -201,3 +201,68 @@ func TestRoutinesAndMaintenanceSchedulesFromBeforeReminderTimesGenerateTasksWith
 		fmt.Sprintf("due_now %d", routineTask.ID),
 		fmt.Sprintf("overdue %d", routineTask.ID))
 }
+
+func TestRoutinesAndMaintenanceSchedulesWithATimedNextDueDateKeepTodaysRemindersAfterTheUpgrade(t *testing.T) {
+	t.Parallel()
+	st, db := storetest.OpenBefore(t, "030_routine_maintenance_reminder_times.sql")
+
+	householdID := insertID(t, db, `INSERT INTO households (name) VALUES ('Home') RETURNING id`)
+	memberID := insertID(t, db, `INSERT INTO users (email, name) VALUES ('member@example.test', 'Member') RETURNING id`)
+	if _, err := db.Exec(`INSERT INTO household_members (household_id, user_id, role) VALUES ($1, $2, 'owner')`, householdID, memberID); err != nil {
+		t.Fatalf("seed Member: %v", err)
+	}
+	routine := insertID(t, db, `INSERT INTO routines (household_id, assigned_to, title, cadence, next_due_at, created_by) VALUES ($1, $2, 'Take the bins out', 'weekly', $3, $2) RETURNING id`,
+		householdID, memberID, at(20, 19, 0))
+	asset := insertID(t, db, `INSERT INTO assets (household_id, name, created_by) VALUES ($1, 'Boiler', $2) RETURNING id`, householdID, memberID)
+	item := insertID(t, db, `INSERT INTO asset_maintenance_items (household_id, asset_id, title, cadence, next_due_at, created_by) VALUES ($1, $2, 'Service the boiler', 'yearly', $3, $4) RETURNING id`,
+		householdID, asset, at(15, 10, 0), memberID)
+
+	if err := storetest.Migrate(t, st); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	h := apitest.NewWithStore(t, st)
+	member := h.SignIn(store.User{ID: memberID, Name: "Member"}, householdID)
+
+	defaults := "[{-1440 minutes} {0 minutes} {1 08:00}]"
+	if got := dateOnlyReminderTimes(apitest.Decode[store.Routine](t, member.Get(fmt.Sprintf("/api/v1/routines/%d", routine)).Expect(http.StatusOK)).ReminderTimes); got != defaults {
+		t.Errorf("Routine Reminder Times = %s, want the timed defaults %s", got, defaults)
+	}
+	items := apitest.Decode[[]store.AssetMaintenanceItem](t, member.Get(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset)).Expect(http.StatusOK))
+	if len(items) != 1 || dateOnlyReminderTimes(items[0].ReminderTimes) != defaults {
+		t.Errorf("Maintenance Schedules = %+v, want one with the timed defaults %s", items, defaults)
+	}
+
+	routineTask := apitest.Decode[store.Task](t, member.Post(fmt.Sprintf("/api/v1/routines/%d/generate-task", routine), nil).Expect(http.StatusCreated))
+	generateDueTasks(t, h)
+	maintenanceTask := generatedTasksOf(t, member, func(task store.Task) bool {
+		return task.AssetMaintenanceItemID != nil && *task.AssetMaintenanceItemID == item
+	})
+	if len(maintenanceTask) != 1 {
+		t.Fatalf("Generated maintenance Tasks = %+v, want one", maintenanceTask)
+	}
+	updateTask(t, member, maintenanceTask[0], map[string]any{"assigned_to": memberID})
+
+	// Today's Reminders: the maintenance Task, due at 10:00 today, has only
+	// Overdue at 08:00 tomorrow still ahead; the Routine's gets all three.
+	for _, sendAt := range []time.Time{at(16, 8, 0), at(19, 19, 0), at(20, 19, 0), at(21, 8, 0)} {
+		sendRemindersAt(t, h, sendAt)
+	}
+	expectReminders(t, member,
+		fmt.Sprintf("overdue %d", maintenanceTask[0].ID),
+		fmt.Sprintf("due_soon %d", routineTask.ID),
+		fmt.Sprintf("due_now %d", routineTask.ID),
+		fmt.Sprintf("overdue %d", routineTask.ID))
+
+	// Reminder Times set after the upgrade survive the migrations running
+	// again on the next start, even when they equal the date-only defaults.
+	set := []map[string]any{{"days": -1, "at": "08:00"}, {"days": 0, "at": "08:00"}, {"days": 1, "at": "08:00"}}
+	member.Patch(fmt.Sprintf("/api/v1/routines/%d", routine), map[string]any{
+		"title": "Take the bins out", "cadence": "weekly", "next_due_at": at(27, 19, 0).Format(time.RFC3339), "reminder_times": set,
+	}).Expect(http.StatusOK)
+	if err := storetest.Migrate(t, st); err != nil {
+		t.Fatalf("migrate again: %v", err)
+	}
+	if got, want := dateOnlyReminderTimes(apitest.Decode[store.Routine](t, member.Get(fmt.Sprintf("/api/v1/routines/%d", routine)).Expect(http.StatusOK)).ReminderTimes), "[{-1 08:00} {0 08:00} {1 08:00}]"; got != want {
+		t.Errorf("Routine Reminder Times after the migrations ran again = %s, want %s", got, want)
+	}
+}

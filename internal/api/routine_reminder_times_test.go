@@ -119,46 +119,125 @@ func TestEditingARoutinesReminderTimesReachesOnlyTasksGeneratedAfterwards(t *tes
 
 	// Saving the Routine without Reminder Times, as a full replace, keeps them.
 	kept := apitest.Decode[store.Routine](t, household.Owner.Patch(path, map[string]any{
-		"title":   "Water the plants and the herbs",
-		"cadence": routine.Cadence,
+		"title":       "Water the plants and the herbs",
+		"cadence":     routine.Cadence,
+		"next_due_at": localAt(27, 0, 0).Format(time.RFC3339),
 	}).Expect(http.StatusOK))
 	if want := "[{-2 19:00}]"; dateOnlyReminderTimes(kept.ReminderTimes) != want {
 		t.Errorf("Routine saved without Reminder Times has %v, want them kept at %s", kept.ReminderTimes, want)
 	}
 }
 
-func TestRoutineAndMaintenanceScheduleReminderTimesMustBeDateOnly(t *testing.T) {
+func TestRoutineAndMaintenanceScheduleReminderTimesMustFitTheirNextDueDate(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)
 	household := h.SeedHousehold()
+	dateDue, timedDue := localAt(20, 0, 0).Format(time.RFC3339), at(20, 18, 0).Format(time.RFC3339)
 	routine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
-		"title": "Water the plants",
+		"title": "Water the plants", "next_due_at": dateDue,
 	}).Expect(http.StatusCreated))
 	asset := apitest.Decode[store.Asset](t, household.Owner.Post("/api/v1/assets", map[string]any{
 		"name": "Boiler",
 	}).Expect(http.StatusCreated))
 	item := apitest.Decode[store.AssetMaintenanceItem](t, household.Owner.Post(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset.ID), map[string]any{
-		"title": "Service the boiler",
+		"title": "Service the boiler", "next_due_at": dateDue,
 	}).Expect(http.StatusCreated))
 
-	for _, reminderTimes := range [][]map[string]any{
-		{{"minutes": -60}},
-		{{"days": -1, "at": "08:00"}, {"minutes": 0}},
-		{{"days": -31, "at": "08:00"}},
-		{{"days": -1, "at": "08:00"}, {"days": -1, "at": "08:00"}},
-	} {
+	cases := []struct {
+		due           string
+		reminderTimes []map[string]any
+	}{
+		{dateDue, []map[string]any{{"minutes": -60}}},
+		{dateDue, []map[string]any{{"days": -1, "at": "08:00"}, {"minutes": 0}}},
+		{dateDue, []map[string]any{{"days": -31, "at": "08:00"}}},
+		{dateDue, []map[string]any{{"days": -1, "at": "08:00"}, {"days": -1, "at": "08:00"}}},
+		{timedDue, []map[string]any{{"minutes": -31 * 24 * 60}}},
+	}
+	for _, c := range cases {
 		household.Owner.Post("/api/v1/routines", map[string]any{
-			"title": "Water the plants", "reminder_times": reminderTimes,
+			"title": "Water the plants", "next_due_at": c.due, "reminder_times": c.reminderTimes,
 		}).Expect(http.StatusBadRequest)
 		household.Owner.Patch(fmt.Sprintf("/api/v1/routines/%d", routine.ID), map[string]any{
-			"title": "Water the plants", "reminder_times": reminderTimes,
+			"title": "Water the plants", "next_due_at": c.due, "reminder_times": c.reminderTimes,
 		}).Expect(http.StatusBadRequest)
 		household.Owner.Post(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset.ID), map[string]any{
-			"title": "Service the boiler", "reminder_times": reminderTimes,
+			"title": "Service the boiler", "next_due_at": c.due, "reminder_times": c.reminderTimes,
 		}).Expect(http.StatusBadRequest)
 		household.Owner.Patch(fmt.Sprintf("/api/v1/asset-maintenance/%d", item.ID), map[string]any{
-			"title": "Service the boiler", "reminder_times": reminderTimes,
+			"title": "Service the boiler", "next_due_at": c.due, "reminder_times": c.reminderTimes,
 		}).Expect(http.StatusBadRequest)
+	}
+}
+
+func TestRoutineWithATimedNextDueDateUsesTheTimedForm(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	routine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
+		"title":       "Take the bins out",
+		"cadence":     "weekly",
+		"next_due_at": at(15, 19, 0).Format(time.RFC3339),
+		"assigned_to": household.Member.User.ID,
+	}).Expect(http.StatusCreated))
+	if want := "[{-1440 minutes} {0 minutes} {1 08:00}]"; dateOnlyReminderTimes(routine.ReminderTimes) != want {
+		t.Errorf("new Routine Reminder Times = %s, want the timed Task defaults %s", dateOnlyReminderTimes(routine.ReminderTimes), want)
+	}
+	asset := apitest.Decode[store.Asset](t, household.Owner.Post("/api/v1/assets", map[string]any{
+		"name": "Boiler",
+	}).Expect(http.StatusCreated))
+	item := apitest.Decode[store.AssetMaintenanceItem](t, household.Owner.Post(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset.ID), map[string]any{
+		"title":          "Service the boiler",
+		"next_due_at":    at(25, 10, 0).Format(time.RFC3339),
+		"reminder_times": []map[string]any{{"minutes": -90}},
+	}).Expect(http.StatusCreated))
+	if want := "[{-90 minutes}]"; dateOnlyReminderTimes(item.ReminderTimes) != want {
+		t.Errorf("Maintenance Schedule Reminder Times = %s, want %s", dateOnlyReminderTimes(item.ReminderTimes), want)
+	}
+
+	household.Owner.Post(fmt.Sprintf("/api/v1/routines/%d/generate-task", routine.ID), nil).Expect(http.StatusCreated)
+	sendRemindersAt(t, h, at(17, 8, 0))
+	expectTaskReminders(t, household.Member, "due_now: Task due now", "overdue: Task overdue by 1 day")
+}
+
+func TestSwitchingARoutinesNextDueDateBetweenTimedAndDateOnlyResetsItsReminderTimes(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	routine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
+		"title":          "Take the bins out",
+		"cadence":        "weekly",
+		"next_due_at":    at(20, 19, 0).Format(time.RFC3339),
+		"reminder_times": []map[string]any{{"minutes": -120}},
+	}).Expect(http.StatusCreated))
+	path := fmt.Sprintf("/api/v1/routines/%d", routine.ID)
+
+	// The old ones, resent, don't fit a date with no time of day.
+	dated := apitest.Decode[store.Routine](t, household.Owner.Patch(path, map[string]any{
+		"title": routine.Title, "cadence": routine.Cadence,
+		"next_due_at":    localAt(21, 0, 0).Format(time.RFC3339),
+		"reminder_times": []map[string]any{{"minutes": -120}},
+	}).Expect(http.StatusOK))
+	if want := "[{-1 08:00} {0 08:00} {1 08:00}]"; dateOnlyReminderTimes(dated.ReminderTimes) != want {
+		t.Errorf("Reminder Times after switching to date-only = %s, want %s", dateOnlyReminderTimes(dated.ReminderTimes), want)
+	}
+
+	// Ones sent with the switch that fit the new kind are kept.
+	timed := apitest.Decode[store.Routine](t, household.Owner.Patch(path, map[string]any{
+		"title": routine.Title, "cadence": routine.Cadence,
+		"next_due_at":    at(22, 19, 0).Format(time.RFC3339),
+		"reminder_times": []map[string]any{{"minutes": -30}},
+	}).Expect(http.StatusOK))
+	if want := "[{-30 minutes}]"; dateOnlyReminderTimes(timed.ReminderTimes) != want {
+		t.Errorf("Reminder Times after switching to timed = %s, want %s", dateOnlyReminderTimes(timed.ReminderTimes), want)
+	}
+
+	// Left out, they are the new kind's defaults.
+	redated := apitest.Decode[store.Routine](t, household.Owner.Patch(path, map[string]any{
+		"title": routine.Title, "cadence": routine.Cadence,
+		"next_due_at": localAt(23, 0, 0).Format(time.RFC3339),
+	}).Expect(http.StatusOK))
+	if want := "[{-1 08:00} {0 08:00} {1 08:00}]"; dateOnlyReminderTimes(redated.ReminderTimes) != want {
+		t.Errorf("Reminder Times after switching back without any = %s, want %s", dateOnlyReminderTimes(redated.ReminderTimes), want)
 	}
 }
 
@@ -235,7 +314,7 @@ func TestEditingAMaintenanceSchedulesReminderTimesReachesOnlyTasksGeneratedAfter
 
 	// Saving it without Reminder Times, as a full replace, keeps them.
 	kept := apitest.Decode[store.AssetMaintenanceItem](t, household.Owner.Patch(path, map[string]any{
-		"title": "Bleed every radiator", "cadence": item.Cadence,
+		"title": "Bleed every radiator", "cadence": item.Cadence, "next_due_at": localAt(20, 0, 0).Format(time.RFC3339),
 	}).Expect(http.StatusOK))
 	if kept.ReminderTimes == nil || len(kept.ReminderTimes) != 0 {
 		t.Errorf("Maintenance Schedule saved without Reminder Times has %v, want them kept as none", kept.ReminderTimes)

@@ -146,8 +146,9 @@ type Routine struct {
 	CreatedBy       int64      `json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
-	// ReminderTimes are copied onto each Task generated from it, always in
-	// the date-only form. Empty means its Tasks get no Reminders.
+	// ReminderTimes are copied onto each Task generated from it, in the
+	// form that matches its next due date. Empty means its Tasks get no
+	// Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
 }
 
@@ -227,8 +228,9 @@ type AssetMaintenanceItem struct {
 	CreatedBy       int64      `json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
-	// ReminderTimes are copied onto each Task generated from it, always in
-	// the date-only form. Empty means its Tasks get no Reminders.
+	// ReminderTimes are copied onto each Task generated from it, in the
+	// form that matches its next due date. Empty means its Tasks get no
+	// Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
 }
 
@@ -363,9 +365,11 @@ type RoutineInput struct {
 	Status     string     `json:"status"`
 	NextDueAt  *time.Time `json:"next_due_at"`
 	// ReminderTimes are copied onto each Task generated from the Routine,
-	// in the date-only form. On create, omitting the field (nil) gives the
-	// built-in DateOnlyTaskReminderTimes; on update it keeps the current
-	// ones. An empty list means no Reminders.
+	// and must fit its next due date as a Task's fit its due date. On
+	// create, omitting the field (nil) gives the built-in defaults for that
+	// kind of due date; on update it keeps the current ones. An update that
+	// switches the next due date between timed and date-only resets them as
+	// for a Task. An empty list means no Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
 }
 

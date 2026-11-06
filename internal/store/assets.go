@@ -214,10 +214,7 @@ func (s *Store) CreateAssetMaintenanceItem(ctx context.Context, householdID, use
 	if err := validateAssetMaintenanceInput(&input); err != nil {
 		return AssetMaintenanceItem{}, err
 	}
-	if input.ReminderTimes == nil {
-		input.ReminderTimes = DateOnlyTaskReminderTimes
-	}
-	reminderTimes, err := reminderTimesJSON(input.ReminderTimes)
+	reminderTimes, err := newReminderTimes(input.NextDueAt, input.ReminderTimes)
 	if err != nil {
 		return AssetMaintenanceItem{}, err
 	}
@@ -228,7 +225,7 @@ func (s *Store) CreateAssetMaintenanceItem(ctx context.Context, householdID, use
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 	`, householdID, assetID, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, routineReminderTimes{&item.ReminderTimes},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
 	)
 	return item, err
 }
@@ -240,7 +237,7 @@ func (s *Store) GetAssetMaintenanceItem(ctx context.Context, householdID, id int
 		FROM asset_maintenance_items
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, routineReminderTimes{&item.ReminderTimes},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
@@ -252,13 +249,28 @@ func (s *Store) UpdateAssetMaintenanceItem(ctx context.Context, householdID, id 
 	if err := validateAssetMaintenanceInput(&input); err != nil {
 		return AssetMaintenanceItem{}, err
 	}
-	reminderTimes, err := keptReminderTimesJSON(input.ReminderTimes)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var previousDue *time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT next_due_at FROM asset_maintenance_items WHERE household_id = $1 AND id = $2 FOR UPDATE
+	`, householdID, id).Scan(&previousDue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AssetMaintenanceItem{}, ErrNotFound
+	}
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	reminderTimes, err := updatedReminderTimes(previousDue, input.NextDueAt, input.ReminderTimes)
 	if err != nil {
 		return AssetMaintenanceItem{}, err
 	}
 
 	var item AssetMaintenanceItem
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE asset_maintenance_items
 		SET title = $3,
 			notes = $4,
@@ -270,12 +282,15 @@ func (s *Store) UpdateAssetMaintenanceItem(ctx context.Context, householdID, id 
 		WHERE household_id = $1 AND id = $2
 		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 	`, householdID, id, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, routineReminderTimes{&item.ReminderTimes},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	return item, tx.Commit()
 }
 
 func (s *Store) ArchiveAssetMaintenanceItem(ctx context.Context, householdID, id int64) error {
@@ -502,9 +517,6 @@ func validateAssetMaintenanceInput(input *AssetMaintenanceInput) error {
 	if input.Status != "active" && input.Status != "archived" {
 		return errors.New("status must be active or archived")
 	}
-	if input.ReminderTimes != nil {
-		return ValidateReminderTimes(input.ReminderTimes, SubjectTask, true)
-	}
 	return nil
 }
 
@@ -566,5 +578,5 @@ func scanAsset(scanner assetScanner, asset *Asset) error {
 }
 
 func scanAssetMaintenanceItem(scanner assetScanner, item *AssetMaintenanceItem) error {
-	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, routineReminderTimes{&item.ReminderTimes})
+	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt})
 }
