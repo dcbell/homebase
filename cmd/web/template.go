@@ -215,6 +215,32 @@ const appTemplate = `
 		.attendee-picker label { display:inline-flex; align-items:center; gap:6px; color:var(--ink); }
 		.attendee-picker input[type="checkbox"] { width:auto; min-height:0; }
 		.form-row { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; min-width:0; }
+		.reminder-times { display:flex; flex-direction:column; gap:8px; border:0; padding:0; margin:0; min-width:0; }
+		.reminder-times legend { color:var(--muted); font-size:13px; padding:0 0 5px; }
+		.rt-frame { display:flex; flex-direction:column; gap:10px; padding:8px 8px 8px 14px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); min-width:0; }
+		.rt-frame.open { border-color:var(--accent); padding-bottom:12px; }
+		.rt-frame.static { justify-content:center; min-height:38px; padding:8px 12px; color:var(--ink); font-size:14px; }
+		.rt-head { display:flex; align-items:center; gap:8px; min-height:36px; }
+		.rt-summary { flex:1; min-width:0; color:var(--ink); font-size:14px; }
+		.rt-controls, .rt-amount, .rt-at { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+		.rt-controls input, .rt-controls select { width:auto; }
+		.rt-amount input { width:72px; }
+		.rt-controls .word { color:var(--ink); font-size:14px; }
+		.rt-x { width:36px; height:36px; min-height:36px; padding:0; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--muted); font-size:18px; }
+		.rt-x:hover { border-color:var(--line); background:var(--panel); color:var(--danger); }
+		.rt-add { align-self:flex-start; border:1px dashed var(--line); background:transparent; color:var(--accent); }
+		.rt-add:hover { border-color:var(--accent); background:var(--panel-soft); color:var(--accent); }
+		.rt-empty { padding:10px 12px; border:1px dashed var(--line); border-radius:8px; color:var(--muted); font-size:13px; }
+		.seg { display:inline-flex; flex-wrap:wrap; padding:2px; border:1px solid var(--line); border-radius:999px; background:var(--field); }
+		.seg button { min-height:32px; padding:0 12px; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--muted); font-size:13px; }
+		.seg button:hover { border-color:transparent; background:var(--panel-soft); color:var(--ink); }
+		.seg button.on { background:var(--accent); color:var(--accent-ink); }
+		.rt-list, .rt-shared { display:grid; gap:8px; }
+		.rt-shared { gap:12px; }
+		.rt-actions { display:flex; flex-wrap:wrap; gap:8px; }
+		.personal-reminder-times .hint { margin:0; color:var(--muted); font-size:13px; }
+		/* Without the script, frames stay open and the direction is a list. */
+		[data-reminder-times]:not(.live) .rt-js, .live .rt-direction, .live .rt-frame:not(.open) .rt-controls, .live .rt-frame.open [data-reminder-edit], .live .rt-frame:not(.open) [data-reminder-done] { display:none; }
 		.filter-row { margin-bottom:14px; grid-template-columns:minmax(0, 1fr) minmax(160px, 220px) minmax(160px, 220px); align-items:end; }
 		.modules { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; }
 		.module { border:1px solid var(--line); border-radius:6px; padding:12px; background:var(--panel-soft); min-width:0; color:var(--ink); text-decoration:none; }
@@ -820,6 +846,123 @@ const appTemplate = `
 			// Reminder Times reset when a due date switches between a time of
 			// day and a date with none (midnight), so show the set for the due
 			// date's kind; the hidden set is disabled and not sent.
+			document.querySelectorAll("[data-reminder-times]").forEach(initReminderTimes);
+			// "Your Reminder Times" shows the shared ones read-only until
+			// "Customize for me" opens the editor, seeded from them; "Use
+			// shared" puts it back without a request.
+			document.querySelectorAll("[data-personal-reminders]").forEach(function (panel) {
+				var shared = panel.querySelector("[data-reminder-shared]");
+				var custom = panel.querySelector("[data-reminder-custom]");
+				if (!shared || !custom) return;
+				var editor = custom.querySelector("[data-reminder-times]");
+				var seed = editor && editor.cloneNode(true);
+				shared.hidden = false;
+				custom.hidden = true;
+				custom.querySelector("[data-reminder-uncustomize]").hidden = false;
+				panel.querySelector("[data-reminder-customize]").addEventListener("click", function () {
+					shared.hidden = true;
+					custom.hidden = false;
+				});
+				custom.querySelector("[data-reminder-uncustomize]").addEventListener("click", function () {
+					if (editor) {
+						var fresh = seed.cloneNode(true);
+						editor.replaceWith(fresh);
+						initReminderTimes(fresh);
+						editor = fresh;
+					}
+					custom.hidden = true;
+					shared.hidden = false;
+				});
+			});
+			// A Reminder Times editor's frames close to their summaries, and
+			// one at a time opens to edit; the server renders them all open,
+			// so the form works without this.
+			function initReminderTimes(editor) {
+				editor.classList.add("live");
+				var open = function (frame) {
+					editor.querySelectorAll("[data-reminder-frame].open").forEach(function (other) { other.classList.remove("open"); });
+					if (frame) frame.classList.add("open");
+				};
+				// refresh says "No reminders" for an empty set, and offers to add
+				// one below five, the most a list may have.
+				var refresh = function (set) {
+					var count = set.querySelectorAll("[data-reminder-frame]").length;
+					set.querySelector("[data-reminder-empty]").hidden = count > 0;
+					set.querySelector("[data-reminder-add]").hidden = count >= 5;
+				};
+				editor.querySelectorAll("[data-reminder-frame]").forEach(syncReminderFrame);
+				editor.addEventListener("click", function (event) {
+					var button = event.target.closest("button");
+					if (!button) return;
+					var set = button.closest("[data-reminder-kind]");
+					var frame = button.closest("[data-reminder-frame]");
+					if (button.hasAttribute("data-reminder-edit")) {
+						open(frame);
+					} else if (button.hasAttribute("data-reminder-done")) {
+						open(null);
+					} else if (button.hasAttribute("data-reminder-remove")) {
+						frame.remove();
+						refresh(set);
+					} else if (button.hasAttribute("data-reminder-pick")) {
+						frame.querySelector("[name='reminder_direction']").value = button.getAttribute("data-reminder-pick");
+						reminderFrameChanged(frame);
+					} else if (button.hasAttribute("data-reminder-add")) {
+						var added = set.querySelector("template[data-reminder-new]").content.firstElementChild.cloneNode(true);
+						set.insertBefore(added, set.querySelector("[data-reminder-empty]"));
+						syncReminderFrame(added);
+						open(added);
+						refresh(set);
+					}
+				});
+				["input", "change"].forEach(function (type) {
+					editor.addEventListener(type, function (event) {
+						var frame = event.target.closest("[data-reminder-frame]");
+						if (frame) reminderFrameChanged(frame);
+					});
+				});
+			}
+			// A frame's time of day is only sent where it shows, and an
+			// amount must be sent for the row to count.
+			function reminderFrameChanged(frame) {
+				syncReminderFrame(frame);
+				var at = frame.querySelector("[data-reminder-at]");
+				if (at && at.hidden) at.querySelector("input").value = "";
+				var amount = frame.querySelector("[name='reminder_amount']");
+				if (frame.querySelector("[name='reminder_direction']").value === "at" && amount.value === "") amount.value = "0";
+			}
+			// syncReminderFrame shows only the controls for a frame's direction
+			// and unit, and its summary, worded as the server words it.
+			function syncReminderFrame(frame) {
+				var set = frame.closest("[data-reminder-kind]");
+				var kind = set.getAttribute("data-reminder-kind");
+				var appointment = set.hasAttribute("data-reminder-appointment");
+				var value = function (name) {
+					var field = frame.querySelector("[name='" + name + "']");
+					return field ? field.value : "";
+				};
+				var direction = value("reminder_direction");
+				var amount = parseInt(value("reminder_amount"), 10) || 0;
+				frame.querySelectorAll("[data-reminder-pick]").forEach(function (pill) {
+					var on = pill.getAttribute("data-reminder-pick") === direction;
+					pill.classList.toggle("on", on);
+					pill.setAttribute("aria-pressed", on ? "true" : "false");
+				});
+				frame.querySelector("[data-reminder-amount]").hidden = direction === "at";
+				var days = frame.querySelector("[data-reminder-days]");
+				if (days) days.textContent = amount === 1 ? "day" : "days";
+				var atBox = frame.querySelector("[data-reminder-at]");
+				if (atBox) atBox.hidden = kind === "timed" && (direction === "at" || value("reminder_unit") !== "days");
+				var at = atBox && !atBox.hidden ? value("reminder_at") : "";
+				var summary;
+				if (direction === "at") {
+					summary = appointment ? "At the start" : at ? "On the due date at " + at : kind === "date_only" ? "On the due date" : "At the due time";
+				} else {
+					var unit = value("reminder_unit");
+					if (amount === 1) unit = unit.replace(/s$/, "");
+					summary = amount + " " + unit + " " + direction + (appointment ? " the start" : at ? " at " + at : "");
+				}
+				frame.querySelector("[data-reminder-summary]").textContent = summary;
+			}
 			document.querySelectorAll("[data-reminder-times]").forEach(function (editor) {
 				var form = editor.closest("form");
 				var due = form && (form.elements["due_at"] || form.elements["next_due_at"]);
@@ -1803,7 +1946,7 @@ request until Save; without the script the editor shows straight away. */}}
 		{{ template "reminderTimes" .Form }}
 		<div class="rt-actions">
 			<button type="submit">Save</button>
-			{{ if .Personal.UsingShared }}<button class="secondary rt-js" type="button" data-reminder-uncustomize>Use shared</button>{{ else }}<button class="secondary" type="submit" form="{{ .ID }}-use-shared-reminders">Use shared</button>{{ end }}
+			{{ if .Personal.UsingShared }}<button class="secondary" type="button" data-reminder-uncustomize hidden>Use shared</button>{{ else }}<button class="secondary" type="submit" form="{{ .ID }}-use-shared-reminders">Use shared</button>{{ end }}
 		</div>
 	</form>
 	{{ if not .Personal.UsingShared }}
