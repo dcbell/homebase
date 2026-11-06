@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"homebase/internal/apitest"
+	caldavpkg "homebase/internal/caldav"
 	"homebase/internal/store"
 )
 
@@ -225,4 +226,59 @@ func TestSwitchingBetweenTimedAndDateOnlyResetsReminderTimesToTheNewDefaults(t *
 	sendRemindersAt(t, h, at(28, 8, 0))
 	expectTaskReminders(t, household.Member,
 		"due_soon: Task due in 1 day", "due_soon: Task due in 24 hours", "due_now: Task due now", "overdue: Task overdue by 1 day")
+}
+
+func TestATaskCreatedFromAPhoneGetsTheDefaultReminderTimes(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	cal := household.Member.ConnectCalendar()
+
+	// The phone's own alarm is thrown away.
+	putObject(cal, "tasks", "phone-todo-1", http.Header{"If-None-Match": {"*"}}, vtodo(
+		"UID:phone-todo-1", "DTSTAMP:20300115T120000Z", "SUMMARY:Call the plumber", "DUE:20300120T090000Z",
+		"BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder", "TRIGGER:-PT15M", "END:VALARM",
+	)).Expect(http.StatusCreated)
+
+	task, ok := taskTitled(t, household.Owner, "Call the plumber")
+	if !ok {
+		t.Fatalf("no Task titled Call the plumber after the phone created one")
+	}
+	if want := []store.ReminderTime{{Minutes: -24 * 60}, {Minutes: 0}, {Days: 1, At: "08:00"}}; fmt.Sprint(task.ReminderTimes) != fmt.Sprint(want) {
+		t.Errorf("Reminder Times = %v, want %v", task.ReminderTimes, want)
+	}
+	sendRemindersAt(t, h, at(28, 8, 0))
+	expectTaskReminders(t, household.Member, "due_soon: Task due in 24 hours", "due_now: Task due now", "overdue: Task overdue by 1 day")
+}
+
+func TestAPhoneEditLeavesReminderTimesUnchangedUnlessItSwitchesTheKindOfDueDate(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	task := createTaskWithReminderTimes(t, household.Owner, household.Member, at(17, 18, 0), []map[string]any{{"minutes": -120}})
+	cal := household.Member.ConnectCalendar()
+	uid := caldavpkg.TaskUID(task.ID)
+	path := cal.CollectionPath("tasks") + uid + ".ics"
+
+	// A new title and due time, and an alarm, which is thrown away.
+	putObject(cal, "tasks", uid, http.Header{"If-Match": {currentETag(t, cal, path)}}, vtodo(
+		"UID:"+uid, "DTSTAMP:20300115T120000Z", "SUMMARY:Pay the water and sewer bill", "DUE:20300120T180000Z",
+		"BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder", "TRIGGER:-PT15M", "END:VALARM",
+	)).Expect(http.StatusCreated)
+	if got := getTask(t, household.Owner, task.ID); fmt.Sprint(got.ReminderTimes) != fmt.Sprint([]store.ReminderTime{{Minutes: -120}}) {
+		t.Errorf("Reminder Times after a phone edit = %v, want them unchanged", got.ReminderTimes)
+	}
+	sendRemindersAt(t, h, at(20, 18, 0))
+	expectTaskReminders(t, household.Member, "due_soon: Task due in 2 hours")
+
+	// Moving it to a date with no time of day changes the due date in a way
+	// its Reminder Times no longer fit, so they reset to the date-only
+	// defaults: the phone moved the due date, it didn't set Reminder Times.
+	putObject(cal, "tasks", uid, http.Header{"If-Match": {currentETag(t, cal, path)}}, vtodo(
+		"UID:"+uid, "DTSTAMP:20300115T120000Z", "SUMMARY:Pay the water and sewer bill", "DUE;VALUE=DATE:20300125",
+	)).Expect(http.StatusCreated)
+	want := []store.ReminderTime{{Days: -1, At: "08:00"}, {Days: 0, At: "08:00"}, {Days: 1, At: "08:00"}}
+	if got := getTask(t, household.Owner, task.ID); fmt.Sprint(got.ReminderTimes) != fmt.Sprint(want) {
+		t.Errorf("Reminder Times after the phone moved it to a date = %v, want %v", got.ReminderTimes, want)
+	}
 }

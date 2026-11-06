@@ -42,6 +42,44 @@ func scheduleLegacyReminders(t *testing.T, db *sql.DB, householdID, recipientID 
 	}
 }
 
+func TestTasksFromBeforeReminderTimesGetTheDefaults(t *testing.T) {
+	t.Parallel()
+	st, db := storetest.OpenBefore(t, "027_task_reminder_times.sql")
+
+	householdID := insertID(t, db, `INSERT INTO households (name) VALUES ('Home') RETURNING id`)
+	memberID := insertID(t, db, `INSERT INTO users (email, name) VALUES ('member@example.test', 'Member') RETURNING id`)
+	if _, err := db.Exec(`INSERT INTO household_members (household_id, user_id, role) VALUES ($1, $2, 'owner')`, householdID, memberID); err != nil {
+		t.Fatalf("seed Member: %v", err)
+	}
+	insertTask := `INSERT INTO tasks (household_id, assigned_to, title, due_at, created_by) VALUES ($1, $2, $3, $4, $2) RETURNING id`
+	timed := insertID(t, db, insertTask, householdID, memberID, "Pay the water bill", at(17, 18, 0))
+	dated := insertID(t, db, insertTask, householdID, memberID, "Renew the passport", localAt(20, 0, 0))
+
+	if err := storetest.Migrate(t, st); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	h := apitest.NewWithStore(t, st)
+	member := h.SignIn(store.User{ID: memberID, Name: "Member"}, householdID)
+
+	if got := getTask(t, member, timed); fmt.Sprint(got.ReminderTimes) != fmt.Sprint([]store.ReminderTime{{Minutes: -24 * 60}, {Minutes: 0}, {Days: 1, At: "08:00"}}) {
+		t.Errorf("timed Task Reminder Times = %v, want the timed defaults", got.ReminderTimes)
+	}
+	if got := getTask(t, member, dated); fmt.Sprint(got.ReminderTimes) != fmt.Sprint([]store.ReminderTime{{Days: -1, At: "08:00"}, {Days: 0, At: "08:00"}, {Days: 1, At: "08:00"}}) {
+		t.Errorf("date-only Task Reminder Times = %v, want the date-only defaults", got.ReminderTimes)
+	}
+
+	// Saving each, as anything that touches a Task does, schedules today's
+	// Reminders.
+	for _, id := range []int64{timed, dated} {
+		task := getTask(t, member, id)
+		updateTask(t, member, task, map[string]any{"notes": "Upgraded."})
+	}
+	sendRemindersAt(t, h, at(28, 8, 0))
+	expectTaskReminders(t, member,
+		"due_soon: Task due in 24 hours", "due_now: Task due now", "overdue: Task overdue by 1 day",
+		"due_soon: Task due in 1 day", "due_now: Task due today", "overdue: Task overdue by 1 day")
+}
+
 func TestRemindersPendingAtUpgradeAreSentOnceAtTheirOriginalTimes(t *testing.T) {
 	t.Parallel()
 	st, db := storetest.OpenBefore(t, "026_scheduled_reminder_times.sql")
