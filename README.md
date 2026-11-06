@@ -22,6 +22,7 @@ Homebase is a self-hosted household operations application for projects, tasks, 
 - [Architecture](#architecture)
 - [Run Locally](#run-locally)
 - [Production Deployment](#production-deployment)
+  - [Releasing](#releasing)
 - [Push Notifications](#push-notifications)
 - [OAuth/OIDC](#oauthoidc)
 - [API and Tokens](#api-and-tokens)
@@ -258,6 +259,29 @@ Persistent data lives in:
 - `homebase_uploads`: uploaded document files
 
 Back up both volumes together. The database also holds the VAPID key pair that signs Push, so restoring `homebase_pgdata` keeps every device's notifications working. If the database is lost or replaced, every Member has to enable notifications on their devices again.
+
+### Releasing
+
+Releases are made by hand with the **Release** GitHub Actions workflow. It never runs on push.
+
+1. In GitHub, open **Actions → Release → Run workflow** and run it on `main`.
+2. Leave **Version** empty to use today's date (America/Chicago) and the next free number, such as `261106-01`, or type a `YYMMDD-NN` version.
+
+The workflow first runs `go vet` and the full test suite against PostgreSQL, and stops if anything fails. Then it:
+
+- pushes `somethingamusing/homebase:api-<version>` and `:web-<version>` (linux/amd64)
+- moves `:api-latest` and `:web-latest` to the same images
+- tags the commit `v<version>`
+- creates a GitHub Release with generated notes
+
+It refuses to reuse a version that already exists on Docker Hub or as a git tag.
+
+One-time setup: in the repository's **Settings → Secrets and variables → Actions**, add these secrets:
+
+- `DOCKERHUB_USERNAME`: the Docker Hub account that owns `somethingamusing/homebase`.
+- `DOCKERHUB_TOKEN`: a Docker Hub access token with Read & Write scope.
+
+To deploy a release, set the `api` and `web` image tags in your compose file to the new version, then `pull` and `up -d` as above.
 
 ## Push Notifications
 
