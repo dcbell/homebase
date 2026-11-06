@@ -76,6 +76,10 @@ _Avoid_: Meeting, booking
 A Member an Appointment is for. An Appointment with no Attendees is for the whole Household.
 _Avoid_: Participant, guest, invitee
 
+**Calendar Connection**:
+One phone or calendar app a Member has connected to Homebase so it shows, and can change, the Events and Tasks that concern that Member. A Member may have many and can disconnect each one; all of them end when the Member is removed from the Household. Changes made on the device follow the same rules as changes made in Homebase, so a delete on the device is an Archive.
+_Avoid_: Calendar Feed, calendar sync, calendar account, subscription
+
 ## Records
 
 **Asset**:
