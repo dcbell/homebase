@@ -123,14 +123,14 @@ func (s *Store) insertCalendarConnection(ctx context.Context, userID, householdI
 		if token, err = generateSecret(""); err != nil {
 			return CalendarConnection{}, "", "", err
 		}
-		hash := hashAPIToken(token)
+		hash := hashSecret(token)
 		tokenHash = &hash
 	}
 	c, err := scanCalendarConnection(s.db.QueryRowContext(ctx, `
 		INSERT INTO calendar_connections (user_id, household_id, name, kind, secret_hash, secret_prefix, profile_token_hash, profile_token_expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING `+calendarConnectionColumns+`
-	`, userID, householdID, input.Name, input.Kind, hashAPIToken(secret), tokenDisplayPrefix(secret), tokenHash, linkExpiresAt))
+	`, userID, householdID, input.Name, input.Kind, hashSecret(secret), tokenDisplayPrefix(secret), tokenHash, linkExpiresAt))
 	if err != nil {
 		return CalendarConnection{}, "", "", err
 	}
@@ -171,7 +171,7 @@ func (s *Store) RedeemCalendarProfileLink(ctx context.Context, token string, now
 		  AND hm.user_id = cc.user_id AND hm.household_id = cc.household_id
 		RETURNING cc.id, cc.user_id, cc.household_id, cc.name, cc.kind, cc.secret_prefix, cc.last_used_at, cc.revoked_at, cc.created_at,
 		          u.id, u.email, u.name, u.avatar_url, u.created_at
-	`, hashAPIToken(token), now, hashAPIToken(secret), tokenDisplayPrefix(secret)).Scan(
+	`, hashSecret(token), now, hashSecret(secret), tokenDisplayPrefix(secret)).Scan(
 		&c.ID, &c.UserID, &c.HouseholdID, &c.Name, &c.Kind, &c.SecretPrefix, &c.LastUsedAt, &c.RevokedAt, &c.CreatedAt,
 		&u.ID, &u.Email, &u.Name, &u.AvatarURL, &u.CreatedAt,
 	)
@@ -231,7 +231,7 @@ func (s *Store) AuthenticateCalendarConnection(ctx context.Context, email, secre
 		RETURNING cc.id, cc.user_id, cc.household_id, cc.name, cc.kind, cc.secret_prefix, cc.last_used_at, cc.revoked_at, cc.created_at,
 		          u.id, u.email, u.name, u.avatar_url, u.created_at,
 		          h.id, h.name, hm.role, h.created_at
-	`, hashAPIToken(secret), email, now).Scan(
+	`, hashSecret(secret), email, now).Scan(
 		&c.ID, &c.UserID, &c.HouseholdID, &c.Name, &c.Kind, &c.SecretPrefix, &c.LastUsedAt, &c.RevokedAt, &c.CreatedAt,
 		&u.ID, &u.Email, &u.Name, &u.AvatarURL, &u.CreatedAt,
 		&h.ID, &h.Name, &h.Role, &h.CreatedAt,
