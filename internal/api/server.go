@@ -141,6 +141,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/logout", s.logout)
 
 	s.mux.Handle("/api/v1/", s.requireSession(http.HandlerFunc(s.apiRoute)))
+	s.mux.HandleFunc("GET "+calendarProfilePath+"{token}", s.downloadCalendarProfile)
+	s.caldavRoutes()
 }
 
 func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +157,12 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.createAPIToken(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/api-tokens/"):
 		s.revokeAPIToken(w, r, strings.TrimPrefix(path, "/api-tokens/"))
+	case r.Method == http.MethodGet && path == "/calendar-connections":
+		s.listCalendarConnections(w, r)
+	case r.Method == http.MethodPost && path == "/calendar-connections":
+		s.createCalendarConnection(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/calendar-connections/"):
+		s.disconnectCalendarConnection(w, r, strings.TrimPrefix(path, "/calendar-connections/"))
 	case r.Method == http.MethodGet && path == "/notifications":
 		s.listNotifications(w, r)
 	case r.Method == http.MethodPost && path == "/notifications/read-all":
@@ -718,7 +726,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	err = s.store.RemoveMember(r.Context(), householdFrom(r).ID, memberID, userFrom(r).ID)
+	err = s.store.RemoveMember(r.Context(), householdFrom(r).ID, memberID, userFrom(r).ID, s.clock.Now())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "member not found")
 		return
@@ -903,13 +911,11 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	actor := userFrom(r)
-	task, err := s.store.CreateTask(r.Context(), householdFrom(r).ID, actor.ID, input)
+	task, err := s.CreateTask(r.Context(), householdFrom(r), userFrom(r), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, After: task})
 	writeJSON(w, http.StatusCreated, task)
 }
 
@@ -971,7 +977,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	task, previous, err := s.store.UpdateTask(r.Context(), householdFrom(r).ID, id, input)
+	task, err := s.UpdateTask(r.Context(), householdFrom(r), userFrom(r), id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -980,8 +986,6 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	actor := userFrom(r)
-	s.taskChanged(r.Context(), notify.TaskChange{Actor: &actor, Before: &previous, After: task})
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -990,7 +994,7 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID stri
 	if !ok {
 		return
 	}
-	task, err := s.store.CompleteTask(r.Context(), householdFrom(r).ID, id)
+	task, err := s.CompleteTask(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -999,7 +1003,6 @@ func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID stri
 		writeError(w, http.StatusInternalServerError, "failed to complete task")
 		return
 	}
-	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -1008,7 +1011,7 @@ func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request, rawID string
 	if !ok {
 		return
 	}
-	task, err := s.store.ReopenTask(r.Context(), householdFrom(r).ID, id)
+	task, err := s.ReopenTask(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -1017,7 +1020,6 @@ func (s *Server) reopenTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusInternalServerError, "failed to reopen task")
 		return
 	}
-	s.taskStatusChanged(r.Context(), task)
 	writeJSON(w, http.StatusOK, task)
 }
 
@@ -1026,17 +1028,12 @@ func (s *Server) archiveTask(w http.ResponseWriter, r *http.Request, rawID strin
 	if !ok {
 		return
 	}
-	if err := s.store.ArchiveTask(r.Context(), householdFrom(r).ID, id); errors.Is(err, store.ErrNotFound) {
+	if err := s.ArchiveTask(r.Context(), householdFrom(r), userFrom(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to archive task")
 		return
-	}
-	if task, err := s.store.GetTask(r.Context(), householdFrom(r).ID, id); err != nil {
-		s.logger.Error("load archived task", "task_id", id, "error", err)
-	} else {
-		s.taskStatusChanged(r.Context(), task)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -1056,13 +1053,11 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	actor := userFrom(r)
-	event, err := s.store.CreateEvent(r.Context(), householdFrom(r).ID, actor.ID, input)
+	event, err := s.CreateAppointment(r.Context(), householdFrom(r), userFrom(r), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, After: event})
 	writeJSON(w, http.StatusCreated, event)
 }
 
@@ -1101,7 +1096,7 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	event, previous, err := s.store.UpdateEvent(r.Context(), householdFrom(r).ID, id, input)
+	event, err := s.UpdateAppointment(r.Context(), householdFrom(r), userFrom(r), id, input)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -1110,8 +1105,6 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	actor := userFrom(r)
-	s.appointmentChanged(r.Context(), notify.AppointmentChange{Actor: &actor, Before: &previous, After: event})
 	writeJSON(w, http.StatusOK, event)
 }
 
@@ -1120,15 +1113,12 @@ func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteEvent(r.Context(), householdFrom(r).ID, id); errors.Is(err, store.ErrNotFound) {
+	if err := s.ArchiveAppointment(r.Context(), householdFrom(r), userFrom(r), id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete event")
 		return
-	}
-	if err := s.notifier.AppointmentRemoved(r.Context(), householdFrom(r).ID, id); err != nil {
-		s.logger.Error("notify appointment removed", "event_id", id, "error", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

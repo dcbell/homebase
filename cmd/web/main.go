@@ -73,6 +73,8 @@ type pageData struct {
 	PushSubscriptions     []store.PushSubscription
 	PushSettings          store.PushSettings
 	CreatedAPIToken       store.APITokenWithSecret
+	CalendarConnections   []store.CalendarConnection
+	CreatedCalendar       store.CreatedCalendarConnection
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
 	RelatedContacts       []store.RelatedContact
@@ -212,6 +214,7 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("GET /favicon.svg", favicon)
 	s.pwaRoutes(mux)
 	s.pushRoutes(mux)
+	s.calendarConnectionRoutes(mux)
 	mux.HandleFunc("GET /docs", s.swaggerDocs)
 	mux.HandleFunc("GET /docs/openapi.yaml", s.openapi)
 	mux.HandleFunc("GET /openapi.yaml", s.openapi)
@@ -727,12 +730,12 @@ func (s *webServer) memberIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *webServer) settings(w http.ResponseWriter, r *http.Request) {
-	s.renderSettings(w, r, "", store.APITokenWithSecret{})
+	s.renderSettings(w, r, "", settingsCreated{})
 }
 
 func (s *webServer) createAPIToken(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderSettings(w, r, "The form could not be read.", store.APITokenWithSecret{})
+		s.renderSettings(w, r, "The form could not be read.", settingsCreated{})
 		return
 	}
 	payload := map[string]any{
@@ -741,10 +744,10 @@ func (s *webServer) createAPIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	var created store.APITokenWithSecret
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/api-tokens", payload, &created); err != nil {
-		s.renderSettings(w, r, err.Error(), store.APITokenWithSecret{})
+		s.renderSettings(w, r, err.Error(), settingsCreated{})
 		return
 	}
-	s.renderSettings(w, r, "", created)
+	s.renderSettings(w, r, "", settingsCreated{APIToken: created})
 }
 
 func (s *webServer) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
@@ -756,7 +759,7 @@ func (s *webServer) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
-func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageError string, created store.APITokenWithSecret) {
+func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageError string, created settingsCreated) {
 	var dashboard store.Dashboard
 	if err := s.apiJSON(r, http.MethodGet, "/api/v1/dashboard", nil, &dashboard); err != nil {
 		if errors.Is(err, errUnauthorized) {
@@ -784,20 +787,28 @@ func (s *webServer) renderSettings(w http.ResponseWriter, r *http.Request, pageE
 			pageError = err.Error()
 		}
 	}
+	var calendarConnections []store.CalendarConnection
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/calendar-connections", nil, &calendarConnections); err != nil {
+		if pageError == "" {
+			pageError = err.Error()
+		}
+	}
 	if pageError == "" {
 		pageError = userFacingError(r.URL.Query().Get("error"))
 	}
 	s.render(w, r, http.StatusOK, pageData{
-		Title:             "Settings",
-		Error:             pageError,
-		Dashboard:         dashboard,
-		APITokens:         tokens,
-		PushSubscriptions: pushSubscriptions,
-		PushSettings:      pushSettings,
-		CreatedAPIToken:   created,
-		Saved:             created.Token != "",
-		SettingsPage:      true,
-		Now:               time.Now(),
+		Title:               "Settings",
+		Error:               pageError,
+		Dashboard:           dashboard,
+		APITokens:           tokens,
+		PushSubscriptions:   pushSubscriptions,
+		PushSettings:        pushSettings,
+		CalendarConnections: calendarConnections,
+		CreatedAPIToken:     created.APIToken,
+		CreatedCalendar:     created.Calendar,
+		Saved:               created.APIToken.Token != "" || created.Calendar.Secret != "",
+		SettingsPage:        true,
+		Now:                 time.Now(),
 	})
 }
 

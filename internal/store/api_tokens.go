@@ -49,11 +49,11 @@ func (s *Store) CreateAPIToken(ctx context.Context, userID, householdID int64, i
 		return APITokenWithSecret{}, errors.New("scope must be read or write")
 	}
 
-	secret, err := generateAPITokenSecret()
+	secret, err := generateSecret(apiTokenPrefix)
 	if err != nil {
 		return APITokenWithSecret{}, err
 	}
-	hash := hashAPIToken(secret)
+	hash := hashSecret(secret)
 	prefix := tokenDisplayPrefix(secret)
 
 	var token APIToken
@@ -99,7 +99,7 @@ func (s *Store) RevokeAPIToken(ctx context.Context, userID, householdID, tokenID
 }
 
 func (s *Store) SessionContextByAPIToken(ctx context.Context, rawToken string) (User, Household, APIToken, error) {
-	hash := hashAPIToken(rawToken)
+	hash := hashSecret(rawToken)
 
 	var user User
 	var household Household
@@ -166,16 +166,19 @@ func scanAPIToken(scanner interface {
 	return token, err
 }
 
-func generateAPITokenSecret() (string, error) {
+// generateSecret returns a random secret marked with prefix, used for API
+// tokens and Calendar Connections.
+func generateSecret(prefix string) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return apiTokenPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-func hashAPIToken(token string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+// hashSecret is what is stored of a secret made by generateSecret.
+func hashSecret(secret string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(secret)))
 	return hex.EncodeToString(sum[:])
 }
 

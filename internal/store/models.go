@@ -86,6 +86,9 @@ type Task struct {
 	CreatedBy              int64      `json:"created_by"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	// CalendarUID is the UID a device chose when it created the Task over
+	// CalDAV, or empty.
+	CalendarUID string `json:"-"`
 }
 
 type Event struct {
@@ -96,9 +99,7 @@ type Event struct {
 	StartsAt    time.Time `json:"starts_at"`
 	EndsAt      time.Time `json:"ends_at"`
 	Location    string    `json:"location"`
-	Source      string    `json:"source"`
-	ExternalID  string    `json:"external_id"`
-	SyncStatus  string    `json:"sync_status"`
+	Status      string    `json:"status"` // active or archived
 	CreatedBy   int64     `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -106,6 +107,9 @@ type Event struct {
 	// means the whole Household.
 	AttendeeIDs []int64    `json:"attendee_ids"`
 	Attendees   []Attendee `json:"attendees"`
+	// CalendarUID is the UID a device chose when it created the Appointment
+	// over CalDAV; empty for Appointments made in Homebase.
+	CalendarUID string `json:"-"`
 }
 
 // Attendee is a Member an Appointment is for.

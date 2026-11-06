@@ -247,6 +247,7 @@ The nginx service routes:
 
 - `/` to the web service
 - `/auth/` and `/api/v1/` to the API
+- `/caldav/` and `/.well-known/caldav` (CalDAV for Calendar Connections) to the API
 - `/healthz` and OpenAPI paths to the API
 
 Publish nginx behind the application hostname. Keeping browser pages, API calls, and the OAuth callback on one origin avoids cross-origin session and cookie configuration.

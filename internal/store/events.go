@@ -19,13 +19,16 @@ type EventInput struct {
 	// whole Household. On update, omitting the field (nil) keeps the current
 	// Attendees and an empty list clears them.
 	AttendeeIDs []int64 `json:"attendee_ids"`
+	// CalendarUID is the UID a device chose when it created the Appointment
+	// over CalDAV. It is only set on create.
+	CalendarUID string `json:"-"`
 }
 
 // ErrAttendeeNotMember is returned when an Attendee id is not a Member of the
 // Household.
 var ErrAttendeeNotMember = errors.New("attendees must be members of the household")
 
-const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, source, external_id, sync_status, created_by, created_at, updated_at`
+const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at, COALESCE(calendar_uid, '')`
 
 type eventScanner interface {
 	Scan(dest ...any) error
@@ -33,7 +36,7 @@ type eventScanner interface {
 
 func scanEvent(scanner eventScanner) (Event, error) {
 	var e Event
-	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Source, &e.ExternalID, &e.SyncStatus, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
+	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &e.CalendarUID)
 	return e, err
 }
 
@@ -49,6 +52,7 @@ func (s *Store) ListEvents(ctx context.Context, householdID int64) ([]Event, err
 		SELECT `+eventColumns+`
 		FROM events
 		WHERE household_id = $1
+		  AND status <> 'archived'
 		  AND starts_at >= now() - interval '1 day'
 		ORDER BY starts_at
 		LIMIT 50
@@ -77,13 +81,14 @@ func (s *Store) ListEvents(ctx context.Context, householdID int64) ([]Event, err
 	return events, nil
 }
 
-// ListWholeHouseholdEventsAfter returns the Household's Appointments with no
-// Attendees (so for every Member) that start after the given time.
+// ListWholeHouseholdEventsAfter returns the Household's active Appointments
+// with no Attendees (so for every Member) that start after the given time.
 func (s *Store) ListWholeHouseholdEventsAfter(ctx context.Context, householdID int64, after time.Time) ([]Event, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+eventColumns+`
 		FROM events
 		WHERE household_id = $1
+		  AND status <> 'archived'
 		  AND starts_at > $2
 		  AND NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id)
 		ORDER BY starts_at, id
@@ -104,6 +109,47 @@ func (s *Store) ListWholeHouseholdEventsAfter(ctx context.Context, householdID i
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// ListAppointmentsConcerning returns the Household's active Appointments that
+// concern a Member, meaning the Member is an Attendee or there are no
+// Attendees, and that overlap [from, to). Attendees are included.
+func (s *Store) ListAppointmentsConcerning(ctx context.Context, householdID, userID int64, from, to time.Time) ([]Event, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+eventColumns+`
+		FROM events
+		WHERE household_id = $1
+		  AND status <> 'archived'
+		  AND ends_at > $3
+		  AND starts_at < $4
+		  AND (
+			EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id AND ea.user_id = $2)
+			OR NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id)
+		  )
+		ORDER BY starts_at, id
+	`, householdID, userID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := []Event{}
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	if err := loadAttendees(ctx, s.db, events); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func validateEventInput(input *EventInput) error {
@@ -129,10 +175,10 @@ func (s *Store) CreateEvent(ctx context.Context, householdID, userID int64, inpu
 	defer tx.Rollback()
 
 	e, err := scanEvent(tx.QueryRowContext(ctx, `
-		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by, calendar_uid)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''))
 		RETURNING `+eventColumns+`
-	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID))
+	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID, input.CalendarUID))
 	if err != nil {
 		return Event{}, err
 	}
@@ -172,6 +218,23 @@ func getEvent(ctx context.Context, q queryer, householdID, id int64, forUpdate b
 	return events[0], nil
 }
 
+// FindEventByCalendarUID returns the Household's active Appointment that a
+// device created with the given UID, or ErrNotFound.
+func (s *Store) FindEventByCalendarUID(ctx context.Context, householdID int64, uid string) (Event, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM events
+		WHERE household_id = $1 AND calendar_uid = $2 AND status <> 'archived'
+	`, householdID, uid).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, ErrNotFound
+	}
+	if err != nil {
+		return Event{}, err
+	}
+	return s.GetEvent(ctx, householdID, id)
+}
+
 // UpdateEvent replaces an Appointment's fields and returns it as it is now and
 // as it was before, Attendees included.
 func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input EventInput) (updated Event, previous Event, err error) {
@@ -197,7 +260,6 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 			starts_at = $5,
 			ends_at = $6,
 			location = $7,
-			sync_status = 'local',
 			updated_at = now()
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location); err != nil {
@@ -215,9 +277,11 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 	return updated, previous, tx.Commit()
 }
 
-func (s *Store) DeleteEvent(ctx context.Context, householdID, id int64) error {
+// ArchiveEvent archives an Appointment, which is how one is removed.
+func (s *Store) ArchiveEvent(ctx context.Context, householdID, id int64) error {
 	result, err := s.db.ExecContext(ctx, `
-		DELETE FROM events
+		UPDATE events
+		SET status = 'archived', updated_at = now()
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id)
 	if err != nil {

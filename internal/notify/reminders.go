@@ -288,18 +288,21 @@ var AppointmentReminderStages = []ReminderStage{
 }
 
 // appointmentReminders keeps an Appointment's Reminders in line with its
-// start time and Attendees.
+// start time and Attendees. An archived Appointment has none.
 func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.Event) error {
+	subject := store.ReminderSubject{HouseholdID: appointment.HouseholdID, Type: store.SubjectAppointment, ID: appointment.ID}
+	if appointment.Status == "archived" {
+		return n.scheduleReminders(ctx, subject, nil, nil, AppointmentReminderStages)
+	}
 	recipients, err := n.appointmentRecipients(ctx, appointment)
 	if err != nil {
 		return err
 	}
-	subject := store.ReminderSubject{HouseholdID: appointment.HouseholdID, Type: store.SubjectAppointment, ID: appointment.ID}
 	starts := appointment.StartsAt
 	return n.scheduleReminders(ctx, subject, recipients, &starts, AppointmentReminderStages)
 }
 
-// AppointmentRemoved is called after an Appointment is deleted. It cancels
+// AppointmentRemoved is called after an Appointment is archived. It cancels
 // the Appointment's pending Reminders.
 func (n *Notifier) AppointmentRemoved(ctx context.Context, householdID, appointmentID int64) error {
 	subject := store.ReminderSubject{HouseholdID: householdID, Type: store.SubjectAppointment, ID: appointmentID}
@@ -348,7 +351,8 @@ var appointmentReminderTitles = map[string]string{
 }
 
 // renderAppointmentReminder builds an Appointment Reminder from the
-// Appointment as it is now.
+// Appointment as it is now. It drops the Reminder if the Appointment has since
+// been archived or rescheduled, as a guard behind cancellation.
 func (n *Notifier) renderAppointmentReminder(ctx context.Context, r store.ScheduledReminder) (store.NotificationInput, bool, error) {
 	appointment, err := n.store.GetEvent(ctx, r.HouseholdID, r.SubjectID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -357,7 +361,7 @@ func (n *Notifier) renderAppointmentReminder(ctx context.Context, r store.Schedu
 	if err != nil {
 		return store.NotificationInput{}, false, fmt.Errorf("load appointment %d for reminder: %w", r.SubjectID, err)
 	}
-	if !appointment.StartsAt.Equal(r.DueAt) {
+	if appointment.Status == "archived" || !appointment.StartsAt.Equal(r.DueAt) {
 		return store.NotificationInput{}, false, nil
 	}
 	return store.NotificationInput{

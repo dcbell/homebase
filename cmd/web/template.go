@@ -1306,7 +1306,6 @@ const appTemplate = `
 	<div class="action-menu-panel">
 		{{ if .EditModal }}<button class="secondary compact" type="button" data-modal-open="{{ .EditModal }}">Edit</button>{{ end }}
 		{{ if .ReopenForm }}<button class="secondary compact" type="submit" form="{{ .ReopenForm }}">Reopen</button>{{ end }}
-		{{ if .DeleteForm }}<button class="danger compact" type="submit" form="{{ .DeleteForm }}">{{ if .DeleteLabel }}{{ .DeleteLabel }}{{ else }}Delete{{ end }}</button>{{ end }}
 		{{ if .ArchiveForm }}<button class="danger compact" type="submit" form="{{ .ArchiveForm }}">Archive</button>{{ end }}
 	</div>
 </details>
@@ -2110,6 +2109,60 @@ const appTemplate = `
 			<label class="theme-row"><span>Appointment Reminders</span><span class="switch"><input type="checkbox" name="appointment_reminder"{{ if .PushSettings.AppointmentReminder }} checked{{ end }} onchange="this.form.requestSubmit()"><span></span></span></label>
 			<noscript><button type="submit" class="secondary">Save</button></noscript>
 		</form>
+	</section>
+
+	<section class="panel" id="calendar" data-calendar-connections>
+		<div class="tile-head">
+			<h2>Calendar</h2>
+		</div>
+		<p class="meta">Connect a calendar app to see your Appointments in the Homebase calendar. Calendar apps refresh on their own schedule, often every 15 minutes or longer. The calendar is read-only for now.</p>
+		{{ if .CreatedCalendar.Secret }}
+		<div class="item" style="margin-top:12px;">
+			<strong>{{ .CreatedCalendar.Connection.Name }} is connected</strong>
+			<p class="empty">Enter these details in your calendar app now. The password will not be shown again.</p>
+			<div class="meta">Server address</div>
+			<pre class="code-block">{{ .CreatedCalendar.ServerURL }}</pre>
+			<div class="meta">Username</div>
+			<pre class="code-block">{{ .CreatedCalendar.Username }}</pre>
+			<div class="meta">Password</div>
+			<pre class="code-block">{{ .CreatedCalendar.Secret }}</pre>
+		</div>
+		{{ end }}
+		<form method="post" action="/settings/calendar-connections" style="margin-top:12px;">
+			<input type="hidden" name="kind" value="ios">
+			<div class="form-row">
+				<label>iPhone or iPad<input name="name" placeholder="Dave's iPhone" required></label>
+			</div>
+			<p class="meta">Open this page in Safari on the device, then tap Set up on iPhone. Safari downloads a setup profile: install it from Settings → Profile Downloaded. iOS refreshes the calendar on its own schedule, typically every 15 minutes or more.</p>
+			<p class="meta">The Homebase calendar doesn't support repeating events. For repeating obligations, use Routines: they create Tasks, not Appointments.</p>
+			<button type="submit">Set up on iPhone</button>
+		</form>
+		<form method="post" action="/settings/calendar-connections" style="margin-top:12px;">
+			<div class="form-row">
+				<label>Other device<input name="name" placeholder="Android phone, Thunderbird" required></label>
+			</div>
+			<button type="submit">Connect</button>
+		</form>
+		<div class="cards" style="margin-top:16px;">
+			{{ range .CalendarConnections }}
+			<article class="item">
+				<div class="item-head">
+					<div>
+						<strong>{{ .Name }}</strong>
+						<div class="meta">{{ if eq .Kind "ios" }}iPhone{{ else }}Other device{{ end }} · Created {{ datetime .CreatedAt }} · {{ if .LastUsedAt }}Last used {{ datetime .LastUsedAt }}{{ else }}Not used yet{{ end }}</div>
+						{{ if .RevokedAt }}<div class="meta">Disconnected {{ date .RevokedAt }}</div>{{ end }}
+					</div>
+					{{ if not .RevokedAt }}
+					<form method="post" action="/settings/calendar-connections/{{ .ID }}/disconnect">
+						<button class="danger compact" type="submit" title="Disconnect" aria-label="Disconnect {{ .Name }}">Disconnect</button>
+					</form>
+					{{ end }}
+				</div>
+			</article>
+			{{ else }}
+			<p class="empty">No calendar apps connected yet.</p>
+			{{ end }}
+		</div>
 	</section>
 
 	<section class="panel">
@@ -3740,13 +3793,13 @@ const appTemplate = `
 				<div class="page-title-line">
 					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Event.Title }}</h1>
-					{{ template "titleActionMenu" (dict "DeleteForm" "event-delete" "DeleteLabel" "Delete") }}
+					{{ template "titleActionMenu" (dict "ArchiveForm" "event-archive") }}
 				</div>
 				<p class="meta">For {{ attendeeNames .Event.Attendees }}</p>
 			</div>
 		</div>
 	</section>
-	<form id="event-delete" method="post" action="/events/{{ .Event.ID }}/delete"></form>
+	<form id="event-archive" method="post" action="/events/{{ .Event.ID }}/delete"></form>
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 
