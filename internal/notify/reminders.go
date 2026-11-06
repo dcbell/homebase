@@ -313,6 +313,13 @@ func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.E
 	return n.scheduleReminders(ctx, subject, recipients, &starts, appointment.ReminderTimes)
 }
 
+// AppointmentPersonalReminderTimesChanged is called after a Member sets or
+// removes their Personal Reminder Times on an Appointment. Their Reminders
+// still ahead follow the new times.
+func (n *Notifier) AppointmentPersonalReminderTimesChanged(ctx context.Context, appointment store.Event) error {
+	return n.appointmentReminders(ctx, appointment)
+}
+
 // AppointmentRemoved is called after an Appointment is archived. It cancels
 // the Appointment's pending Reminders.
 func (n *Notifier) AppointmentRemoved(ctx context.Context, householdID, appointmentID int64) error {

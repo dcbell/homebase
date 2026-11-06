@@ -3930,6 +3930,25 @@ const appTemplate = `
 			<button type="submit">Save appointment</button>
 		</form>
 	</section>
+	{{ with .Event.PersonalReminderTimes }}
+	<section class="panel">
+		<div class="tile-head"><h2>My reminders</h2></div>
+		{{ if .UsingShared }}
+			<p class="hint">You get this Appointment's reminders. Use your own to replace them for you alone.</p>
+		{{ else }}
+			<p class="hint">Your own reminders replace this Appointment's for you. Only you see them.</p>
+		{{ end }}
+		<form id="event-personal-reminders" method="post" action="/events/{{ $.Event.ID }}/personal-reminder-times">
+			{{ template "appointmentReminderTimes" (dict "Times" (appointmentReminderPersonal $.Event) "Known" true) }}
+			<button type="submit">{{ if .UsingShared }}Use my own{{ else }}Save my reminders{{ end }}</button>
+		</form>
+		{{ if not .UsingShared }}
+		<form id="event-use-shared-reminders" method="post" action="/events/{{ $.Event.ID }}/personal-reminder-times/shared">
+			<button class="secondary" type="submit">Use shared</button>
+		</form>
+		{{ end }}
+	</section>
+	{{ end }}
 </main>
 {{ end }}
 

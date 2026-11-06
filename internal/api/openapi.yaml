@@ -967,6 +967,49 @@ paths:
         "200":
           $ref: "#/components/responses/Ok"
 
+  /api/v1/events/{id}/personal-reminder-times:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    put:
+      tags: [Events]
+      summary: Set my Personal Reminder Times on an appointment
+      description: >-
+        Sets the caller's own Reminder Times on an Appointment, used instead of the
+        Appointment's Reminder Times for them alone. An empty list means no Reminders for them.
+        Only an Attendee may, or any Member when the Appointment has no Attendees; they are
+        dropped when the caller stops being an Attendee (including when a whole-household
+        Appointment gains Attendees without them) or leaves the Household.
+      operationId: setEventPersonalReminderTimes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalReminderTimesInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Events]
+      summary: Use the shared Reminder Times on an appointment
+      description: >-
+        Removes the caller's Personal Reminder Times, so the Appointment's Reminder Times apply
+        to them again. Only an Attendee may, or any Member when the Appointment has no Attendees.
+      operationId: useSharedEventReminderTimes
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/v1/routines:
     get:
       tags: [Routines]
@@ -2021,9 +2064,10 @@ components:
     PersonalReminderTimes:
       type: object
       description: >-
-        The calling Member's own Reminder Times on a Task. Returned by GET /tasks/{id} and the
-        personal-reminder-times endpoints, and only to the Member who may set them (the
-        assignee); other Members' are never returned.
+        The calling Member's own Reminder Times on a Task or Appointment. Returned by
+        GET /tasks/{id}, GET /events/{id} and the personal-reminder-times endpoints, and only to
+        the Member who may set them (a Task's assignee; an Appointment's Attendees, or every
+        Member when it has none); other Members' are never returned.
       properties:
         using_shared:
           type: boolean
@@ -2063,6 +2107,8 @@ components:
               type: array
               description: The Attendees ordered by name. Empty means the whole Household.
               items: { $ref: "#/components/schemas/Attendee" }
+            personal_reminder_times:
+              $ref: "#/components/schemas/PersonalReminderTimes"
     RoutineInput:
       type: object
       properties:

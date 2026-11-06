@@ -39,6 +39,16 @@ func appointmentReminderSlots(times []store.ReminderTime) []reminderSlot {
 	return slots
 }
 
+// appointmentPersonalReminderTimes are the Reminder Times the caller's
+// Personal Reminder Times editor on an Appointment page starts from: their
+// own, or the Appointment's shared ones while they use those.
+func appointmentPersonalReminderTimes(event store.Event) []store.ReminderTime {
+	if personal := event.PersonalReminderTimes; personal != nil && !personal.UsingShared {
+		return personal.ReminderTimes
+	}
+	return event.ReminderTimes
+}
+
 // appointmentReminderTimesFromForm reads an Appointment form's Reminder Time
 // rows as minutes before the start, skipping blank rows, so clearing every
 // row sends an empty list. ok is false when the form carried no rows, so the
