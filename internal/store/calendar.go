@@ -194,14 +194,47 @@ func (s *Store) addCalendarProjects(ctx context.Context, householdID int64, star
 }
 
 func (s *Store) addCalendarRoutines(ctx context.Context, householdID int64, start, end time.Time, entries map[string][]CalendarEntry) error {
+	routines, err := s.dueRoutines(ctx, householdID, nil, start, end)
+	if err != nil {
+		return err
+	}
+	for _, r := range routines {
+		nextDueAt := *r.NextDueAt
+		meta := "Routine · " + r.Cadence
+		if r.AssignedName != "" {
+			meta += " · " + r.AssignedName
+		}
+		entries[dayKey(nextDueAt)] = append(entries[dayKey(nextDueAt)], CalendarEntry{
+			Type:  "routine",
+			ID:    r.ID,
+			Title: r.Title,
+			URL:   fmt.Sprintf("/routines/%d", r.ID),
+			Time:  &nextDueAt,
+			Meta:  meta,
+		})
+	}
+	return nil
+}
+
+// ListRoutinesDueFor returns the Routines the in-app calendar would show in
+// [start, end), narrowed to those assigned to the Member or to nobody.
+func (s *Store) ListRoutinesDueFor(ctx context.Context, householdID, userID int64, start, end time.Time) ([]Routine, error) {
+	return s.dueRoutines(ctx, householdID, &userID, start, end)
+}
+
+// dueRoutines is the calendar's Routine rule: active Routines whose next due
+// date falls in [start, end) and whose Generated Task doesn't exist yet. With
+// forUserID set, only Routines assigned to that Member or to nobody count.
+func (s *Store) dueRoutines(ctx context.Context, householdID int64, forUserID *int64, start, end time.Time) ([]Routine, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id, r.title, r.cadence, r.next_due_at, COALESCE(assigned.name, '')
+		SELECT r.id, r.household_id, r.assigned_to, COALESCE(assigned.name, ''), r.title, r.cadence, r.status, r.next_due_at, r.updated_at
 		FROM routines r
 		LEFT JOIN users assigned ON assigned.id = r.assigned_to
 		WHERE r.household_id = $1
 			AND r.status = 'active'
 			AND r.next_due_at >= $2
 			AND r.next_due_at < $3
+			AND ($4::bigint IS NULL OR r.assigned_to IS NULL OR r.assigned_to = $4)
 			AND NOT EXISTS (
 				SELECT 1
 				FROM tasks t
@@ -209,34 +242,50 @@ func (s *Store) addCalendarRoutines(ctx context.Context, householdID int64, star
 					AND t.status <> 'archived'
 					AND t.due_at IS NOT DISTINCT FROM r.next_due_at
 			)
-		ORDER BY r.next_due_at
-	`, householdID, start, end)
+		ORDER BY r.next_due_at, r.id
+	`, householdID, start, end, forUserID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
+	routines := []Routine{}
 	for rows.Next() {
-		var id int64
-		var title, cadence, assigned string
-		var nextDueAt time.Time
-		if err := rows.Scan(&id, &title, &cadence, &nextDueAt, &assigned); err != nil {
-			return err
+		var r Routine
+		if err := rows.Scan(&r.ID, &r.HouseholdID, &r.AssignedTo, &r.AssignedName, &r.Title, &r.Cadence, &r.Status, &r.NextDueAt, &r.UpdatedAt); err != nil {
+			return nil, err
 		}
-		meta := "Routine · " + cadence
-		if assigned != "" {
-			meta += " · " + assigned
-		}
-		entries[dayKey(nextDueAt)] = append(entries[dayKey(nextDueAt)], CalendarEntry{
-			Type:  "routine",
-			ID:    id,
-			Title: title,
-			URL:   fmt.Sprintf("/routines/%d", id),
-			Time:  &nextDueAt,
-			Meta:  meta,
-		})
+		routines = append(routines, r)
 	}
-	return rows.Err()
+	return routines, rows.Err()
+}
+
+// ListProjectsDueBetween returns the Projects that aren't done or archived
+// whose due date falls on a local day from start's through end's.
+func (s *Store) ListProjectsDueBetween(ctx context.Context, householdID int64, start, end time.Time) ([]Project, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, household_id, title, description, status, priority, due_date, created_by, created_at, updated_at
+		FROM projects
+		WHERE household_id = $1
+			AND status NOT IN ('done', 'archived')
+			AND due_date >= $2::date
+			AND due_date <= $3::date
+		ORDER BY due_date, id
+	`, householdID, dayKey(start), dayKey(end))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	projects := []Project{}
+	for rows.Next() {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.HouseholdID, &p.Title, &p.Description, &p.Status, &p.Priority, &p.DueDate, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
 }
 
 func dayKey(t time.Time) string {
