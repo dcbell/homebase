@@ -967,9 +967,9 @@ func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
 		TaskDocuments:   taskDocuments,
 		TaskContacts:    taskContacts,
 		TaskAssets:      taskAssets,
+		Now:             time.Now(),
 
 		ReminderTimeDefaults: s.reminderTimeDefaults(r),
-		Now:             time.Now(),
 	})
 }
 
