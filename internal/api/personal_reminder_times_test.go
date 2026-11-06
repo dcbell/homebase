@@ -58,6 +58,48 @@ func TestPersonalReminderTimesReplaceTheSharedOnesForTheAssigneeOnly(t *testing.
 	expectTaskReminders(t, household.Member, "due_soon: Task due in 3 days", "overdue: Task overdue by 30 minutes")
 }
 
+func TestSavingATaskOrAppointmentShowsTheCallersOwnPersonalReminderTimes(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+
+	created := apitest.Decode[store.Task](t, household.Member.Post("/api/v1/tasks", map[string]any{
+		"title": "Pay the water bill", "due_at": at(20, 18, 0), "assigned_to": household.Member.User.ID,
+	}).Expect(http.StatusCreated))
+	if got := created.PersonalReminderTimes; got == nil || !got.UsingShared {
+		t.Errorf("Personal Reminder Times on the created Task = %+v, want using shared", got)
+	}
+	setPersonalReminderTimes(household.Member, created.ID, []map[string]any{{"minutes": -30}}).Expect(http.StatusOK)
+	updated := updateTask(t, household.Member, created, map[string]any{"title": "Pay the gas bill"})
+	want := store.PersonalReminderTimes{ReminderTimes: []store.ReminderTime{{Minutes: -30}}}
+	if got := updated.PersonalReminderTimes; got == nil || fmt.Sprint(*got) != fmt.Sprint(want) {
+		t.Errorf("Personal Reminder Times on the updated Task = %+v, want %+v", got, want)
+	}
+	if got := updateTask(t, household.Owner, created, map[string]any{"title": "Pay the gas bill"}).PersonalReminderTimes; got != nil {
+		t.Errorf("Personal Reminder Times shown to someone else = %+v, want none", got)
+	}
+
+	appointment := apitest.Decode[store.Event](t, household.Member.Post("/api/v1/events", map[string]any{
+		"title": "Vet", "starts_at": at(20, 9, 0), "ends_at": at(20, 10, 0), "attendee_ids": []int64{household.Member.User.ID},
+	}).Expect(http.StatusCreated))
+	if got := appointment.PersonalReminderTimes; got == nil || !got.UsingShared {
+		t.Errorf("Personal Reminder Times on the created Appointment = %+v, want using shared", got)
+	}
+	setPersonalAppointmentReminderTimes(household.Member, appointment.ID, []map[string]any{{"minutes": -30}}).Expect(http.StatusOK)
+	saved := apitest.Decode[store.Event](t, household.Member.Patch(fmt.Sprintf("/api/v1/events/%d", appointment.ID), map[string]any{
+		"title": "Vet check-up", "starts_at": at(20, 9, 0), "ends_at": at(20, 10, 0),
+	}).Expect(http.StatusOK))
+	if got := saved.PersonalReminderTimes; got == nil || fmt.Sprint(*got) != fmt.Sprint(want) {
+		t.Errorf("Personal Reminder Times on the updated Appointment = %+v, want %+v", got, want)
+	}
+	other := apitest.Decode[store.Event](t, household.Owner.Patch(fmt.Sprintf("/api/v1/events/%d", appointment.ID), map[string]any{
+		"title": "Vet check-up", "starts_at": at(20, 9, 0), "ends_at": at(20, 10, 0),
+	}).Expect(http.StatusOK))
+	if other.PersonalReminderTimes != nil {
+		t.Errorf("Appointment Personal Reminder Times shown to a non-Attendee = %+v, want none", other.PersonalReminderTimes)
+	}
+}
+
 func TestAnEmptyPersonalListMeansNoRemindersForTheAssignee(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)

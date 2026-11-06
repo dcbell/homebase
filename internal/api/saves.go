@@ -86,18 +86,23 @@ func (s *Server) appointmentPersonalReminderTimesChanged(ctx context.Context, ho
 	return appointment, nil
 }
 
-// appointmentFor loads an Appointment as the acting Member sees it: with
-// their own Personal Reminder Times when it is for them, as only then may
-// they set them.
+// appointmentFor loads an Appointment as the acting Member sees it.
 func (s *Server) appointmentFor(ctx context.Context, household store.Household, actor store.User, id int64) (store.Event, error) {
 	appointment, err := s.store.GetEvent(ctx, household.ID, id)
 	if err != nil {
 		return store.Event{}, err
 	}
+	return s.appointmentAsSeenBy(ctx, household, actor, appointment)
+}
+
+// appointmentAsSeenBy is an Appointment as the acting Member sees it: with
+// their own Personal Reminder Times when it is for them, as only then may
+// they set them.
+func (s *Server) appointmentAsSeenBy(ctx context.Context, household store.Household, actor store.User, appointment store.Event) (store.Event, error) {
 	if !store.AppointmentIsFor(appointment, actor.ID) {
 		return appointment, nil
 	}
-	subject := store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectAppointment, ID: id}
+	subject := store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectAppointment, ID: appointment.ID}
 	personal, err := s.store.PersonalReminderTimesOf(ctx, subject, actor.ID)
 	if err != nil {
 		return store.Event{}, err
@@ -183,17 +188,22 @@ func (s *Server) taskPersonalReminderTimesChanged(ctx context.Context, household
 	return task, nil
 }
 
-// taskFor loads a Task as the acting Member sees it: with their own Personal
-// Reminder Times when they are its assignee, who alone may set them.
+// taskFor loads a Task as the acting Member sees it.
 func (s *Server) taskFor(ctx context.Context, household store.Household, actor store.User, id int64) (store.Task, error) {
 	task, err := s.store.GetTask(ctx, household.ID, id)
 	if err != nil {
 		return store.Task{}, err
 	}
+	return s.taskAsSeenBy(ctx, household, actor, task)
+}
+
+// taskAsSeenBy is a Task as the acting Member sees it: with their own
+// Personal Reminder Times when they are its assignee, who alone may set them.
+func (s *Server) taskAsSeenBy(ctx context.Context, household store.Household, actor store.User, task store.Task) (store.Task, error) {
 	if task.AssignedTo == nil || *task.AssignedTo != actor.ID {
 		return task, nil
 	}
-	subject := store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectTask, ID: id}
+	subject := store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectTask, ID: task.ID}
 	personal, err := s.store.PersonalReminderTimesOf(ctx, subject, actor.ID)
 	if err != nil {
 		return store.Task{}, err

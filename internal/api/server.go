@@ -930,7 +930,19 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, task)
+	writeJSON(w, http.StatusCreated, s.savedTask(r, task))
+}
+
+// savedTask is a Task just saved as the caller sees it. The save has already
+// happened, so failing to load their Personal Reminder Times is logged and
+// the Task is returned without them.
+func (s *Server) savedTask(r *http.Request, task store.Task) store.Task {
+	seen, err := s.taskAsSeenBy(r.Context(), householdFrom(r), userFrom(r), task)
+	if err != nil {
+		s.logger.Error("load personal reminder times", "task_id", task.ID, "error", err)
+		return task
+	}
+	return seen
 }
 
 // taskChanged reports a Task change to the Notifier. The change is already
@@ -1045,7 +1057,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeJSON(w, http.StatusOK, s.savedTask(r, task))
 }
 
 func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -1117,7 +1129,18 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, event)
+	writeJSON(w, http.StatusCreated, s.savedAppointment(r, event))
+}
+
+// savedAppointment is an Appointment just saved as the caller sees it, as
+// savedTask is for a Task.
+func (s *Server) savedAppointment(r *http.Request, appointment store.Event) store.Event {
+	seen, err := s.appointmentAsSeenBy(r.Context(), householdFrom(r), userFrom(r), appointment)
+	if err != nil {
+		s.logger.Error("load personal reminder times", "event_id", appointment.ID, "error", err)
+		return appointment
+	}
+	return seen
 }
 
 // appointmentChanged reports an Appointment change to the Notifier. The change
@@ -1164,7 +1187,7 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, event)
+	writeJSON(w, http.StatusOK, s.savedAppointment(r, event))
 }
 
 func (s *Server) setAppointmentPersonalReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
