@@ -171,6 +171,18 @@ func span(comp *ical.Component) (start, end time.Time, ok bool) {
 			end = start
 		}
 		return start, end, true
+	case ical.CompToDo:
+		// A to-do with a DUE is the instant it falls due; one with neither
+		// DUE nor DTSTART matches every range (ok false).
+		for _, name := range []string{ical.PropDue, ical.PropDateTimeStart} {
+			if p := comp.Props.Get(name); p != nil {
+				at, err := p.DateTime(time.Local)
+				if err != nil {
+					return time.Time{}, time.Time{}, false
+				}
+				return at, at, true
+			}
+		}
 	}
 	return time.Time{}, time.Time{}, false
 }

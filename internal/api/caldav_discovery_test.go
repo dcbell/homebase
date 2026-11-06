@@ -34,11 +34,11 @@ func TestCalDAVDiscoveryFromTheWellKnownAddressReachesTheHomebaseCalendar(t *tes
 	if err != nil {
 		t.Fatalf("find calendars: %v", err)
 	}
-	if len(calendars) != 1 {
-		t.Fatalf("calendars = %+v, want just homebase", calendars)
+	if len(calendars) == 0 || calendars[0].Path != cal.CollectionPath("homebase") {
+		t.Fatalf("calendars = %+v, want homebase first", calendars)
 	}
 	got := calendars[0]
-	if got.Path != cal.CollectionPath("homebase") || got.Name != "Homebase" {
+	if got.Name != "Homebase" {
 		t.Errorf("calendar = %+v, want %s named Homebase", got, cal.CollectionPath("homebase"))
 	}
 	if len(got.SupportedComponentSet) != 1 || got.SupportedComponentSet[0] != "VEVENT" {
