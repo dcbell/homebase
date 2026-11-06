@@ -2129,6 +2129,15 @@ const appTemplate = `
 		</div>
 		{{ end }}
 		<form method="post" action="/settings/calendar-connections" style="margin-top:12px;">
+			<input type="hidden" name="kind" value="ios">
+			<div class="form-row">
+				<label>iPhone or iPad<input name="name" placeholder="Dave's iPhone" required></label>
+			</div>
+			<p class="meta">Open this page in Safari on the device, then tap Set up on iPhone. Safari downloads a setup profile: install it from Settings → Profile Downloaded. iOS refreshes the calendar on its own schedule, typically every 15 minutes or more.</p>
+			<p class="meta">The Homebase calendar doesn't support repeating events. For repeating obligations, use Routines: they create Tasks, not Appointments.</p>
+			<button type="submit">Set up on iPhone</button>
+		</form>
+		<form method="post" action="/settings/calendar-connections" style="margin-top:12px;">
 			<div class="form-row">
 				<label>Other device<input name="name" placeholder="Android phone, Thunderbird" required></label>
 			</div>
