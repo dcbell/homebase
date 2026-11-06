@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -29,29 +30,63 @@ func TestPersonalReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing.T) {
 	const task = `"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-120}]`
 
 	// The API leaves them out for anyone but the assignee.
-	if page := taskPageWith(t, `{`+task+`}`); strings.Contains(page, "task-personal-reminders") || strings.Contains(page, "Use your own Reminder Times") {
+	if page := taskPageWith(t, `{`+task+`}`); strings.Contains(page, "Your Reminder Times") || strings.Contains(page, "task-personal-reminders") {
 		t.Errorf("Task page offers Personal Reminder Times the API didn't:\n%s", page)
 	}
 
-	// Using the shared ones: "Use your own Reminder Times" starts from them.
+	// Using the shared ones: they show read-only, and "Customize for me"
+	// opens the editor seeded from them.
 	page := taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":true,"reminder_times":[]}}`)
-	sets, _ := reminderSetsIn(t, page, "task-personal-reminders")
-	if want := map[string][]string{"timed": {"2 hours before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
-		t.Errorf("Personal Reminder Times rows = %q, want the shared ones %q", sets, want)
+	panel := personalReminderPanel(t, page)
+	if got, want := readOnlyReminderSummaries(panel), []string{"2 hours before"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("read-only Reminder Times = %q, want the shared ones %q", got, want)
 	}
-	if !strings.Contains(page, "Use your own Reminder Times") || strings.Contains(page, "task-use-shared-reminders") {
-		t.Errorf("Task page using shared Reminder Times should offer Use your own Reminder Times only:\n%s", page)
+	if !strings.Contains(panel, "You get this Task's Reminder Times.") || !strings.Contains(panel, ">Customize for me<") {
+		t.Errorf("panel using shared Reminder Times should say so and offer Customize for me:\n%s", panel)
+	}
+	sets, _ := reminderSetsIn(t, page, "task-personal-reminders")
+	if want := map[string][]string{"timed": {"2 hours before | 2 hours before"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+		t.Errorf("Personal Reminder Times frames = %q, want the shared ones %q", sets, want)
+	}
+	if strings.Contains(page, `id="task-use-shared-reminders"`) {
+		t.Errorf("panel using shared Reminder Times offers to go back to them:\n%s", panel)
 	}
 
-	// With their own: those show, and "Use shared" goes back.
+	// With their own: the editor shows them, with Save and "Use shared".
 	page = taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":false,"reminder_times":[{"minutes":-30}]}}`)
+	panel = personalReminderPanel(t, page)
 	sets, _ = reminderSetsIn(t, page, "task-personal-reminders")
-	if want := map[string][]string{"timed": {"30 minutes before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
-		t.Errorf("Personal Reminder Times rows = %q, want %q", sets, want)
+	if want := map[string][]string{"timed": {"30 minutes before | 30 minutes before"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+		t.Errorf("Personal Reminder Times frames = %q, want %q", sets, want)
 	}
-	if !strings.Contains(page, `id="task-use-shared-reminders"`) || !strings.Contains(page, "Use shared") {
-		t.Errorf("Task page with Personal Reminder Times has no Use shared:\n%s", page)
+	if !strings.Contains(panel, "These replace this Task's Reminder Times for you. Only you see them.") || !strings.Contains(panel, `<button type="submit">Save</button>`) {
+		t.Errorf("customized panel should say so and offer Save:\n%s", panel)
 	}
+	if !strings.Contains(panel, `form="task-use-shared-reminders">Use shared</button>`) || !strings.Contains(page, `id="task-use-shared-reminders"`) {
+		t.Errorf("customized panel has no Use shared:\n%s", panel)
+	}
+	if strings.Contains(panel, "Customize for me") || len(readOnlyReminderSummaries(panel)) != 0 {
+		t.Errorf("customized panel shows the read-only shared view:\n%s", panel)
+	}
+}
+
+// personalReminderPanel returns the "Your Reminder Times" panel of a page.
+func personalReminderPanel(t *testing.T, page string) string {
+	t.Helper()
+	panel := regexp.MustCompile(`(?s)<section class="panel personal-reminder-times".*?</section>`).FindString(page)
+	if panel == "" {
+		t.Fatalf("page has no Your Reminder Times panel:\n%s", page)
+	}
+	return panel
+}
+
+// readOnlyReminderSummaries are the summaries of a panel's read-only frames.
+func readOnlyReminderSummaries(panel string) []string {
+	got := []string{}
+	for _, m := range regexp.MustCompile(`<div class="rt-frame static">([^<]*)</div>`).FindAllStringSubmatch(panel, -1) {
+		got = append(got, m[1])
+	}
+	return got
 }
 
 func TestPersonalReminderTimesChoicesAreSentToTheAPI(t *testing.T) {

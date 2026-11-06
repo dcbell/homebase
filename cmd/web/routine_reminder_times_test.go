@@ -21,8 +21,8 @@ func TestRoutineAndMaintenanceFormsShowTheirReminderTimes(t *testing.T) {
 		"GET /api/v1/related-documents":       {http.StatusOK, `[]`},
 		"GET /api/v1/related-contacts":        {http.StatusOK, `[]`},
 	})
-	dateOnlyDefaults := []string{"2 days before 07:30", "0 days at 07:30", "", "", ""}
-	timedDefaults := []string{"2 days before", "90 minutes before", "0 minutes at", "1 days after 09:00", ""}
+	dateOnlyDefaults := []string{"2 days before at 07:30 | 2 days before 07:30", "On the due date at 07:30 | 0 days at 07:30"}
+	timedDefaults := []string{"2 days before | 2 days before", "90 minutes before | 90 minutes before", "At the due time | 0 minutes at", "1 day after at 09:00 | 1 days after 09:00"}
 	defaults := map[string][]string{"date_only": dateOnlyDefaults}
 
 	// Routines and Maintenance Schedules are due on a date, so their create
@@ -43,19 +43,19 @@ func TestRoutineAndMaintenanceFormsShowTheirReminderTimes(t *testing.T) {
 	// the defaults for the other kind, as the API resets them on a switch.
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/routines/5", "")).Body.String()
 	sets, shown := reminderSetsIn(t, page, "routine-edit")
-	if want := map[string][]string{"date_only": {"2 days before 19:00", "", "", "", ""}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
+	if want := map[string][]string{"date_only": {"2 days before at 19:00 | 2 days before 19:00"}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
 		t.Errorf("Routine edit Reminder Times = %q, showing %q; want %q", sets, shown, want)
 	}
 	page = serve(web.routes(), browserRequest(http.MethodGet, "/assets/4", "")).Body.String()
 	sets, shown = reminderSetsIn(t, page, "edit-asset-maintenance-6")
-	if want := map[string][]string{"date_only": {"", "", "", "", ""}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
+	if want := map[string][]string{"date_only": {}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
 		t.Errorf("Maintenance Schedule edit Reminder Times = %q, showing %q; want %q", sets, shown, want)
 	}
 
 	// One with a due time of day keeps it, and shows the timed form.
 	page = serve(web.routes(), browserRequest(http.MethodGet, "/routines/8", "")).Body.String()
 	sets, shown = reminderSetsIn(t, page, "routine-edit")
-	if want := map[string][]string{"timed": {"2 hours before", "", "", "", ""}, "date_only": dateOnlyDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "timed" {
+	if want := map[string][]string{"timed": {"2 hours before | 2 hours before"}, "date_only": dateOnlyDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "timed" {
 		t.Errorf("timed Routine edit Reminder Times = %q, showing %q; want %q, showing timed", sets, shown, want)
 	}
 	if !regexp.MustCompile(`name="next_due_at" type="datetime-local"`).MatchString(page) {
