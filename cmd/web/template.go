@@ -1576,6 +1576,7 @@ const appTemplate = `
 				</select></label>
 			</div>
 			<label>Next due<input name="next_due_at" type="date"></label>
+			{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 			<button type="submit">Add routine</button>
 		</form>
 	</div>
@@ -2060,6 +2061,7 @@ const appTemplate = `
 					</select></label>
 				</div>
 				<label>Next due<input name="next_due_at" type="date"></label>
+				{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add routine</button>
 			</form>
 		</div>
@@ -3105,6 +3107,7 @@ const appTemplate = `
 					</select></label>
 					<label>Next due<input name="next_due_at" type="date"></label>
 				</div>
+				{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add maintenance</button>
 			</form>
 		</div>
@@ -3188,6 +3191,7 @@ const appTemplate = `
 	<option value="active" {{ selectedString .Status "active" }}>active</option>
 	<option value="archived" {{ selectedString .Status "archived" }}>archived</option>
 </select></label>
+{{ template "taskReminderTimes" (sourceReminderEdit .ReminderTimes) }}
 {{ end }}
 
 {{ define "listDetail" }}
@@ -3953,6 +3957,7 @@ const appTemplate = `
 					</select></label>
 					<label>Next due<input name="next_due_at" type="date" value="{{ dateInput .Routine.NextDueAt }}"></label>
 				</div>
+				{{ template "taskReminderTimes" (sourceReminderEdit .Routine.ReminderTimes) }}
 				<button type="submit">Save routine</button>
 			</form>
 		</section>
