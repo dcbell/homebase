@@ -870,6 +870,46 @@ paths:
         "200":
           $ref: "#/components/responses/Task"
 
+  /api/v1/tasks/{id}/personal-reminder-times:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    put:
+      tags: [Tasks]
+      summary: Set my Personal Reminder Times on a task
+      description: >-
+        Sets the caller's own Reminder Times on a Task assigned to them, used instead of the
+        Task's Reminder Times for them alone. An empty list means no Reminders for them. Only
+        the assignee may; they are dropped when the Task is reassigned, switches between a timed
+        and a date-only due date, or they leave the Household.
+      operationId: setTaskPersonalReminderTimes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalReminderTimesInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Tasks]
+      summary: Use the shared Reminder Times on a task
+      description: Removes the caller's Personal Reminder Times, so the Task's Reminder Times apply to them again. Only the assignee may.
+      operationId: useSharedTaskReminderTimes
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/v1/tasks/{id}/archive:
     parameters:
       - $ref: "#/components/parameters/ID"
@@ -1937,6 +1977,8 @@ components:
             household_id: { type: integer, format: int64 }
             assigned_name: { type: string }
             completed_at: { $ref: "#/components/schemas/Timestamp" }
+            personal_reminder_times:
+              $ref: "#/components/schemas/PersonalReminderTimes"
     EventInput:
       type: object
       properties:
@@ -1976,6 +2018,32 @@ components:
         minutes: { type: integer, example: -60 }
         days: { type: integer, example: -1 }
         at: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]$", example: "08:00" }
+    PersonalReminderTimes:
+      type: object
+      description: >-
+        The calling Member's own Reminder Times on a Task. Returned by GET /tasks/{id} and the
+        personal-reminder-times endpoints, and only to the Member who may set them (the
+        assignee); other Members' are never returned.
+      properties:
+        using_shared:
+          type: boolean
+          description: True when the caller has none of their own, so the shared reminder_times apply to them.
+        reminder_times:
+          type: array
+          maxItems: 5
+          description: The caller's own Reminder Times; empty when using_shared. Empty when not using_shared means no Reminders.
+          items:
+            $ref: "#/components/schemas/ReminderTime"
+    PersonalReminderTimesInput:
+      type: object
+      required: [reminder_times]
+      properties:
+        reminder_times:
+          type: array
+          maxItems: 5
+          description: In the form that matches the Task's due date. An empty list means no Reminders for the caller.
+          items:
+            $ref: "#/components/schemas/ReminderTime"
     Attendee:
       type: object
       description: A Member an Appointment is for.
