@@ -1910,6 +1910,29 @@ components:
             Member of the Household (400 otherwise). Empty means the whole Household. On update,
             omitting the field keeps the current Attendees and an empty list clears them. Adding
             another Member sends them an Assignment Notification; adding yourself sends nothing.
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            When Attendees (or every Member, for a whole-household Appointment) are reminded.
+            Appointments take only the timed form, before or at the start: minutes from -43200
+            to 0, no repeats (400 otherwise). On create, omitting the field gives the defaults:
+            24 hours before, an hour before and at the start. On update, omitting it keeps the
+            current Reminder Times. An empty list means no Reminders. Changing them reschedules
+            pending Reminders; any whose moment has passed are skipped.
+          example: [{ minutes: -1440 }, { minutes: -60 }, { minutes: 0 }]
+    ReminderTime:
+      type: object
+      description: >-
+        A moment, relative to when something is due, at which a Reminder is sent. Timed form:
+        minutes from the due time, negative before it, zero at it, positive after it. Date-only
+        form: days from the due date at a local time of day. Before is Due Soon, at is Due Now,
+        after is Overdue. Offsets are at most 30 days either way.
+      properties:
+        minutes: { type: integer, example: -60 }
+        days: { type: integer, example: -1 }
+        at: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]$", example: "08:00" }
     Attendee:
       type: object
       description: A Member an Appointment is for.
