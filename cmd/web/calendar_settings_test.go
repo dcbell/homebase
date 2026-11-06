@@ -139,3 +139,60 @@ func TestDisconnectingACalendarConnectionReturnsToSettingsWithSaved(t *testing.T
 		t.Errorf("API calls = %+v, want one DELETE /api/v1/calendar-connections/4", calls)
 	}
 }
+
+func TestSettingsOffersIPhoneSetupWithTheRefreshAndRepeatingEventCaveats(t *testing.T) {
+	_, web := newRecordingAPI(t, withResponses(settingsAPI, map[string]cannedResponse{
+		"GET /api/v1/calendar-connections": {http.StatusOK, `[
+			{"id":6,"name":"Dave's iPhone","kind":"ios","secret_prefix":"hbcal_xyz","created_at":"2030-01-10T09:00:00Z"}
+		]`},
+	}))
+
+	rec := serve(web.routes(), browserRequest(http.MethodGet, "/settings", ""))
+
+	section := calendarSection(t, rec.Body.String())
+	for _, want := range []string{"Set up on iPhone", `name="kind" value="ios"`, "15 minutes", "repeating events", "Routines", "Dave&#39;s iPhone", "iPhone · Created"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("Calendar section has no %q:\n%s", want, section)
+		}
+	}
+}
+
+func TestSettingUpAnIPhoneForwardsToTheAPIAndSendsTheBrowserToTheProfile(t *testing.T) {
+	api, web := newRecordingAPI(t, withResponses(settingsAPI, map[string]cannedResponse{
+		"POST /api/v1/calendar-connections": {http.StatusCreated, `{
+			"connection":{"id":7,"name":"Dave's iPhone","kind":"ios","created_at":"2030-01-15T12:00:00Z"},
+			"profile_url":"https://homebase.example.test/api/v1/calendar-profiles/onetimetoken"
+		}`},
+	}))
+	req := browserRequest(http.MethodPost, "/settings/calendar-connections", "name=Dave%27s+iPhone&kind=ios")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rec := serve(web.routes(), req)
+
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "https://homebase.example.test/api/v1/calendar-profiles/onetimetoken" {
+		t.Errorf("got %d to %q, want a 303 to the profile link", rec.Code, rec.Header().Get("Location"))
+	}
+	var sent map[string]string
+	for _, call := range api.Calls() {
+		if call.Method == http.MethodPost && call.Path == "/api/v1/calendar-connections" {
+			_ = json.Unmarshal([]byte(call.Body), &sent)
+		}
+	}
+	if sent["name"] != "Dave's iPhone" || sent["kind"] != "ios" {
+		t.Errorf("POST body = %v, want name Dave's iPhone and kind ios", sent)
+	}
+}
+
+func TestAFailedIPhoneSetupShowsTheAPIError(t *testing.T) {
+	_, web := newRecordingAPI(t, withResponses(settingsAPI, map[string]cannedResponse{
+		"POST /api/v1/calendar-connections": {http.StatusBadRequest, `{"error":"name is required"}`},
+	}))
+	req := browserRequest(http.MethodPost, "/settings/calendar-connections", "name=&kind=ios")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rec := serve(web.routes(), req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "name is required") {
+		t.Errorf("got %d, want the Settings page with the API error:\n%s", rec.Code, rec.Body.String())
+	}
+}
