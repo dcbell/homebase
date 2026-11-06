@@ -817,6 +817,22 @@ const appTemplate = `
 					form.requestSubmit();
 				});
 			});
+			// A Task's Reminder Times reset when its due date switches between a
+			// time of day and a date with none (midnight), so show the set for
+			// the due date's kind; the hidden set is disabled and not sent.
+			document.querySelectorAll("[data-task-reminder-times]").forEach(function (editor) {
+				var form = editor.closest("form");
+				var due = form && form.elements["due_at"];
+				if (!due || editor.querySelectorAll("[data-reminder-kind]").length < 2) return;
+				due.addEventListener("change", function () {
+					var kind = due.value !== "" && (due.type === "date" || /T00:00$/.test(due.value)) ? "date_only" : "timed";
+					editor.querySelectorAll("[data-reminder-kind]").forEach(function (set) {
+						var off = set.getAttribute("data-reminder-kind") !== kind;
+						set.disabled = off;
+						set.hidden = off;
+					});
+				});
+			});
 			document.querySelectorAll("[data-date-field]").forEach(function (fieldControl) {
 				fieldControl.addEventListener("change", function () {
 					var form = document.getElementById(fieldControl.getAttribute("data-form"));
@@ -1471,7 +1487,7 @@ const appTemplate = `
 			<h2>Add Task</h2>
 			<button class="secondary compact" type="button" data-modal-close>Close</button>
 		</div>
-		<form method="post" action="/tasks">
+		<form id="add-task-form" method="post" action="/tasks">
 			<label>Title<input name="title" required></label>
 			<label>Notes<textarea name="notes"></textarea></label>
 			<div class="form-row">
@@ -1488,6 +1504,7 @@ const appTemplate = `
 				<label>Due<input name="due_at" type="datetime-local"></label>
 				<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 			</div>
+			{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults false) }}
 			<button type="submit">Add task</button>
 		</form>
 	</div>
@@ -1724,6 +1741,47 @@ const appTemplate = `
 </fieldset>
 {{ end }}
 
+{{ define "taskReminderTimes" }}
+{{ if .Known }}
+<div class="task-reminder-times" data-task-reminder-times>
+	<input type="hidden" name="reminder_times" value="1">
+	{{ if .Timed }}{{ template "taskReminderTimeRows" (dict "Kind" "timed" "Shown" (eq .Kind "timed") "Slots" .Timed) }}{{ end }}
+	{{ if .DateOnly }}{{ template "taskReminderTimeRows" (dict "Kind" "date_only" "Shown" (eq .Kind "date_only") "Slots" .DateOnly) }}{{ end }}
+</div>
+{{ else }}
+<fieldset class="reminder-times">
+	<legend>Reminders</legend>
+	<span class="hint">The default reminders apply.</span>
+</fieldset>
+{{ end }}
+{{ end }}
+
+{{ define "taskReminderTimeRows" }}
+<fieldset class="reminder-times" data-reminder-kind="{{ .Kind }}"{{ if not .Shown }} disabled hidden{{ end }}>
+	<legend>Reminders</legend>
+	{{ $dateOnly := eq .Kind "date_only" }}
+	{{ range .Slots }}
+	<div class="form-row reminder-time">
+		<input name="reminder_amount" type="number" min="0" step="1" value="{{ .Amount }}" aria-label="How long">
+		<select name="reminder_unit" aria-label="Unit">
+			{{ if not $dateOnly }}
+			<option value="minutes"{{ if eq .Unit "minutes" }} selected{{ end }}>minutes</option>
+			<option value="hours"{{ if eq .Unit "hours" }} selected{{ end }}>hours</option>
+			{{ end }}
+			<option value="days"{{ if eq .Unit "days" }} selected{{ end }}>days</option>
+		</select>
+		<select name="reminder_direction" aria-label="Before or after">
+			<option value="before"{{ if eq .Direction "before" }} selected{{ end }}>before</option>
+			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $dateOnly }}on the day{{ else }}at the time{{ end }}</option>
+			<option value="after"{{ if eq .Direction "after" }} selected{{ end }}>after</option>
+		</select>
+		<input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day">
+	</div>
+	{{ end }}
+	<span class="hint">{{ if $dateOnly }}Days before or after the due date, at a time of day.{{ else }}Before or after the due time; set a time of day for days at that time.{{ end }} Clear a row to drop it; clear them all for no reminders.</span>
+</fieldset>
+{{ end }}
+
 {{ define "calendarWeekView" }}
 <section class="calendar-week-grid">
 	{{ range calendarWeek .Calendar .CalendarFocus }}
@@ -1911,7 +1969,7 @@ const appTemplate = `
 				<h2>Add Task</h2>
 				<button class="secondary compact" type="button" data-modal-close>Close</button>
 			</div>
-			<form method="post" action="/tasks">
+			<form id="task-create-form" method="post" action="/tasks">
 				<input type="hidden" name="return_to" value="/tasks">
 				<label>Title<input name="title" required></label>
 				<label>Notes<textarea name="notes"></textarea></label>
@@ -1929,6 +1987,7 @@ const appTemplate = `
 					<label>Due<input name="due_at" type="datetime-local"></label>
 					<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 				</div>
+				{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults false) }}
 				<button type="submit">Add task</button>
 			</form>
 		</div>
@@ -3653,7 +3712,7 @@ const appTemplate = `
 				<h2>Add Project Task</h2>
 				<button class="secondary compact" type="button" data-modal-close>Close</button>
 			</div>
-			<form method="post" action="/projects/{{ .Project.ID }}/tasks">
+			<form id="project-task-create-form" method="post" action="/projects/{{ .Project.ID }}/tasks">
 				<label>Title<input name="title" required></label>
 				<label>Notes<textarea name="notes"></textarea></label>
 				<div class="form-row">
@@ -3670,6 +3729,7 @@ const appTemplate = `
 					<label>Due<input name="due_at" type="date"></label>
 					<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 				</div>
+				{{ template "taskReminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add task</button>
 			</form>
 		</div>
@@ -3775,6 +3835,7 @@ const appTemplate = `
 				</select></label>
 			</div>
 			<label>Due<input name="due_at" type="datetime-local" value="{{ datetimeInputPtr .Task.DueAt }}"></label>
+			{{ template "taskReminderTimes" (taskReminderEdit .Task .ReminderTimeDefaults) }}
 			<button type="submit">Save task</button>
 		</form>
 	</section>

@@ -205,6 +205,8 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
 		"reminderSlots":         appointmentReminderSlots,
+		"taskReminderCreate":    taskReminderCreateForm,
+		"taskReminderEdit":      taskReminderEditForm,
 	}).Parse(appTemplate))
 	return s
 }
@@ -461,13 +463,20 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		LogoutURL:     "/logout",
 		Now:           time.Now(),
 	}
-	var reminderTimeDefaults store.ReminderTimeDefaults
-	if err := s.apiJSON(r, http.MethodGet, "/api/v1/reminder-times/defaults", nil, &reminderTimeDefaults); err != nil {
-		s.logger.Error("load default reminder times", "error", err)
-	} else {
-		page.ReminderTimeDefaults = &reminderTimeDefaults
-	}
+	page.ReminderTimeDefaults = s.reminderTimeDefaults(r)
 	s.render(w, r, http.StatusOK, page)
+}
+
+// reminderTimeDefaults loads the API's default Reminder Times to prefill
+// forms, or nil if they could not be loaded, so create forms leave Reminder
+// Times to the API.
+func (s *webServer) reminderTimeDefaults(r *http.Request) *store.ReminderTimeDefaults {
+	var defaults store.ReminderTimeDefaults
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/reminder-times/defaults", nil, &defaults); err != nil {
+		s.logger.Error("load default reminder times", "error", err)
+		return nil
+	}
+	return &defaults
 }
 
 func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
@@ -958,6 +967,8 @@ func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
 		TaskDocuments:   taskDocuments,
 		TaskContacts:    taskContacts,
 		TaskAssets:      taskAssets,
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 		Now:             time.Now(),
 	})
 }
@@ -1136,6 +1147,8 @@ func (s *webServer) taskIndex(w http.ResponseWriter, r *http.Request) {
 		TaskIndex: true,
 		DueFilter: dueFilterFromRequest(r),
 		Now:       time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1197,6 +1210,8 @@ func (s *webServer) taskDetail(w http.ResponseWriter, r *http.Request) {
 		RelatedDocs:     relatedDocs,
 		RelatedAssets:   relatedAssets,
 		Now:             time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -3008,6 +3023,9 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
 		payload["due_at"] = formTime(due)
+	}
+	if times, ok := taskReminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	return payload
 }
