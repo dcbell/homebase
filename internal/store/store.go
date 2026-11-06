@@ -47,6 +47,13 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
+	return s.MigrateBefore(ctx, "")
+}
+
+// MigrateBefore runs the migrations that come before the named one, or all of
+// them when before is empty. Tests use it to set up a schema as it was before
+// an upgrade.
+func (s *Store) MigrateBefore(ctx context.Context, before string) error {
 	entries, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return err
@@ -55,6 +62,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
+		}
+		if before != "" && entry.Name() >= before {
+			break
 		}
 
 		body, err := migrations.ReadFile("migrations/" + entry.Name())

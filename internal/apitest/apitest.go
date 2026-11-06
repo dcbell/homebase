@@ -51,9 +51,16 @@ type Harness struct {
 // override any dependency.
 func New(t testing.TB, opts ...api.Option) *Harness {
 	t.Helper()
+	return NewWithStore(t, storetest.Open(t), opts...)
+}
+
+// NewWithStore builds a Harness on a store the test has already prepared,
+// such as one upgraded from an earlier schema (see storetest.OpenBefore).
+func NewWithStore(t testing.TB, st *store.Store, opts ...api.Option) *Harness {
+	t.Helper()
 	h := &Harness{
 		t:     t,
-		Store: storetest.Open(t),
+		Store: st,
 		Clock: clock.NewFake(DefaultNow),
 		Config: config.Config{
 			Env:                 "test",

@@ -45,6 +45,29 @@ type ensureResult struct {
 // database. It skips the test when the database server is unreachable.
 func Open(t testing.TB) *store.Store {
 	t.Helper()
+	st, _ := open(t, "")
+	return st
+}
+
+// OpenBefore is Open with only the migrations that come before the named one
+// run, for tests of an upgrade. It also returns a connection to the schema, so
+// the test can seed it as it was before the upgrade. Migrate finishes the
+// upgrade.
+func OpenBefore(t testing.TB, migration string) (*store.Store, *sql.DB) {
+	t.Helper()
+	st, schemaURL := open(t, migration)
+	db, err := sql.Open("pgx", schemaURL)
+	if err != nil {
+		t.Fatalf("open test schema: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return st, db
+}
+
+// open returns a store backed by a fresh schema migrated up to before (all
+// migrations when empty), and the URL of that schema.
+func open(t testing.TB, before string) (*store.Store, string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -81,10 +104,10 @@ func Open(t testing.TB) *store.Store {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	if err := migrateLocked(ctx, admin, st); err != nil {
+	if err := migrateLocked(ctx, admin, st, before); err != nil {
 		t.Fatalf("migrate test schema: %v", err)
 	}
-	return st
+	return st, schemaURL
 }
 
 func createTestDatabase(ctx context.Context, serverURL string) error {
@@ -143,10 +166,10 @@ func Migrate(t testing.TB, st *store.Store) error {
 		return err
 	}
 	defer func() { _ = admin.Close() }()
-	return migrateLocked(ctx, admin, st)
+	return migrateLocked(ctx, admin, st, "")
 }
 
-func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store) error {
+func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store, before string) error {
 	conn, err := admin.Conn(ctx)
 	if err != nil {
 		return err
@@ -160,7 +183,7 @@ func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store) error {
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockID)
 	}()
 
-	return st.Migrate(ctx)
+	return st.MigrateBefore(ctx, before)
 }
 
 func withDatabase(rawURL, database string) (string, error) {
