@@ -15,8 +15,16 @@ CREATE TABLE IF NOT EXISTS scheduled_reminders (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_scheduled_reminders_key
-    ON scheduled_reminders(recipient_id, subject_type, subject_id, stage, due_at);
+-- 026 replaces this key with one per Reminder Time and drops it. Migrations
+-- run again on every start, so only create it before that has happened: once
+-- several Reminders share a stage it can no longer be built.
+DO $$
+BEGIN
+    IF to_regclass('ux_scheduled_reminders_reminder_time') IS NULL THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_scheduled_reminders_key
+            ON scheduled_reminders(recipient_id, subject_type, subject_id, stage, due_at);
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_scheduled_reminders_subject
     ON scheduled_reminders(subject_type, subject_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_reminders_pending
