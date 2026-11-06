@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -19,6 +20,10 @@ type EventInput struct {
 	// whole Household. On update, omitting the field (nil) keeps the current
 	// Attendees and an empty list clears them.
 	AttendeeIDs []int64 `json:"attendee_ids"`
+	// ReminderTimes are when Attendees are reminded. On create, omitting the
+	// field (nil) gives the built-in AppointmentReminderTimes; on update it
+	// keeps the current ones. An empty list means no Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
 	// CalendarUID is the UID a device chose when it created the Appointment
 	// over CalDAV. It is only set on create.
 	CalendarUID string `json:"-"`
@@ -28,7 +33,7 @@ type EventInput struct {
 // Household.
 var ErrAttendeeNotMember = errors.New("attendees must be members of the household")
 
-const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at, COALESCE(calendar_uid, '')`
+const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at, COALESCE(calendar_uid, ''), reminder_times`
 
 type eventScanner interface {
 	Scan(dest ...any) error
@@ -36,8 +41,22 @@ type eventScanner interface {
 
 func scanEvent(scanner eventScanner) (Event, error) {
 	var e Event
-	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &e.CalendarUID)
+	var reminderTimes []byte
+	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &e.CalendarUID, &reminderTimes)
+	if err != nil {
+		return e, err
+	}
+	err = json.Unmarshal(reminderTimes, &e.ReminderTimes)
 	return e, err
+}
+
+// reminderTimesJSON is a list of Reminder Times as stored in a JSONB column.
+func reminderTimesJSON(times []ReminderTime) (string, error) {
+	if times == nil {
+		times = []ReminderTime{}
+	}
+	b, err := json.Marshal(times)
+	return string(b), err
 }
 
 // queryer is satisfied by *sql.DB and *sql.Tx.
@@ -160,11 +179,21 @@ func validateEventInput(input *EventInput) error {
 	if input.StartsAt.IsZero() || input.EndsAt.IsZero() || !input.EndsAt.After(input.StartsAt) {
 		return errors.New("valid starts_at and ends_at are required")
 	}
+	if input.ReminderTimes != nil {
+		return ValidateReminderTimes(input.ReminderTimes, SubjectAppointment, false)
+	}
 	return nil
 }
 
 func (s *Store) CreateEvent(ctx context.Context, householdID, userID int64, input EventInput) (Event, error) {
 	if err := validateEventInput(&input); err != nil {
+		return Event{}, err
+	}
+	if input.ReminderTimes == nil {
+		input.ReminderTimes = AppointmentReminderTimes
+	}
+	reminderTimes, err := reminderTimesJSON(input.ReminderTimes)
+	if err != nil {
 		return Event{}, err
 	}
 
@@ -175,10 +204,10 @@ func (s *Store) CreateEvent(ctx context.Context, householdID, userID int64, inpu
 	defer tx.Rollback()
 
 	e, err := scanEvent(tx.QueryRowContext(ctx, `
-		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by, calendar_uid)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''))
+		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by, calendar_uid, reminder_times)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9)
 		RETURNING `+eventColumns+`
-	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID, input.CalendarUID))
+	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID, input.CalendarUID, reminderTimes))
 	if err != nil {
 		return Event{}, err
 	}
@@ -267,6 +296,18 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 	}
 	if input.AttendeeIDs != nil {
 		if err := setAttendees(ctx, tx, householdID, id, input.AttendeeIDs); err != nil {
+			return Event{}, Event{}, err
+		}
+	}
+	if input.ReminderTimes != nil {
+		reminderTimes, err := reminderTimesJSON(input.ReminderTimes)
+		if err != nil {
+			return Event{}, Event{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE events SET reminder_times = $3
+			WHERE household_id = $1 AND id = $2
+		`, householdID, id, reminderTimes); err != nil {
 			return Event{}, Event{}, err
 		}
 	}
