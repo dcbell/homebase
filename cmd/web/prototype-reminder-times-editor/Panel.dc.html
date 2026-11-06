@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Your Reminder Times panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.root{--ink:#2e3338;--muted:#5c6470;--line:#d7dae2;--paper:#f2f3f5;--panel:#ffffff;--panel-soft:#f6f7f9;--field:#ffffff;--accent:#5865f2;--accent-hover:#4752c4;--accent-ink:#ffffff;--danger:#d83c3e;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}
+.root.dark{--ink:#f2f3f5;--muted:#b5bac1;--line:#3f4147;--paper:#313338;--panel:#2b2d31;--panel-soft:#383a40;--field:#1e1f22;--accent:#7983f5;--accent-hover:#5865f2;--danger:#f87171}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
+.card h2{margin:0;font-size:18px}
+.hint{margin:0;font-size:13px;color:var(--muted)}
+input,select{min-height:38px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px;background:var(--field);color:var(--ink);box-sizing:border-box;min-width:0}
+button{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);min-height:36px;padding:0 12px;border-radius:6px;font:inherit;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+button.secondary{background:var(--panel);color:var(--accent)}
+button.secondary:hover{background:var(--panel-soft);color:var(--accent)}
+.rt{display:flex;flex-direction:column;gap:8px}
+.rt-frame{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 8px 8px 12px;background:var(--panel-soft);border:1px solid var(--line);border-radius:8px}
+.rt-frame.static{min-height:38px;padding:8px 12px;font-size:14px}
+.rt-amount{width:72px}
+.word{font-size:14px;color:var(--ink)}
+.rt-x{margin-left:auto;width:36px;height:36px;min-height:36px;padding:0;border-radius:999px;background:transparent;border:1px solid transparent;color:var(--muted)}
+.rt-x:hover{background:var(--panel);border-color:var(--line);color:var(--danger)}
+.rt-add{align-self:flex-start;background:transparent;border:1px dashed var(--line);color:var(--accent)}
+.rt-add:hover{background:var(--panel-soft);border-color:var(--accent);color:var(--accent)}
+.rt-empty{font-size:13px;color:var(--muted);padding:10px 12px;border:1px dashed var(--line);border-radius:8px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px}
+.meta span:nth-child(odd){color:var(--muted)}
+.label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 680px; height: 1000px; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; align-items: center; gap: 20px">
+
+<div class="label" style="width: {{cardW}}">Task page, viewed by the assignee</div>
+<div class="card" style="width: {{cardW}}">
+<h2>Pay the water bill</h2>
+<div class="meta"><span>Due</span><span>Fri 17 Jan 2030, 18:00</span><span>Assigned to</span><span>You</span></div>
+</div>
+
+<div class="card" style="width: {{cardW}}">
+<h2>Your Reminder Times</h2>
+
+<sc-if value="{{shared}}" hint-placeholder-val="{{ true }}">
+<p class="hint">You get this Task's Reminder Times.</p>
+<div class="rt">
+<sc-for list="{{sharedRows}}" as="s" hint-placeholder-count="3"><div class="rt-frame static">{{s.summary}}</div></sc-for>
+</div>
+<div class="actions"><button class="secondary" type="button" onClick="{{customize}}">Customize for me</button></div>
+</sc-if>
+
+<sc-if value="{{custom}}" hint-placeholder-val="{{ false }}">
+<p class="hint">These replace this Task's Reminder Times for you. Only you see them.</p>
+<div class="rt">
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
+<div class="rt-frame">
+<sc-if value="{{row.showAmount}}" hint-placeholder-val="{{ true }}"><input class="rt-amount" type="number" min="0" value="{{row.amount}}" onChange="{{row.setAmount}}" aria-label="How long"></sc-if>
+<sc-if value="{{row.showUnitSelect}}" hint-placeholder-val="{{ true }}"><select value="{{row.unit}}" onChange="{{row.setUnit}}" aria-label="Unit"><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select></sc-if>
+<select value="{{row.dir}}" onChange="{{row.setDir}}" aria-label="When"><option value="before">before</option><option value="at">at the due time</option><option value="after">after</option></select>
+<sc-if value="{{row.showAt}}" hint-placeholder-val="{{ false }}"><span class="word">at</span><input type="time" value="{{row.at}}" onChange="{{row.setAt}}" aria-label="Time of day"></sc-if>
+<button class="rt-x" type="button" onClick="{{row.remove}}" aria-label="Remove reminder"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button>
+</div>
+</sc-for>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}"><div class="rt-empty">No reminders</div></sc-if>
+<sc-if value="{{canAdd}}" hint-placeholder-val="{{ true }}"><button class="rt-add" type="button" onClick="{{add}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>Add reminder</button></sc-if>
+</div>
+<div class="actions"><button type="button" onClick="{{save}}">Save</button><button class="secondary" type="button" onClick="{{useShared}}">Use shared</button></div>
+</sc-if>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"phone":{"editor":"boolean","default":false},"$preview":{"width":680,"height":1000}}'>
+var SHARED = [{amount: 24, unit: 'hours', dir: 'before', at: ''}, {amount: 0, unit: 'hours', dir: 'at', at: ''}, {amount: 1, unit: 'days', dir: 'after', at: '08:00'}];
+function summary(r) {
+  if (r.dir === 'at') return 'At the due time';
+  var n = Number(r.amount) || 0, u = r.unit;
+  if (n === 1) u = u.replace(/s$/, '');
+  var s = n + ' ' + u + ' ' + r.dir;
+  if (r.unit === 'days' && r.at) s += ' at ' + r.at;
+  return s;
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.next = 100;
+    this.state = {custom: false, rows: []};
+  }
+  update(id, patch) {
+    this.setState(function (s) { return {rows: s.rows.map(function (r) { return r.id === id ? Object.assign({}, r, patch) : r; })}; });
+  }
+  renderVals() {
+    var self = this, rows = this.state.rows;
+    return {
+      themeClass: this.props.dark ? 'root dark' : 'root',
+      cardW: this.props.phone ? '358px' : '600px',
+      shared: !this.state.custom,
+      custom: this.state.custom,
+      sharedRows: SHARED.map(function (r) { return {summary: summary(r)}; }),
+      customize: function () {
+        var n = 0;
+        self.setState({custom: true, rows: SHARED.map(function (r) { n++; return Object.assign({id: n}, r); })});
+      },
+      useShared: function () { self.setState({custom: false, rows: []}); },
+      save: function () {},
+      empty: rows.length === 0,
+      canAdd: rows.length < 5,
+      add: function () {
+        var id = ++self.next;
+        self.setState(function (s) { return {rows: s.rows.concat([{id: id, amount: 1, unit: 'hours', dir: 'before', at: ''}])}; });
+      },
+      rows: rows.map(function (r) {
+        var at = r.dir === 'at';
+        return Object.assign({}, r, {
+          showAmount: !at,
+          showUnitSelect: !at,
+          showAt: !at && r.unit === 'days',
+          setAmount: function (e) { self.update(r.id, {amount: e.target.value}); },
+          setUnit: function (e) { self.update(r.id, {unit: e.target.value, at: e.target.value === 'days' ? (r.at || '08:00') : r.at}); },
+          setDir: function (e) { self.update(r.id, {dir: e.target.value}); },
+          setAt: function (e) { self.update(r.id, {at: e.target.value}); },
+          remove: function () { self.setState(function (s) { return {rows: s.rows.filter(function (x) { return x.id !== r.id; })}; }); }
+        });
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

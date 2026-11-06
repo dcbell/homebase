@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Variant B: summary line and segmented controls</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.root{--ink:#2e3338;--muted:#5c6470;--line:#d7dae2;--paper:#f2f3f5;--panel:#ffffff;--panel-soft:#f6f7f9;--field:#ffffff;--accent:#5865f2;--accent-hover:#4752c4;--accent-ink:#ffffff;--danger:#d83c3e;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}
+.root.dark{--ink:#f2f3f5;--muted:#b5bac1;--line:#3f4147;--paper:#313338;--panel:#2b2d31;--panel-soft:#383a40;--field:#1e1f22;--accent:#7983f5;--accent-hover:#5865f2;--danger:#f87171}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.card h2{margin:0;font-size:18px}
+.f{display:grid;gap:5px;color:var(--muted);font-size:13px}
+input,select{min-height:38px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px;background:var(--field);color:var(--ink);box-sizing:border-box;min-width:0}
+.f input{width:100%}
+button{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);min-height:36px;padding:0 12px;border-radius:6px;font:inherit;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.legend{font-size:13px;color:var(--muted)}
+.rt{display:flex;flex-direction:column;gap:8px}
+.rt-frame{display:flex;flex-direction:column;gap:10px;padding:10px 10px 12px 14px;background:var(--panel-soft);border:1px solid var(--line);border-radius:8px}
+.rt-head{display:flex;align-items:center;gap:8px}
+.rt-summary{flex:1;font-size:15px;font-weight:600}
+.rt-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--field)}
+.seg button{min-height:32px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--muted);padding:0 12px;font-size:13px}
+.seg button:hover{background:var(--panel-soft);color:var(--ink);border-color:transparent}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:6px;background:var(--field)}
+.stepper button{min-height:36px;width:36px;padding:0;background:transparent;border:0;color:var(--accent);font-size:18px}
+.stepper button:hover{background:var(--panel-soft);color:var(--accent)}
+.stepper input{width:52px;border:0;text-align:center;min-height:36px;padding:0}
+.word{font-size:14px;color:var(--muted)}
+.rt-x{width:36px;height:36px;min-height:36px;padding:0;border-radius:999px;background:transparent;border:1px solid transparent;color:var(--muted)}
+.rt-x:hover{background:var(--panel);border-color:var(--line);color:var(--danger)}
+.rt-add{align-self:flex-start;background:transparent;border:1px dashed var(--line);color:var(--accent)}
+.rt-add:hover{background:var(--panel-soft);border-color:var(--accent);color:var(--accent)}
+.rt-empty{font-size:13px;color:var(--muted);padding:10px 12px;border:1px dashed var(--line);border-radius:8px}
+.label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 680px; height: 2300px; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; align-items: center; gap: 20px">
+
+<div class="label" style="width: {{cardW}}">Timed Task</div>
+<div class="card" style="width: {{cardW}}">
+<h2>New Task</h2>
+<label class="f">Title<input value="Pay the water bill" readonly></label>
+<label class="f">Due<input value="Fri 17 Jan 2030, 18:00" readonly></label>
+<div class="rt">
+<div class="legend">Reminders</div>
+<sc-for list="{{timed.rows}}" as="row" hint-placeholder-count="3">
+<div class="rt-frame">
+<div class="rt-head"><span class="rt-summary">{{row.summary}}</span><button class="rt-x" type="button" onClick="{{row.remove}}" aria-label="Remove reminder"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<div class="rt-controls">
+<div class="seg" role="group" aria-label="When"><sc-for list="{{row.dirButtons}}" as="o" hint-placeholder-count="3"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div>
+<sc-if value="{{row.showAmount}}" hint-placeholder-val="{{ true }}"><div class="stepper"><button type="button" onClick="{{row.dec}}" aria-label="Less">−</button><input type="number" min="0" value="{{row.amount}}" onChange="{{row.setAmount}}" aria-label="How long"><button type="button" onClick="{{row.inc}}" aria-label="More">+</button></div></sc-if>
+<sc-if value="{{row.showUnitSelect}}" hint-placeholder-val="{{ true }}"><select value="{{row.unit}}" onChange="{{row.setUnit}}" aria-label="Unit"><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select></sc-if>
+<sc-if value="{{row.showAt}}" hint-placeholder-val="{{ false }}"><span class="word">at</span><input type="time" value="{{row.at}}" onChange="{{row.setAt}}" aria-label="Time of day"></sc-if>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{timed.empty}}" hint-placeholder-val="{{ false }}"><div class="rt-empty">No reminders</div></sc-if>
+<sc-if value="{{timed.canAdd}}" hint-placeholder-val="{{ true }}"><button class="rt-add" type="button" onClick="{{timed.add}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>Add reminder</button></sc-if>
+</div>
+</div>
+
+<div class="label" style="width: {{cardW}}">Date-only Task</div>
+<div class="card" style="width: {{cardW}}">
+<h2>New Task</h2>
+<label class="f">Title<input value="Renew car registration" readonly></label>
+<label class="f">Due<input value="Fri 17 Jan 2030" readonly></label>
+<div class="rt">
+<div class="legend">Reminders</div>
+<sc-for list="{{dateOnly.rows}}" as="row" hint-placeholder-count="3">
+<div class="rt-frame">
+<div class="rt-head"><span class="rt-summary">{{row.summary}}</span><button class="rt-x" type="button" onClick="{{row.remove}}" aria-label="Remove reminder"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<div class="rt-controls">
+<div class="seg" role="group" aria-label="When"><sc-for list="{{row.dirButtons}}" as="o" hint-placeholder-count="3"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div>
+<sc-if value="{{row.showAmount}}" hint-placeholder-val="{{ true }}"><div class="stepper"><button type="button" onClick="{{row.dec}}" aria-label="Fewer days">−</button><input type="number" min="0" value="{{row.amount}}" onChange="{{row.setAmount}}" aria-label="How many days"><button type="button" onClick="{{row.inc}}" aria-label="More days">+</button></div><span class="word">{{row.daysWord}}</span></sc-if>
+<span class="word">at</span><input type="time" value="{{row.at}}" onChange="{{row.setAt}}" aria-label="Time of day">
+</div>
+</div>
+</sc-for>
+<sc-if value="{{dateOnly.empty}}" hint-placeholder-val="{{ false }}"><div class="rt-empty">No reminders</div></sc-if>
+<sc-if value="{{dateOnly.canAdd}}" hint-placeholder-val="{{ true }}"><button class="rt-add" type="button" onClick="{{dateOnly.add}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>Add reminder</button></sc-if>
+</div>
+</div>
+
+<div class="label" style="width: {{cardW}}">Appointment</div>
+<div class="card" style="width: {{cardW}}">
+<h2>New Appointment</h2>
+<label class="f">Title<input value="Dentist" readonly></label>
+<label class="f">Starts<input value="Tue 21 Jan 2030, 15:30" readonly></label>
+<div class="rt">
+<div class="legend">Reminders</div>
+<sc-for list="{{appt.rows}}" as="row" hint-placeholder-count="3">
+<div class="rt-frame">
+<div class="rt-head"><span class="rt-summary">{{row.summary}}</span><button class="rt-x" type="button" onClick="{{row.remove}}" aria-label="Remove reminder"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<div class="rt-controls">
+<div class="seg" role="group" aria-label="When"><sc-for list="{{row.dirButtons}}" as="o" hint-placeholder-count="2"><button type="button" class="{{o.cls}}" onClick="{{o.pick}}">{{o.label}}</button></sc-for></div>
+<sc-if value="{{row.showAmount}}" hint-placeholder-val="{{ true }}"><div class="stepper"><button type="button" onClick="{{row.dec}}" aria-label="Less">−</button><input type="number" min="0" value="{{row.amount}}" onChange="{{row.setAmount}}" aria-label="How long"><button type="button" onClick="{{row.inc}}" aria-label="More">+</button></div></sc-if>
+<sc-if value="{{row.showUnitSelect}}" hint-placeholder-val="{{ true }}"><select value="{{row.unit}}" onChange="{{row.setUnit}}" aria-label="Unit"><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select></sc-if>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{appt.empty}}" hint-placeholder-val="{{ false }}"><div class="rt-empty">No reminders</div></sc-if>
+<sc-if value="{{appt.canAdd}}" hint-placeholder-val="{{ true }}"><button class="rt-add" type="button" onClick="{{appt.add}}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>Add reminder</button></sc-if>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"phone":{"editor":"boolean","default":false},"$preview":{"width":680,"height":2300}}'>
+var DEF = {
+  timed: [{amount: 24, unit: 'hours', dir: 'before', at: ''}, {amount: 0, unit: 'hours', dir: 'at', at: ''}, {amount: 1, unit: 'days', dir: 'after', at: '08:00'}],
+  dateOnly: [{amount: 1, unit: 'days', dir: 'before', at: '08:00'}, {amount: 0, unit: 'days', dir: 'at', at: '08:00'}, {amount: 1, unit: 'days', dir: 'after', at: '08:00'}],
+  appt: [{amount: 24, unit: 'hours', dir: 'before', at: ''}, {amount: 1, unit: 'hours', dir: 'before', at: ''}, {amount: 0, unit: 'minutes', dir: 'at', at: ''}]
+};
+var DIRS = {
+  timed: [{v: 'before', label: 'Before'}, {v: 'at', label: 'At due time'}, {v: 'after', label: 'After'}],
+  dateOnly: [{v: 'before', label: 'Before'}, {v: 'at', label: 'On the day'}, {v: 'after', label: 'After'}],
+  appt: [{v: 'before', label: 'Before'}, {v: 'at', label: 'At the start'}]
+};
+function summary(k, r) {
+  if (r.dir === 'at') {
+    if (k === 'timed') return 'At the due time';
+    if (k === 'dateOnly') return 'On the due date at ' + r.at;
+    return 'At the start';
+  }
+  var n = Number(r.amount) || 0, u = r.unit;
+  if (n === 1) u = u.replace(/s$/, '');
+  var s = n + ' ' + u + ' ' + (r.dir === 'before' ? (k === 'appt' ? 'before the start' : 'before') : 'after');
+  if ((k === 'dateOnly' || (k === 'timed' && r.unit === 'days')) && r.at) s += ' at ' + r.at;
+  return s;
+}
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    var n = 0;
+    var seed = function (k) { return DEF[k].map(function (r) { n++; return Object.assign({id: n}, r); }); };
+    this.next = 100;
+    this.state = {timed: seed('timed'), dateOnly: seed('dateOnly'), appt: seed('appt')};
+  }
+  update(k, id, patch) {
+    this.setState(function (s) { var o = {}; o[k] = s[k].map(function (r) { return r.id === id ? Object.assign({}, r, patch) : r; }); return o; });
+  }
+  editor(k) {
+    var self = this, rows = this.state[k];
+    return {
+      empty: rows.length === 0,
+      canAdd: rows.length < 5,
+      add: function () {
+        var id = ++self.next;
+        self.setState(function (s) { var o = {}; o[k] = s[k].concat([{id: id, amount: 1, unit: k === 'dateOnly' ? 'days' : 'hours', dir: 'before', at: k === 'appt' ? '' : '08:00'}]); return o; });
+      },
+      rows: rows.map(function (r) { return self.row(k, r); })
+    };
+  }
+  row(k, r) {
+    var self = this, at = r.dir === 'at';
+    return Object.assign({}, r, {
+      summary: summary(k, r),
+      showAmount: !at,
+      showUnitSelect: !at && k !== 'dateOnly',
+      showAt: k === 'timed' && !at && r.unit === 'days',
+      daysWord: Number(r.amount) === 1 ? 'day' : 'days',
+      dirButtons: DIRS[k].map(function (o) { return {label: o.label, cls: o.v === r.dir ? 'on' : '', pick: function () { self.update(k, r.id, {dir: o.v}); }}; }),
+      dec: function () { self.update(k, r.id, {amount: Math.max(0, (Number(r.amount) || 0) - 1)}); },
+      inc: function () { self.update(k, r.id, {amount: (Number(r.amount) || 0) + 1}); },
+      setAmount: function (e) { self.update(k, r.id, {amount: e.target.value}); },
+      setUnit: function (e) { self.update(k, r.id, {unit: e.target.value, at: e.target.value === 'days' ? (r.at || '08:00') : r.at}); },
+      setAt: function (e) { self.update(k, r.id, {at: e.target.value}); },
+      remove: function () { self.setState(function (s) { var o = {}; o[k] = s[k].filter(function (x) { return x.id !== r.id; }); return o; }); }
+    });
+  }
+  renderVals() {
+    return {
+      themeClass: this.props.dark ? 'root dark' : 'root',
+      cardW: this.props.phone ? '358px' : '600px',
+      timed: this.editor('timed'),
+      dateOnly: this.editor('dateOnly'),
+      appt: this.editor('appt')
+    };
+  }
+}
+</script>
+</body>
+</html>
