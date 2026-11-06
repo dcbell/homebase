@@ -124,7 +124,7 @@ A Notification that something assigned to a Member is coming due or is overdue. 
 _Avoid_: Alert, nudge
 
 **Reminder Time**:
-One moment, set relative to when something is due, at which a Reminder is sent, such as 24 hours before or one day after at 08:00. A Task, Appointment, Routine, or Maintenance Schedule has up to five Reminder Times, which anyone who can edit it may change; a Routine's or Maintenance Schedule's are copied onto each Generated Task. None means no Reminders.
+One moment, set relative to when something is due, at which a Reminder is sent, such as 24 hours before or one day after at 08:00. A Task, Appointment, Routine, or Maintenance Schedule has up to five Reminder Times, which anyone who can edit it may change; a Routine's or Maintenance Schedule's are copied onto each Generated Task. None means no Reminders. Whether a Reminder Time sends a Due Soon, Due Now, or Overdue depends on whether that moment falls before, at, or after the due time: on the due date at 08:00 is a Due Soon for a Task due at 15:00, and Overdue for one due at 06:00. For a Task due on a date with no time of day, the whole date is the due time, so any moment on it is Due Now.
 _Avoid_: Alert, alarm, reminder schedule
 
 **Personal Reminder Times**:
