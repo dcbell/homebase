@@ -3839,6 +3839,25 @@ const appTemplate = `
 			<button type="submit">Save task</button>
 		</form>
 	</section>
+	{{ with .Task.PersonalReminderTimes }}
+	<section class="panel">
+		<div class="tile-head"><h2>My reminders</h2></div>
+		{{ if .UsingShared }}
+			<p class="hint">You get this Task's reminders. Use your own to replace them for you alone.</p>
+		{{ else }}
+			<p class="hint">Your own reminders replace this Task's for you. Only you see them.</p>
+		{{ end }}
+		<form id="task-personal-reminders" method="post" action="/tasks/{{ $.Task.ID }}/personal-reminder-times">
+			{{ template "taskReminderTimes" (taskReminderPersonal $.Task) }}
+			<button type="submit">{{ if .UsingShared }}Use my own{{ else }}Save my reminders{{ end }}</button>
+		</form>
+		{{ if not .UsingShared }}
+		<form id="task-use-shared-reminders" method="post" action="/tasks/{{ $.Task.ID }}/personal-reminder-times/shared">
+			<button class="secondary" type="submit">Use shared</button>
+		</form>
+		{{ end }}
+	</section>
+	{{ end }}
 	</div>
 
 	<aside class="panel detail-sidebar">

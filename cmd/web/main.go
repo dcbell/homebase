@@ -207,6 +207,7 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"reminderSlots":         appointmentReminderSlots,
 		"taskReminderCreate":    taskReminderCreateForm,
 		"taskReminderEdit":      taskReminderEditForm,
+		"taskReminderPersonal":  taskPersonalReminderForm,
 	}).Parse(appTemplate))
 	return s
 }
@@ -262,6 +263,8 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}", s.updateTask)
 	mux.HandleFunc("POST /tasks/{id}/archive", s.archiveTask)
 	mux.HandleFunc("POST /tasks/{id}/reopen", s.reopenTask)
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setTaskPersonalReminderTimes)
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedTaskReminderTimes)
 	mux.HandleFunc("POST /tasks", s.createTask)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
@@ -1236,6 +1239,38 @@ func (s *webServer) archiveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/tasks", http.StatusSeeOther)
+}
+
+// setTaskPersonalReminderTimes forwards "Use my own": the caller's Personal
+// Reminder Times on a Task. Clearing every row sends an empty list, meaning
+// no Reminders for them.
+func (s *webServer) setTaskPersonalReminderTimes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error=form", http.StatusSeeOther)
+		return
+	}
+	times, ok := taskReminderTimesFromForm(r)
+	if !ok {
+		times = []store.ReminderTime{}
+	}
+	payload := map[string]any{"reminder_times": times}
+	if err := s.apiJSON(r, http.MethodPut, "/api/v1/tasks/"+url.PathEscape(id)+"/personal-reminder-times", payload, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
+}
+
+// useSharedTaskReminderTimes forwards "Use shared": the caller goes back to
+// the Task's shared Reminder Times.
+func (s *webServer) useSharedTaskReminderTimes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/tasks/"+url.PathEscape(id)+"/personal-reminder-times", nil, nil); err != nil {
+		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
 }
 
 func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {

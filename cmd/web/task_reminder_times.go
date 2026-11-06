@@ -59,6 +59,21 @@ func taskReminderEditForm(task store.Task, defaults *store.ReminderTimeDefaults)
 	return form
 }
 
+// taskPersonalReminderForm is the caller's Personal Reminder Times editor on
+// a Task page, for the Task's kind of due date only, as that page doesn't
+// change it. It starts from their own, or from the Task's shared Reminder
+// Times while they use those.
+func taskPersonalReminderForm(task store.Task) taskReminderForm {
+	times := task.ReminderTimes
+	if personal := task.PersonalReminderTimes; personal != nil && !personal.UsingShared {
+		times = personal.ReminderTimes
+	}
+	if task.DueAt != nil && store.DateOnly(*task.DueAt) {
+		return taskReminderForm{Known: true, Kind: "date_only", DateOnly: taskReminderSlots(times)}
+	}
+	return taskReminderForm{Known: true, Kind: "timed", Timed: taskReminderSlots(times)}
+}
+
 // taskReminderSlots lays out Reminder Times as form rows, the timed form in
 // the largest unit that divides it, with blank rows after them up to the
 // most a list may have.
