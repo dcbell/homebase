@@ -58,7 +58,7 @@ func stages(id int64, names ...string) []string {
 	return out
 }
 
-func TestAppointmentGetsDueSoonHourBeforeAndDueNowReminders(t *testing.T) {
+func TestAppointmentGetsTwoDueSoonRemindersAndADueNow(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)
 	household := h.SeedHousehold()
@@ -74,13 +74,13 @@ func TestAppointmentGetsDueSoonHourBeforeAndDueNowReminders(t *testing.T) {
 	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon")...)
 
 	sendRemindersAt(t, h, at(17, 8, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon")...)
 
 	sendRemindersAt(t, h, at(17, 9, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 
 	sendRemindersAt(t, h, at(20, 9, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 	expectAppointmentReminders(t, household.Owner)
 }
 
@@ -91,8 +91,8 @@ func TestAppointmentWithoutAttendeesRemindsEveryMember(t *testing.T) {
 	appt := createAppointmentAt(t, household.Owner, at(17, 9, 0))
 
 	sendRemindersAt(t, h, at(17, 9, 0))
-	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 }
 
 func TestDeletingAppointmentCancelsItsPendingReminders(t *testing.T) {
@@ -122,7 +122,7 @@ func TestChangingAppointmentTimeReschedulesReminders(t *testing.T) {
 	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon")...)
 
 	sendRemindersAt(t, h, at(18, 15, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_soon", "due_now")...)
 }
 
 func TestRemovingAttendeeCancelsTheirPendingReminders(t *testing.T) {
@@ -136,7 +136,7 @@ func TestRemovingAttendeeCancelsTheirPendingReminders(t *testing.T) {
 	editAppointment(t, household.Owner, appt.ID, at(17, 9, 0), []int64{owner})
 
 	sendRemindersAt(t, h, at(17, 9, 0))
-	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon")...)
 }
 
@@ -152,8 +152,8 @@ func TestAddingAttendeeSchedulesOnlyRemindersStillAhead(t *testing.T) {
 	editAppointment(t, household.Owner, appt.ID, at(17, 9, 0), []int64{owner, member})
 
 	sendRemindersAt(t, h, at(17, 9, 0))
-	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Owner, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_now")...)
 }
 
 func TestAppointmentRemindersWhoseTimeHasPassedAreSkipped(t *testing.T) {
@@ -165,7 +165,7 @@ func TestAppointmentRemindersWhoseTimeHasPassedAreSkipped(t *testing.T) {
 	appt := createAppointmentAt(t, household.Owner, at(16, 11, 30), household.Member.User.ID)
 
 	sendRemindersAt(t, h, at(16, 11, 30))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_now")...)
 }
 
 func TestAppointmentReminderDescribesTheAppointment(t *testing.T) {
@@ -177,11 +177,25 @@ func TestAppointmentReminderDescribesTheAppointment(t *testing.T) {
 	sendRemindersAt(t, h, at(17, 8, 0))
 	list := notificationsOf(t, household.Member)
 	n := list.Notifications[0]
-	if n.Kind != "appointment_reminder" || n.Stage != "hour_before" || n.SubjectType != "appointment" || n.SubjectID != appt.ID {
-		t.Fatalf("latest Notification = %+v, want the hour-before Reminder for Appointment %d", n, appt.ID)
+	if n.Kind != "appointment_reminder" || n.Stage != "due_soon" || n.SubjectType != "appointment" || n.SubjectID != appt.ID {
+		t.Fatalf("latest Notification = %+v, want the hour-before Due Soon Reminder for Appointment %d", n, appt.ID)
 	}
 	if n.Title != "Appointment in 1 hour" || n.Body != "Dentist" {
 		t.Errorf("title, body = %q, %q; want %q, %q", n.Title, n.Body, "Appointment in 1 hour", "Dentist")
+	}
+}
+
+func TestAppointmentReminderTitlesSayHowSoonItStarts(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	createAppointmentAt(t, household.Owner, at(17, 9, 0), household.Member.User.ID)
+
+	sendRemindersAt(t, h, at(20, 9, 0))
+	got := reminderTitlesOf(t, household.Member, "appointment_reminder")
+	want := []string{"Appointment in 24 hours", "Appointment in 1 hour", "Appointment starting now"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Reminder titles = %q, want %q", got, want)
 	}
 }
 
