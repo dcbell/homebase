@@ -128,6 +128,26 @@ func TestSeveralOverdueReminderTimesAreSentInTurnUntilTheTaskIsDone(t *testing.T
 	expectTaskReminders(t, household.Member, "overdue: Task overdue by 1 day", "overdue: Task overdue by 3 days")
 }
 
+func TestOnTheDueDateBeforeATimedTasksDueTimeIsDueSoon(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	createTaskWithReminderTimes(t, household.Owner, household.Member, localAt(17, 15, 0), []map[string]any{{"days": 0, "at": "08:00"}})
+
+	sendRemindersAt(t, h, localAt(17, 8, 0))
+	expectTaskReminders(t, household.Member, "due_soon: Task due in 7 hours")
+}
+
+func TestOnTheDueDateAfterATimedTasksDueTimeIsOverdue(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	createTaskWithReminderTimes(t, household.Owner, household.Member, localAt(17, 6, 0), []map[string]any{{"days": 0, "at": "18:00"}})
+
+	sendRemindersAt(t, h, localAt(17, 18, 0))
+	expectTaskReminders(t, household.Member, "overdue: Task overdue by 12 hours")
+}
+
 func TestInvalidTaskReminderTimesAreRejected(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)

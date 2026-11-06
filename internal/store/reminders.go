@@ -136,9 +136,9 @@ func (s *Store) ScheduleReminders(ctx context.Context, subject ReminderSubject, 
 			INSERT INTO scheduled_reminders (household_id, recipient_id, subject_type, subject_id, stage, offset_minutes, offset_days, at_time, due_at, send_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::time, $9, $10)
 			ON CONFLICT (recipient_id, subject_type, subject_id, offset_minutes, offset_days, at_time, due_at)
-			DO UPDATE SET send_at = EXCLUDED.send_at, cancelled_at = NULL, household_id = EXCLUDED.household_id
+			DO UPDATE SET send_at = EXCLUDED.send_at, stage = EXCLUDED.stage, cancelled_at = NULL, household_id = EXCLUDED.household_id
 			WHERE scheduled_reminders.sent_at IS NULL
-		`, subject.HouseholdID, r.RecipientID, subject.Type, subject.ID, r.ReminderTime.Stage(), minutes, days, at, r.DueAt, sendAt); err != nil {
+		`, subject.HouseholdID, r.RecipientID, subject.Type, subject.ID, r.ReminderTime.Stage(r.DueAt), minutes, days, at, r.DueAt, sendAt); err != nil {
 			return err
 		}
 	}
