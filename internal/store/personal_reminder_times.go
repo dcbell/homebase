@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -67,16 +68,17 @@ func (s *Store) ListPersonalReminderTimes(ctx context.Context, subject ReminderS
 	return personal, rows.Err()
 }
 
-// SetTaskPersonalReminderTimes sets a Member's Personal Reminder Times on a
-// Task, replacing any they had; an empty list means no Reminders for them.
-// Only the Task's assignee may: anyone else gets ErrForbidden. The Reminder
-// Times must fit the Task's kind of due date, as its own do.
-func (s *Store) SetTaskPersonalReminderTimes(ctx context.Context, householdID, taskID, memberID int64, times []ReminderTime) error {
+// SetPersonalReminderTimes sets a Member's Personal Reminder Times on a Task
+// or Appointment, replacing any they had; an empty list means no Reminders
+// for them. Only a Task's assignee may, or a Member an Appointment is for:
+// anyone else gets ErrForbidden. The Reminder Times must fit the subject, as
+// its own do.
+func (s *Store) SetPersonalReminderTimes(ctx context.Context, subject ReminderSubject, memberID int64, times []ReminderTime) error {
 	if times == nil {
 		times = []ReminderTime{}
 	}
-	return s.changeTaskPersonalReminderTimes(ctx, householdID, taskID, memberID, func(tx *sql.Tx, due *time.Time) error {
-		if err := ValidateReminderTimes(times, SubjectTask, taskDateOnly(due)); err != nil {
+	return s.changePersonalReminderTimes(ctx, subject, memberID, func(tx *sql.Tx, validate func([]ReminderTime) error) error {
+		if err := validate(times); err != nil {
 			return err
 		}
 		encoded, err := json.Marshal(times)
@@ -88,51 +90,90 @@ func (s *Store) SetTaskPersonalReminderTimes(ctx context.Context, householdID, t
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (subject_type, subject_id, member_id)
 			DO UPDATE SET reminder_times = EXCLUDED.reminder_times, updated_at = now()
-		`, householdID, SubjectTask, taskID, memberID, string(encoded))
+		`, subject.HouseholdID, subject.Type, subject.ID, memberID, string(encoded))
 		return err
 	})
 }
 
-// RemoveTaskPersonalReminderTimes removes a Member's Personal Reminder Times
-// on a Task, so its shared Reminder Times apply to them again. Only the
-// Task's assignee may: anyone else gets ErrForbidden.
-func (s *Store) RemoveTaskPersonalReminderTimes(ctx context.Context, householdID, taskID, memberID int64) error {
-	return s.changeTaskPersonalReminderTimes(ctx, householdID, taskID, memberID, func(tx *sql.Tx, _ *time.Time) error {
+// RemovePersonalReminderTimes removes a Member's Personal Reminder Times on
+// a Task or Appointment, so its shared Reminder Times apply to them again.
+// Only a Member who may set them may: anyone else gets ErrForbidden.
+func (s *Store) RemovePersonalReminderTimes(ctx context.Context, subject ReminderSubject, memberID int64) error {
+	return s.changePersonalReminderTimes(ctx, subject, memberID, func(tx *sql.Tx, _ func([]ReminderTime) error) error {
 		_, err := tx.ExecContext(ctx, `
 			DELETE FROM personal_reminder_times
 			WHERE household_id = $1 AND subject_type = $2 AND subject_id = $3 AND member_id = $4
-		`, householdID, SubjectTask, taskID, memberID)
+		`, subject.HouseholdID, subject.Type, subject.ID, memberID)
 		return err
 	})
 }
 
-// changeTaskPersonalReminderTimes runs change for the Task's assignee with
-// the Task locked, so a concurrent reassignment or due date change, which
-// drops Personal Reminder Times, can't leave them behind for someone else.
-func (s *Store) changeTaskPersonalReminderTimes(ctx context.Context, householdID, taskID, memberID int64, change func(tx *sql.Tx, due *time.Time) error) error {
+// changePersonalReminderTimes runs change once the Member is authorized,
+// with the subject locked, so a concurrent change that drops Personal
+// Reminder Times, such as a reassignment, can't leave them behind for
+// someone who may no longer have them. change gets the subject's validation
+// for Reminder Times.
+func (s *Store) changePersonalReminderTimes(ctx context.Context, subject ReminderSubject, memberID int64, change func(tx *sql.Tx, validate func([]ReminderTime) error) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var assignedTo *int64
-	var due *time.Time
-	err = tx.QueryRowContext(ctx, `
-		SELECT assigned_to, due_at FROM tasks WHERE household_id = $1 AND id = $2 FOR UPDATE
-	`, householdID, taskID).Scan(&assignedTo, &due)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+	var validate func([]ReminderTime) error
+	switch subject.Type {
+	case SubjectTask:
+		validate, err = authorizeTaskPersonalReminderTimes(ctx, tx, subject, memberID)
+	case SubjectAppointment:
+		validate, err = authorizeAppointmentPersonalReminderTimes(ctx, tx, subject, memberID)
+	default:
+		err = fmt.Errorf("personal reminder times on a %q", subject.Type)
 	}
 	if err != nil {
 		return err
 	}
-	if assignedTo == nil || *assignedTo != memberID {
-		return ErrForbidden
-	}
-	if err := change(tx, due); err != nil {
+	if err := change(tx, validate); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// authorizeTaskPersonalReminderTimes locks a Task and checks the Member is
+// its assignee, who alone may have Personal Reminder Times on it. It returns
+// the validation for them: they must fit its kind of due date.
+func authorizeTaskPersonalReminderTimes(ctx context.Context, tx *sql.Tx, subject ReminderSubject, memberID int64) (func([]ReminderTime) error, error) {
+	var assignedTo *int64
+	var due *time.Time
+	err := tx.QueryRowContext(ctx, `
+		SELECT assigned_to, due_at FROM tasks WHERE household_id = $1 AND id = $2 FOR UPDATE
+	`, subject.HouseholdID, subject.ID).Scan(&assignedTo, &due)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if assignedTo == nil || *assignedTo != memberID {
+		return nil, ErrForbidden
+	}
+	return func(times []ReminderTime) error {
+		return ValidateReminderTimes(times, SubjectTask, taskDateOnly(due))
+	}, nil
+}
+
+// authorizeAppointmentPersonalReminderTimes locks an Appointment and checks
+// it is for the Member: they are an Attendee, or it has none. It returns the
+// validation for their Personal Reminder Times, as for its own.
+func authorizeAppointmentPersonalReminderTimes(ctx context.Context, tx *sql.Tx, subject ReminderSubject, memberID int64) (func([]ReminderTime) error, error) {
+	appointment, err := getEvent(ctx, tx, subject.HouseholdID, subject.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	if !AppointmentIsFor(appointment, memberID) {
+		return nil, ErrForbidden
+	}
+	return func(times []ReminderTime) error {
+		return ValidateReminderTimes(times, SubjectAppointment, false)
+	}, nil
 }
 
 // dropTaskPersonalReminderTimes deletes the Personal Reminder Times on a Task
@@ -146,70 +187,6 @@ func dropTaskPersonalReminderTimes(ctx context.Context, tx *sql.Tx, householdID,
 			AND ($4 OR member_id IS DISTINCT FROM $5)
 	`, householdID, SubjectTask, taskID, kindSwitched, assignedTo)
 	return err
-}
-
-// SetAppointmentPersonalReminderTimes sets a Member's Personal Reminder Times
-// on an Appointment, replacing any they had; an empty list means no Reminders
-// for them. Only an Attendee may, or any Member when it has no Attendees:
-// anyone else gets ErrForbidden. The Reminder Times must fit an Appointment,
-// as its own do.
-func (s *Store) SetAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64, times []ReminderTime) error {
-	if times == nil {
-		times = []ReminderTime{}
-	}
-	if err := ValidateReminderTimes(times, SubjectAppointment, false); err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(times)
-	if err != nil {
-		return err
-	}
-	return s.changeAppointmentPersonalReminderTimes(ctx, householdID, eventID, memberID, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO personal_reminder_times (household_id, subject_type, subject_id, member_id, reminder_times)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (subject_type, subject_id, member_id)
-			DO UPDATE SET reminder_times = EXCLUDED.reminder_times, updated_at = now()
-		`, householdID, SubjectAppointment, eventID, memberID, string(encoded))
-		return err
-	})
-}
-
-// RemoveAppointmentPersonalReminderTimes removes a Member's Personal Reminder
-// Times on an Appointment, so its shared Reminder Times apply to them again.
-// Only an Attendee may, or any Member when it has no Attendees: anyone else
-// gets ErrForbidden.
-func (s *Store) RemoveAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64) error {
-	return s.changeAppointmentPersonalReminderTimes(ctx, householdID, eventID, memberID, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `
-			DELETE FROM personal_reminder_times
-			WHERE household_id = $1 AND subject_type = $2 AND subject_id = $3 AND member_id = $4
-		`, householdID, SubjectAppointment, eventID, memberID)
-		return err
-	})
-}
-
-// changeAppointmentPersonalReminderTimes runs change for a Member the
-// Appointment is for with the Appointment locked, so a concurrent change of
-// Attendees, which drops Personal Reminder Times, can't leave them behind for
-// someone it is no longer for.
-func (s *Store) changeAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64, change func(tx *sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	appointment, err := getEvent(ctx, tx, householdID, eventID, true)
-	if err != nil {
-		return err
-	}
-	if !AppointmentIsFor(appointment, memberID) {
-		return ErrForbidden
-	}
-	if err := change(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // AppointmentIsFor reports whether an Appointment is for a Member of its
