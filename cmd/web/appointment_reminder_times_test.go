@@ -91,3 +91,22 @@ func TestAppointmentFormsSendReminderTimesToTheAPI(t *testing.T) {
 		t.Errorf("edit with every row cleared sent reminder_times %s, want [] for no Reminders", got)
 	}
 }
+
+func TestAppointmentFormsNeverSendATimeOfDay(t *testing.T) {
+	rows := [][4]string{
+		{"1", "days", "before", "08:00"},
+		{"2", "hours", "before", "08:00"},
+		{"0", "minutes", "at", "08:00"},
+	}
+	want := `[{"minutes":-1440},{"minutes":-120},{"minutes":0}]`
+	appointment := func() url.Values {
+		return url.Values{"title": {"Dentist"}, "starts_at": {"2030-01-20T09:00"}, "ends_at": {"2030-01-20T10:00"}}
+	}
+
+	if got := postReminderTimes(t, "/events", "POST /api/v1/events", appointment(), "timed", rows...); got != want {
+		t.Errorf("create sent reminder_times %s, want %s", got, want)
+	}
+	if got := postReminderTimes(t, "/events/5", "PATCH /api/v1/events/5", appointment(), "timed", rows...); got != want {
+		t.Errorf("edit sent reminder_times %s, want %s", got, want)
+	}
+}

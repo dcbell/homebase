@@ -367,3 +367,82 @@ func TestReminderTimesEditorAddsUpToFiveAndSaysWhenThereAreNone(t *testing.T) {
 		t.Errorf("a Task with five Reminder Times should hide No reminders and Add reminder:\n%s", five)
 	}
 }
+
+// postReminderTimes posts form to path with the shown set's kind and its
+// Reminder Time rows, each "amount unit direction at", and returns the
+// Reminder Times the API receives on apiRoute.
+func postReminderTimes(t *testing.T, path, apiRoute string, form url.Values, kind string, rows ...[4]string) string {
+	t.Helper()
+	api, web := newRecordingAPI(t, map[string]cannedResponse{apiRoute: {http.StatusOK, `{"id":7}`}})
+	form.Set("reminder_times", "1")
+	form.Set("reminder_kind", kind)
+	for _, row := range rows {
+		form.Add("reminder_amount", row[0])
+		form.Add("reminder_unit", row[1])
+		form.Add("reminder_direction", row[2])
+		form.Add("reminder_at", row[3])
+	}
+	req := browserRequest(http.MethodPost, path, form.Encode())
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	serve(web.routes(), req)
+	calls := api.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("API calls = %+v, want one to %s", calls, apiRoute)
+	}
+	return sentReminderTimes(t, calls[0].Body)
+}
+
+func TestEveryReminderTimesSetSubmitsItsKind(t *testing.T) {
+	kindField := func(page, id, kind string) string {
+		form := regexp.MustCompile(`(?s)id="` + id + `".*?</form>`).FindString(page)
+		set := regexp.MustCompile(`(?s)<fieldset class="reminder-times" data-reminder-kind="` + kind + `".*?</fieldset>`).FindString(form)
+		set = regexp.MustCompile(`(?s)<template.*?</template>`).ReplaceAllString(set, "")
+		return regexp.MustCompile(`<input type="hidden" name="reminder_kind"[^>]*>`).FindString(set)
+	}
+
+	page := editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-60}]}`)
+	// Only the shown set is enabled, so only its kind is sent.
+	for _, kind := range []string{"timed", "date_only"} {
+		if got, want := kindField(page, "task-edit", kind), `<input type="hidden" name="reminder_kind" value="`+kind+`">`; got != want {
+			t.Errorf("Task %s set's kind field = %q, want %q", kind, got, want)
+		}
+	}
+	page = editorPage(t, "/events/5", `{"id":5,"title":"Dentist","reminder_times":[{"minutes":-60}]}`)
+	if got, want := kindField(page, "event-edit", "timed"), `<input type="hidden" name="reminder_kind" value="timed">`; got != want {
+		t.Errorf("Appointment set's kind field = %q, want %q", got, want)
+	}
+}
+
+func TestTaskFormsSaveOnlyTheTimeOfDayThatAppliesToEachReminderTime(t *testing.T) {
+	timedTask := func() url.Values {
+		return url.Values{"title": {"Pay the water bill"}, "due_at": {"2030-01-20T18:00"}}
+	}
+
+	got := postReminderTimes(t, "/tasks/7", "PATCH /api/v1/tasks/7", timedTask(), "timed",
+		[4]string{"1", "hours", "before", "08:00"},
+		[4]string{"30", "minutes", "after", "08:00"},
+		[4]string{"1", "days", "before", "08:00"},
+		[4]string{"1", "days", "before", ""},
+		[4]string{"0", "hours", "at", "08:00"},
+	)
+	if want := `[{"minutes":-60},{"minutes":30},{"days":-1,"at":"08:00"},{"minutes":-1440},{"days":0,"at":"08:00"}]`; got != want {
+		t.Errorf("timed Task sent reminder_times %s, want %s", got, want)
+	}
+
+	got = postReminderTimes(t, "/tasks/7", "PATCH /api/v1/tasks/7", timedTask(), "timed",
+		[4]string{"0", "days", "at", ""},
+		[4]string{"5", "hours", "at", ""},
+	)
+	if want := `[{"minutes":0},{"minutes":0}]`; got != want {
+		t.Errorf("timed Task at the due time sent reminder_times %s, want %s", got, want)
+	}
+
+	got = postReminderTimes(t, "/tasks", "POST /api/v1/tasks", url.Values{"title": {"Mow"}, "due_at": {"2030-01-20"}}, "date_only",
+		[4]string{"1", "days", "before", "18:00"},
+		[4]string{"0", "days", "at", "08:00"},
+		[4]string{"2", "days", "after", "07:30"},
+	)
+	if want := `[{"days":-1,"at":"18:00"},{"days":0,"at":"08:00"},{"days":2,"at":"07:30"}]`; got != want {
+		t.Errorf("date-only Task sent reminder_times %s, want %s", got, want)
+	}
+}

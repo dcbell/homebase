@@ -240,15 +240,53 @@ func reminderTimeRows(times []store.ReminderTime) []reminderTimeRow {
 	return rows
 }
 
-// reminderTimesFromForm reads a form's Reminder Time rows, skipping those
-// with no amount, so clearing every row sends an empty list. A row at the due
-// time is 0 whatever its amount. A row with a time of day is days at that
-// time; otherwise it is minutes from the due time. ok is false when the form
+// reminderControls are which of a Reminder Time row's controls apply to it,
+// following its set and its direction and unit. A control that doesn't apply
+// never counts: whatever value it holds is left out of the row's summary and
+// of what is saved.
+type reminderControls struct {
+	// Amount is how long before or after; a row at the due time has none.
+	Amount bool
+	// At is the time of day the Reminder is sent on its day.
+	At bool
+	// AtRequired is whether the row can't be saved without its time of
+	// day, as a date-only Reminder Time can't.
+	AtRequired bool
+}
+
+// controls says which controls apply to row in a set of kind, of an
+// Appointment or not:
+//
+//   - an Appointment's rows never have a time of day;
+//   - a timed row may have one at the due date, or when it counts days;
+//   - a date-only row always counts days, and needs one.
+func (row reminderTimeRow) controls(kind string, appointment bool) reminderControls {
+	c := reminderControls{Amount: row.Direction != reminderAt}
+	switch {
+	case appointment:
+	case kind == reminderKindDateOnly:
+		c.At, c.AtRequired = true, true
+	default:
+		c.At = row.Direction == reminderAt || row.Unit == "days"
+	}
+	return c
+}
+
+// reminderTimesFromForm reads a form's Reminder Time rows as the set of the
+// kind the form names would have them, of an Appointment or not, skipping
+// rows with no amount, so clearing every row sends an empty list. A row at
+// the due time is 0 whatever its amount. A row with a time of day that
+// applies to it is days at that time; otherwise it is minutes from the due
+// time. A form naming no kind is read as timed. ok is false when the form
 // carried no rows, so the field is left out for the API to apply or keep its
 // own.
-func reminderTimesFromForm(r *http.Request) (times []store.ReminderTime, ok bool) {
+func reminderTimesFromForm(r *http.Request, appointment bool) (times []store.ReminderTime, ok bool) {
 	if r.FormValue("reminder_times") == "" {
 		return nil, false
+	}
+	kind := reminderKindTimed
+	if r.FormValue("reminder_kind") == reminderKindDateOnly {
+		kind = reminderKindDateOnly
 	}
 	field := func(name string, i int) string {
 		if values := r.Form[name]; i < len(values) {
@@ -262,18 +300,20 @@ func reminderTimesFromForm(r *http.Request) (times []store.ReminderTime, ok bool
 		if err != nil {
 			continue
 		}
-		switch field("reminder_direction", i) {
-		case reminderAt:
+		row := reminderTimeRow{Unit: field("reminder_unit", i), Direction: field("reminder_direction", i), At: field("reminder_at", i)}
+		controls := row.controls(kind, appointment)
+		switch {
+		case !controls.Amount:
 			amount = 0
-		case reminderBefore:
+		case row.Direction == reminderBefore:
 			amount = -amount
 		}
-		if at := field("reminder_at", i); at != "" {
-			times = append(times, store.ReminderTime{Days: amount, At: at})
+		if controls.At && row.At != "" {
+			times = append(times, store.ReminderTime{Days: amount, At: row.At})
 			continue
 		}
 		perUnit := 1
-		if minutes, known := reminderUnitMinutes[field("reminder_unit", i)]; known {
+		if minutes, known := reminderUnitMinutes[row.Unit]; known {
 			perUnit = minutes
 		}
 		times = append(times, store.ReminderTime{Minutes: amount * perUnit})
@@ -292,7 +332,7 @@ func (s *webServer) setPersonalReminderTimes(prefix string) http.HandlerFunc {
 			http.Redirect(w, r, page+"?error=form", http.StatusSeeOther)
 			return
 		}
-		times, ok := reminderTimesFromForm(r)
+		times, ok := reminderTimesFromForm(r, prefix == "/events")
 		if !ok {
 			times = []store.ReminderTime{}
 		}

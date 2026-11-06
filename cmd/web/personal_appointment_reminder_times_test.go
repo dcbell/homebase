@@ -103,3 +103,13 @@ func TestPersonalAppointmentReminderTimesChoicesAreSentToTheAPI(t *testing.T) {
 		t.Errorf("Use shared called %s %s, want DELETE /api/v1/events/5/personal-reminder-times", calls[2].Method, calls[2].Path)
 	}
 }
+
+func TestPersonalAppointmentReminderTimesNeverSendATimeOfDay(t *testing.T) {
+	got := postReminderTimes(t, "/events/5/personal-reminder-times", "PUT /api/v1/events/5/personal-reminder-times", url.Values{}, "timed",
+		[4]string{"1", "days", "before", "08:00"},
+		[4]string{"0", "minutes", "at", "08:00"},
+	)
+	if want := `[{"minutes":-1440},{"minutes":0}]`; got != want {
+		t.Errorf("Appointment's Personal Reminder Times sent %s, want %s", got, want)
+	}
+}

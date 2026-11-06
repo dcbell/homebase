@@ -134,3 +134,23 @@ func TestPersonalReminderTimesChoicesAreSentToTheAPI(t *testing.T) {
 		t.Errorf("Use shared called %s %s, want DELETE /api/v1/tasks/7/personal-reminder-times", calls[2].Method, calls[2].Path)
 	}
 }
+
+func TestPersonalReminderTimesSaveOnlyTheTimeOfDayThatAppliesToEachReminderTime(t *testing.T) {
+	got := postReminderTimes(t, "/tasks/7/personal-reminder-times", "PUT /api/v1/tasks/7/personal-reminder-times", url.Values{}, "timed",
+		[4]string{"1", "hours", "before", "08:00"},
+		[4]string{"1", "days", "before", "08:00"},
+		[4]string{"0", "days", "at", "08:00"},
+		[4]string{"0", "days", "at", ""},
+	)
+	if want := `[{"minutes":-60},{"days":-1,"at":"08:00"},{"days":0,"at":"08:00"},{"minutes":0}]`; got != want {
+		t.Errorf("timed Task's Personal Reminder Times sent %s, want %s", got, want)
+	}
+
+	got = postReminderTimes(t, "/tasks/7/personal-reminder-times", "PUT /api/v1/tasks/7/personal-reminder-times", url.Values{}, "date_only",
+		[4]string{"1", "days", "before", "18:00"},
+		[4]string{"0", "days", "at", "08:00"},
+	)
+	if want := `[{"days":-1,"at":"18:00"},{"days":0,"at":"08:00"}]`; got != want {
+		t.Errorf("date-only Task's Personal Reminder Times sent %s, want %s", got, want)
+	}
+}

@@ -1878,6 +1878,7 @@ their summaries and adds, edits and removes frames. */}}
 {{ define "reminderTimeSet" }}
 <fieldset class="reminder-times" data-reminder-kind="{{ .Kind }}"{{ if .Appointment }} data-reminder-appointment{{ end }}{{ if not .Shown }} disabled hidden{{ end }}>
 	<legend>Reminders</legend>
+	<input type="hidden" name="reminder_kind" value="{{ .Kind }}">
 	{{ range .Rows }}{{ template "reminderTimeFrame" (dict "Kind" $.Kind "Appointment" $.Appointment "Row" .) }}{{ end }}
 	<div class="rt-empty" data-reminder-empty{{ if .Rows }} hidden{{ end }}>No reminders</div>
 	<button class="rt-add rt-js" type="button" data-reminder-add{{ if not .CanAdd }} hidden{{ end }}>+ Add reminder</button>
