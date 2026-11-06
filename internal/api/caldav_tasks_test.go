@@ -89,8 +89,8 @@ func TestDiscoveryListsAHomebaseTasksListOfToDos(t *testing.T) {
 	if p := props[apitest.GetCTag]; p.Status != http.StatusOK || p.Text == "" {
 		t.Errorf("tasks getctag = %+v, want a change tag", p)
 	}
-	if p := props[apitest.CurrentUserPrivilegeSet]; !p.Has("{DAV:}read") || p.Has("{DAV:}write") {
-		t.Errorf("tasks privileges = %+v, want read only", p)
+	if p := props[apitest.CurrentUserPrivilegeSet]; !p.Has("{DAV:}read") || !p.Has("{DAV:}write") {
+		t.Errorf("tasks privileges = %+v, want read and write", p)
 	}
 }
 

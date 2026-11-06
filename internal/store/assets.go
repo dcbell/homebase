@@ -334,7 +334,7 @@ func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdI
 func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID int64, dueAt time.Time) (Task, error) {
 	var task Task
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.asset_maintenance_item_id = $1
@@ -342,7 +342,7 @@ func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID in
 			AND t.due_at IS NOT DISTINCT FROM $2
 		LIMIT 1
 	`, itemID, dueAt).Scan(
-		&task.ID, &task.HouseholdID, &task.ProjectID, &task.ProjectFolderID, &task.RoutineID, &task.AssetID, &task.AssetMaintenanceItemID, &task.AssignedTo, &task.AssignedName, &task.Title, &task.Notes, &task.Status, &task.Priority, &task.DueAt, &task.CompletedAt, &task.CreatedBy, &task.CreatedAt, &task.UpdatedAt,
+		&task.ID, &task.HouseholdID, &task.ProjectID, &task.ProjectFolderID, &task.RoutineID, &task.AssetID, &task.AssetMaintenanceItemID, &task.AssignedTo, &task.AssignedName, &task.Title, &task.Notes, &task.Status, &task.Priority, &task.DueAt, &task.CompletedAt, &task.CreatedBy, &task.CreatedAt, &task.UpdatedAt, &task.CalendarUID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -377,14 +377,14 @@ func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.T
 						AND t.due_at IS NOT DISTINCT FROM i.next_due_at
 				)
 			ON CONFLICT DO NOTHING
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 		), linked AS (
 			INSERT INTO asset_links (household_id, asset_id, entity_type, entity_id, created_by)
 			SELECT household_id, asset_id, 'task', id, created_by
 			FROM inserted
 			ON CONFLICT DO NOTHING
 		)
-		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, '')
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
 		ORDER BY inserted.id

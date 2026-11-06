@@ -20,11 +20,14 @@ type TaskInput struct {
 	Status                 string     `json:"status"`
 	Priority               string     `json:"priority"`
 	DueAt                  *time.Time `json:"due_at"`
+	// CalendarUID is the UID a device chose when creating the Task over
+	// CalDAV. It is only read on create.
+	CalendarUID string `json:"-"`
 }
 
 func (s *Store) ListTasks(ctx context.Context, householdID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.status <> 'archived'
@@ -54,7 +57,7 @@ func (s *Store) ListTasks(ctx context.Context, householdID int64) ([]Task, error
 // ListProjectTasks returns every Task of a Project, whatever its status.
 func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.project_id = $2
@@ -81,7 +84,7 @@ func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int
 // either undated or due within [from, to).
 func (s *Store) ListOpenTasksConcerning(ctx context.Context, householdID, userID int64, from, to time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1
@@ -114,15 +117,15 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 	var t Task
 	err := s.db.QueryRowContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO tasks (household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, priority, due_at, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			INSERT INTO tasks (household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, priority, due_at, created_by, calendar_uid)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''))
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 		)
-		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, '')
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
-	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID, input.CalendarUID).Scan(
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
 	)
 	return t, err
 }
@@ -130,17 +133,34 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 func (s *Store) GetTask(ctx context.Context, householdID, id int64) (Task, error) {
 	var t Task
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.id = $2
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
 	return t, err
+}
+
+// FindTaskByCalendarUID returns the Household's active Task that a device
+// created with the given UID, or ErrNotFound.
+func (s *Store) FindTaskByCalendarUID(ctx context.Context, householdID int64, uid string) (Task, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM tasks
+		WHERE household_id = $1 AND calendar_uid = $2 AND status <> 'archived'
+	`, householdID, uid).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, err
+	}
+	return s.GetTask(ctx, householdID, id)
 }
 
 // UpdateTask replaces a Task's fields. It also returns the Task as it was
@@ -160,7 +180,7 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 	var t, p Task
 	err = s.db.QueryRowContext(ctx, `
 		WITH previous AS (
-			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 			FROM tasks
 			WHERE household_id = $1 AND id = $2
 		), updated AS (
@@ -183,17 +203,17 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 				END,
 				updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at,
-			previous.id, previous.household_id, previous.project_id, previous.project_folder_id, previous.routine_id, previous.asset_id, previous.asset_maintenance_item_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.priority, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, ''),
+			previous.id, previous.household_id, previous.project_id, previous.project_folder_id, previous.routine_id, previous.asset_id, previous.asset_maintenance_item_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.priority, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at, COALESCE(previous.calendar_uid, '')
 		FROM updated
 		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Status, input.Priority, input.DueAt).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
-		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
+		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.CalendarUID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, Task{}, ErrNotFound
@@ -240,13 +260,13 @@ func (s *Store) ReopenTask(ctx context.Context, householdID, id int64) (Task, er
 			UPDATE tasks
 			SET status = 'open', completed_at = NULL, updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, '')
 		FROM updated
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -261,13 +281,13 @@ func (s *Store) CompleteTask(ctx context.Context, householdID, id int64) (Task, 
 			UPDATE tasks
 			SET status = 'done', completed_at = now(), updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, '')
 		FROM updated
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -369,5 +389,5 @@ type taskScanner interface {
 }
 
 func scanTask(scanner taskScanner, t *Task) error {
-	return scanner.Scan(&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+	return scanner.Scan(&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID)
 }

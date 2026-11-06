@@ -15,7 +15,7 @@ import (
 func (s *Server) caldavRoutes() {
 	dav := caldav.New(calendarAuthenticator{s}, s.clock, s.logger,
 		caldav.Appointments{Store: s.store, Saves: caldavSaves{s}, WebBaseURL: s.cfg.WebBaseURL},
-		caldav.Tasks{Store: s.store, WebBaseURL: s.cfg.WebBaseURL},
+		caldav.Tasks{Store: s.store, Saves: caldavSaves{s}, WebBaseURL: s.cfg.WebBaseURL},
 		caldav.Deadlines{Store: s.store, WebBaseURL: s.cfg.WebBaseURL},
 	)
 	s.mux.Handle(caldav.Root, dav)
@@ -64,4 +64,29 @@ func (c caldavSaves) UpdateAppointment(ctx context.Context, m caldav.Member, id 
 func (c caldavSaves) ArchiveAppointment(ctx context.Context, m caldav.Member, id int64) error {
 	household, actor := c.actor(m)
 	return c.s.ArchiveAppointment(ctx, household, actor, id)
+}
+
+func (c caldavSaves) CreateTask(ctx context.Context, m caldav.Member, input store.TaskInput) (store.Task, error) {
+	household, actor := c.actor(m)
+	return c.s.CreateTask(ctx, household, actor, input)
+}
+
+func (c caldavSaves) UpdateTask(ctx context.Context, m caldav.Member, id int64, input store.TaskInput) (store.Task, error) {
+	household, actor := c.actor(m)
+	return c.s.UpdateTask(ctx, household, actor, id, input)
+}
+
+func (c caldavSaves) CompleteTask(ctx context.Context, m caldav.Member, id int64) (store.Task, error) {
+	household, actor := c.actor(m)
+	return c.s.CompleteTask(ctx, household, actor, id)
+}
+
+func (c caldavSaves) ReopenTask(ctx context.Context, m caldav.Member, id int64) (store.Task, error) {
+	household, actor := c.actor(m)
+	return c.s.ReopenTask(ctx, household, actor, id)
+}
+
+func (c caldavSaves) ArchiveTask(ctx context.Context, m caldav.Member, id int64) error {
+	household, actor := c.actor(m)
+	return c.s.ArchiveTask(ctx, household, actor, id)
 }

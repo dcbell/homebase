@@ -86,6 +86,9 @@ type Task struct {
 	CreatedBy              int64      `json:"created_by"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	// CalendarUID is the UID a device chose when it created the Task over
+	// CalDAV, or empty.
+	CalendarUID string `json:"-"`
 }
 
 type Event struct {
