@@ -84,9 +84,9 @@ func TestTheHomebaseCalendarAdvertisesItsPropertiesForPhones(t *testing.T) {
 	if p := props[apitest.CalendarColor]; p.Status != http.StatusOK || len(p.Text) != len("#RRGGBBAA") || p.Text[0] != '#' {
 		t.Errorf("calendar-color = %+v, want #RRGGBBAA", p)
 	}
-	// Read-only until writes from devices arrive.
-	if p := props[apitest.CurrentUserPrivilegeSet]; !p.Has("{DAV:}read") || p.Has("{DAV:}write") || p.Has("{DAV:}all") {
-		t.Errorf("privileges = %+v, want read only", p)
+	// Members change Appointments from their devices.
+	if p := props[apitest.CurrentUserPrivilegeSet]; !p.Has("{DAV:}read") || !p.Has("{DAV:}write") || p.Has("{DAV:}all") {
+		t.Errorf("privileges = %+v, want read and write", p)
 	}
 	if p := props[apitest.SupportedReportSet]; !p.Has("{urn:ietf:params:xml:ns:caldav}calendar-multiget") || !p.Has("{urn:ietf:params:xml:ns:caldav}calendar-query") || p.Has("{DAV:}sync-collection") {
 		t.Errorf("supported reports = %+v, want multiget and query only", p)

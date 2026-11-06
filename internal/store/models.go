@@ -104,6 +104,9 @@ type Event struct {
 	// means the whole Household.
 	AttendeeIDs []int64    `json:"attendee_ids"`
 	Attendees   []Attendee `json:"attendees"`
+	// CalendarUID is the UID a device chose when it created the Appointment
+	// over CalDAV; empty for Appointments made in Homebase.
+	CalendarUID string `json:"-"`
 }
 
 // Attendee is a Member an Appointment is for.

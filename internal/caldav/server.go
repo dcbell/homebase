@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-webdav"
 	"github.com/emersion/go-webdav/caldav"
 
 	"homebase/internal/clock"
@@ -87,7 +88,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.WithValue(r.Context(), requestKey{}, &request{member: member, now: s.clock.Now(), objects: map[string][]object{}})
+	ctx := context.WithValue(r.Context(), requestKey{}, &request{
+		member:  member,
+		now:     s.clock.Now(),
+		objects: map[string][]object{},
+		ifMatch: webdav.ConditionalMatch(r.Header.Get("If-Match")),
+	})
 	r = r.WithContext(ctx)
 	if r.Method == "PROPFIND" {
 		s.propfind(w, r, p)
@@ -102,11 +108,13 @@ func challenge(w http.ResponseWriter) {
 }
 
 // request is the per-request state: who is logged in, the Clock's now, and
-// each collection's objects once loaded.
+// each collection's objects once loaded (a write forgets its collection's),
+// and the If-Match header, which go-webdav doesn't pass on DELETE.
 type request struct {
 	member  Member
 	now     time.Time
 	objects map[string][]object
+	ifMatch webdav.ConditionalMatch
 }
 
 type requestKey struct{}

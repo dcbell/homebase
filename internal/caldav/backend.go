@@ -190,15 +190,8 @@ func overlaps(start, end, from, to time.Time) bool {
 	return end.After(from)
 }
 
-func (b *backend) PutCalendarObject(context.Context, string, *ical.Calendar, *caldav.PutCalendarObjectOptions) (*caldav.CalendarObject, error) {
-	return nil, readOnly()
-}
-
-func (b *backend) DeleteCalendarObject(context.Context, string) error {
-	return readOnly()
-}
-
-// readOnly refuses writes: no collection accepts them yet (#35, #36).
+// readOnly refuses writes to a collection that isn't Writable. PUT and
+// DELETE are in writes.go.
 func readOnly() error {
 	return webdav.NewHTTPError(http.StatusForbidden, errors.New("this calendar is read-only"))
 }

@@ -19,13 +19,16 @@ type EventInput struct {
 	// whole Household. On update, omitting the field (nil) keeps the current
 	// Attendees and an empty list clears them.
 	AttendeeIDs []int64 `json:"attendee_ids"`
+	// CalendarUID is the UID a device chose when it created the Appointment
+	// over CalDAV. It is only set on create.
+	CalendarUID string `json:"-"`
 }
 
 // ErrAttendeeNotMember is returned when an Attendee id is not a Member of the
 // Household.
 var ErrAttendeeNotMember = errors.New("attendees must be members of the household")
 
-const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at`
+const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at, COALESCE(calendar_uid, '')`
 
 type eventScanner interface {
 	Scan(dest ...any) error
@@ -33,7 +36,7 @@ type eventScanner interface {
 
 func scanEvent(scanner eventScanner) (Event, error) {
 	var e Event
-	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
+	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &e.CalendarUID)
 	return e, err
 }
 
@@ -172,10 +175,10 @@ func (s *Store) CreateEvent(ctx context.Context, householdID, userID int64, inpu
 	defer tx.Rollback()
 
 	e, err := scanEvent(tx.QueryRowContext(ctx, `
-		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO events (household_id, title, description, starts_at, ends_at, location, created_by, calendar_uid)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''))
 		RETURNING `+eventColumns+`
-	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID))
+	`, householdID, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location, userID, input.CalendarUID))
 	if err != nil {
 		return Event{}, err
 	}
@@ -213,6 +216,23 @@ func getEvent(ctx context.Context, q queryer, householdID, id int64, forUpdate b
 		return Event{}, err
 	}
 	return events[0], nil
+}
+
+// FindEventByCalendarUID returns the Household's active Appointment that a
+// device created with the given UID, or ErrNotFound.
+func (s *Store) FindEventByCalendarUID(ctx context.Context, householdID int64, uid string) (Event, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM events
+		WHERE household_id = $1 AND calendar_uid = $2 AND status <> 'archived'
+	`, householdID, uid).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, ErrNotFound
+	}
+	if err != nil {
+		return Event{}, err
+	}
+	return s.GetEvent(ctx, householdID, id)
 }
 
 // UpdateEvent replaces an Appointment's fields and returns it as it is now and

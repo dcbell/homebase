@@ -274,8 +274,9 @@ func (s *Server) collectionResource(r *http.Request, m Member, c Collection) (*r
 	res.set(nsDAV, "displayname", escape(c.DisplayName()))
 	res.set(nsDAV, "current-user-principal", hrefXML(principalPath(m.UserID)))
 	res.set(nsDAV, "owner", hrefXML(principalPath(m.UserID)))
-	// Every collection is read-only until devices can write (#35, #36).
-	res.set(nsDAV, "current-user-privilege-set", privileges(false))
+	// Devices show a collection read-only unless it is Writable.
+	_, writable := c.(Writable)
+	res.set(nsDAV, "current-user-privilege-set", privileges(writable))
 	res.set(nsDAV, "supported-report-set",
 		"<D:supported-report><D:report><C:calendar-multiget/></D:report></D:supported-report>"+
 			"<D:supported-report><D:report><C:calendar-query/></D:report></D:supported-report>")

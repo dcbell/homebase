@@ -14,7 +14,7 @@ import (
 // /caldav/ and /.well-known/caldav here.
 func (s *Server) caldavRoutes() {
 	dav := caldav.New(calendarAuthenticator{s}, s.clock, s.logger,
-		caldav.Appointments{Store: s.store, WebBaseURL: s.cfg.WebBaseURL},
+		caldav.Appointments{Store: s.store, Saves: caldavSaves{s}, WebBaseURL: s.cfg.WebBaseURL},
 	)
 	s.mux.Handle(caldav.Root, dav)
 	s.mux.Handle(strings.TrimSuffix(caldav.Root, "/"), dav)
@@ -39,4 +39,27 @@ func (a calendarAuthenticator) AuthenticateCalendar(ctx context.Context, usernam
 		Name:         login.User.Name,
 		ConnectionID: login.Connection.ID,
 	}, nil
+}
+
+// caldavSaves gives CalDAV collections the shared save operations, acting as
+// the connected Member.
+type caldavSaves struct{ s *Server }
+
+func (c caldavSaves) actor(m caldav.Member) (store.Household, store.User) {
+	return store.Household{ID: m.HouseholdID}, store.User{ID: m.UserID, Email: m.Email, Name: m.Name}
+}
+
+func (c caldavSaves) CreateAppointment(ctx context.Context, m caldav.Member, input store.EventInput) (store.Event, error) {
+	household, actor := c.actor(m)
+	return c.s.CreateAppointment(ctx, household, actor, input)
+}
+
+func (c caldavSaves) UpdateAppointment(ctx context.Context, m caldav.Member, id int64, input store.EventInput) (store.Event, error) {
+	household, actor := c.actor(m)
+	return c.s.UpdateAppointment(ctx, household, actor, id, input)
+}
+
+func (c caldavSaves) ArchiveAppointment(ctx context.Context, m caldav.Member, id int64) error {
+	household, actor := c.actor(m)
+	return c.s.ArchiveAppointment(ctx, household, actor, id)
 }

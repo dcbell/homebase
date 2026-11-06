@@ -287,21 +287,3 @@ func TestPhonesCanFetchSeveralAppointmentsAndFilterByDate(t *testing.T) {
 
 	cal.Do(http.MethodGet, missing, nil, "").Expect(http.StatusNotFound)
 }
-
-func TestTheHomebaseCalendarIsReadOnlyForNow(t *testing.T) {
-	t.Parallel()
-	h := apitest.New(t)
-	household := h.SeedHousehold()
-	soon := apitest.DefaultNow.Add(48 * time.Hour)
-	createAppointment(t, household.Owner, "Dentist", soon, soon.Add(time.Hour))
-	cal := household.Member.ConnectCalendar()
-	path := allEvents(t, cal)["Dentist"].Path
-
-	cal.Do(http.MethodDelete, path, nil, "").Expect(http.StatusForbidden)
-	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:test\r\nBEGIN:VEVENT\r\nUID:new\r\nDTSTAMP:20300101T000000Z\r\nDTSTART:20300120T090000Z\r\nSUMMARY:New\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-	cal.Do(http.MethodPut, cal.CollectionPath("homebase")+"new.ics", http.Header{"Content-Type": {"text/calendar"}}, ics).Expect(http.StatusForbidden)
-
-	if got := titles(allEvents(t, cal)); strings.Join(got, "|") != "Dentist" {
-		t.Errorf("homebase holds %q after refused writes, want only Dentist", got)
-	}
-}
