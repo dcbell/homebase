@@ -194,17 +194,69 @@ func TestAllDayAndNamedTimezoneEventsFromThePhoneAreStoredCorrectly(t *testing.T
 		t.Errorf("Chicago event runs %s to %s, want 15:00 UTC for an hour", call.StartsAt, call.EndsAt)
 	}
 
-	// A timezone name Go doesn't know is read in APP_TIMEZONE.
-	putObject(cal, "homebase", "custom-zone", nil, vevent(
+}
+
+// withTimezone is a calendar object holding a VTIMEZONE and one VEVENT.
+func withTimezone(vtimezone string, lines ...string) string {
+	return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test phone//EN\r\n" + vtimezone +
+		"BEGIN:VEVENT\r\n" + strings.Join(lines, "\r\n") + "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+}
+
+func TestTimesInAZoneGoDoesNotKnowAreReadWithTheObjectsVTIMEZONE(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	cal := household.Member.ConnectCalendar()
+
+	// The way Outlook names US Central time, with yearly rules.
+	central := "BEGIN:VTIMEZONE\r\nTZID:Central Standard Time\r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:16010101T020000\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0600\r\nRRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11\r\nEND:STANDARD\r\n" +
+		"BEGIN:DAYLIGHT\r\nDTSTART:16010101T020000\r\nTZOFFSETFROM:-0600\r\nTZOFFSETTO:-0500\r\nRRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3\r\nEND:DAYLIGHT\r\n" +
+		"END:VTIMEZONE\r\n"
+	fixed := "BEGIN:VTIMEZONE\r\nTZID:Custom Zone\r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\nEND:STANDARD\r\n" +
+		"END:VTIMEZONE\r\n"
+	cases := []struct {
+		uid, vtimezone, tzid, start string
+		want                        time.Time
+	}{
+		{"central-winter", central, "Central Standard Time", "20300120T090000", time.Date(2030, 1, 20, 15, 0, 0, 0, time.UTC)},
+		{"central-summer", central, "Central Standard Time", "20300720T090000", time.Date(2030, 7, 20, 14, 0, 0, 0, time.UTC)},
+		{"single-offset", fixed, "Custom Zone", "20300120T090000", time.Date(2030, 1, 20, 3, 30, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		putObject(cal, "homebase", c.uid, nil, withTimezone(c.vtimezone,
+			"UID:"+c.uid,
+			"DTSTAMP:20300115T120000Z",
+			"DTSTART;TZID="+c.tzid+":"+c.start,
+			"DURATION:PT1H",
+			"SUMMARY:"+c.uid,
+		)).Expect(http.StatusCreated)
+		got, _ := appointmentTitled(t, household.Owner, c.uid)
+		if !got.StartsAt.Equal(c.want) {
+			t.Errorf("%s: starts %s, want %s", c.uid, got.StartsAt.UTC(), c.want)
+		}
+	}
+}
+
+func TestTimesInAnUnknownZoneWithoutAVTIMEZONEAreRefused(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	cal := household.Member.ConnectCalendar()
+
+	resp := putObject(cal, "homebase", "custom-zone", nil, vevent(
 		"UID:custom-zone",
 		"DTSTAMP:20300115T120000Z",
 		"DTSTART;TZID=Custom Zone:20300120T090000",
 		"DTEND;TZID=Custom Zone:20300120T100000",
 		"SUMMARY:Custom zone",
-	)).Expect(http.StatusCreated)
-	custom, _ := appointmentTitled(t, household.Owner, "Custom zone")
-	if want := time.Date(2030, 1, 20, 9, 0, 0, 0, time.Local); !custom.StartsAt.Equal(want) {
-		t.Errorf("unknown-zone event starts %s, want %s", custom.StartsAt, want)
+	))
+	if resp.Status != http.StatusForbidden || !strings.Contains(string(resp.Body), "valid-calendar-object-resource") {
+		t.Errorf("status %d, body %s; want 403 valid-calendar-object-resource", resp.Status, resp.Body)
+	}
+	if _, ok := appointmentTitled(t, household.Owner, "Custom zone"); ok {
+		t.Errorf("an Appointment was made from an event in an unknown timezone")
 	}
 }
 

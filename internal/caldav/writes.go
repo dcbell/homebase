@@ -161,7 +161,8 @@ func checkConditions(o object, exists bool, ifMatch, ifNoneMatch webdav.Conditio
 }
 
 // incoming checks calendar data a device sent and returns its one component
-// with any alarms removed. Homebase items don't repeat, so repeating events
+// with any alarms removed and times in zones Go doesn't know rewritten as
+// UTC (see resolveTimezones). Homebase items don't repeat, so repeating events
 // and changes to single occurrences are refused.
 func incoming(cal *ical.Calendar, component, uid string) (*ical.Component, error) {
 	var found []*ical.Component
@@ -202,25 +203,17 @@ func incoming(cal *ical.Calendar, component, uid string) (*ical.Component, error
 		}
 	}
 	comp.Children = children
+	if err := resolveTimezones(cal, comp); err != nil {
+		return nil, err
+	}
 	return comp, nil
 }
 
 // dateTime reads a DATE or DATE-TIME property. DATEs and floating times are
-// in APP_TIMEZONE (time.Local). A TZID Go doesn't know, which only non-Olson
-// clients send, is read as APP_TIMEZONE too rather than refused.
+// in APP_TIMEZONE (time.Local). incoming has already rewritten times in zones
+// Go doesn't know, so any TZID left is an Olson name.
 func dateTime(p *ical.Prop) (time.Time, error) {
-	t, err := p.DateTime(time.Local)
-	if err == nil || p.Params.Get(ical.PropTimezoneID) == "" {
-		return t, err
-	}
-	floating := *p
-	floating.Params = ical.Params{}
-	for name, values := range p.Params {
-		if !strings.EqualFold(name, ical.PropTimezoneID) {
-			floating.Params[name] = values
-		}
-	}
-	return floating.DateTime(time.Local)
+	return p.DateTime(time.Local)
 }
 
 // isDate reports whether a property holds a DATE (an all-day value).
