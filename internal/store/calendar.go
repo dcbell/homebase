@@ -261,7 +261,8 @@ func (s *Store) dueRoutines(ctx context.Context, householdID int64, forUserID *i
 }
 
 // ListProjectsDueBetween returns the Projects that aren't done or archived
-// whose due date falls on a local day from start's through end's.
+// whose due date's local midnight falls in [start, end), the rule Tasks and
+// Routines due on a date follow too.
 func (s *Store) ListProjectsDueBetween(ctx context.Context, householdID int64, start, end time.Time) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, household_id, title, description, status, priority, due_date, created_by, created_at, updated_at
@@ -269,9 +270,9 @@ func (s *Store) ListProjectsDueBetween(ctx context.Context, householdID int64, s
 		WHERE household_id = $1
 			AND status NOT IN ('done', 'archived')
 			AND due_date >= $2::date
-			AND due_date <= $3::date
+			AND due_date < $3::date
 		ORDER BY due_date, id
-	`, householdID, dayKey(start), dayKey(end))
+	`, householdID, firstDayFrom(start), firstDayFrom(end))
 	if err != nil {
 		return nil, err
 	}
@@ -286,6 +287,18 @@ func (s *Store) ListProjectsDueBetween(ctx context.Context, householdID int64, s
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
+}
+
+// firstDayFrom is the first local day whose midnight is at or after t, so
+// due_date >= firstDayFrom(start) AND due_date < firstDayFrom(end) holds
+// exactly when the due date's local midnight is in [start, end).
+func firstDayFrom(t time.Time) string {
+	local := t.In(time.Local)
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
+	if midnight.Before(local) {
+		midnight = midnight.AddDate(0, 0, 1)
+	}
+	return dayKey(midnight)
 }
 
 func dayKey(t time.Time) string {

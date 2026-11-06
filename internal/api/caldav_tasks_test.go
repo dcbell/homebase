@@ -135,18 +135,21 @@ func TestTheTasksListCoversDueDates90DaysBackTo12MonthsAhead(t *testing.T) {
 	createTask(t, household.Owner, "Due near the window's end", due(windowEnd.Add(-time.Hour)))
 	createTask(t, household.Owner, "Due after the window", due(windowEnd.Add(time.Hour)))
 	createTask(t, household.Owner, "Undated", nil)
+	// Due on a date: counts by its local midnight, like Project due dates.
+	createTask(t, household.Owner, "On the first day's date", due(time.Date(2029, time.October, 17, 0, 0, 0, 0, time.Local)))
+	createTask(t, household.Owner, "On the last day's date", due(time.Date(2031, time.January, 15, 0, 0, 0, 0, time.Local)))
 
 	cal := household.Member.ConnectCalendar()
 
 	got := titles(allTodos(t, cal))
-	want := []string{"Due at the window's start", "Due near the window's end", "Undated"}
+	want := []string{"Due at the window's start", "Due near the window's end", "On the last day's date", "Undated"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("tasks holds %q, want %q", got, want)
 	}
 
 	h.Clock.Advance(3 * time.Hour)
 	got = titles(allTodos(t, cal))
-	want = []string{"Due after the window", "Due near the window's end", "Undated"}
+	want = []string{"Due after the window", "Due near the window's end", "On the last day's date", "Undated"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("3 hours later tasks holds %q, want %q", got, want)
 	}

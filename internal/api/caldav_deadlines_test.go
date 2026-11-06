@@ -103,7 +103,8 @@ func TestTheDeadlinesCalendarHoldsProjectsThatArentDoneWithinTheWindow(t *testin
 	h := apitest.New(t)
 	household := h.SeedHousehold()
 	// The fake Clock says 2030-01-15 12:00 UTC: the window runs from
-	// 2029-10-17 to 2031-01-15.
+	// 2029-10-17 12:00 to 2031-01-15 12:00, half-open. A due date counts by
+	// its local midnight, like a date-only Task or Routine.
 	day := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
 
 	createProject(t, household.Owner, "Active", "active", day(2030, time.February, 1))
@@ -111,8 +112,8 @@ func TestTheDeadlinesCalendarHoldsProjectsThatArentDoneWithinTheWindow(t *testin
 	createProject(t, household.Owner, "Done", "done", day(2030, time.February, 1))
 	archived := createProject(t, household.Owner, "Archived", "active", day(2030, time.February, 1))
 	household.Owner.Post(fmt.Sprintf("/api/v1/projects/%d/archive", archived.ID), nil).Expect(http.StatusOK)
-	createProject(t, household.Owner, "Too long ago", "active", day(2029, time.October, 16))
-	createProject(t, household.Owner, "First day", "active", day(2029, time.October, 17))
+	createProject(t, household.Owner, "Too long ago", "active", day(2029, time.October, 17))
+	createProject(t, household.Owner, "First day", "active", day(2029, time.October, 18))
 	createProject(t, household.Owner, "Last day", "active", day(2031, time.January, 15))
 	createProject(t, household.Owner, "Too far ahead", "active", day(2031, time.January, 16))
 	household.Owner.Post("/api/v1/projects", map[string]any{"title": "No due date"}).Expect(http.StatusCreated)
@@ -170,13 +171,15 @@ func TestTheDeadlinesCalendarHoldsTheMembersRoutinesNextDueDates(t *testing.T) {
 	household.Owner.Post(fmt.Sprintf("/api/v1/routines/%d/archive", archived.ID), nil).Expect(http.StatusOK)
 	createRoutine(t, household.Owner, "Too long ago", time.Date(2029, time.October, 17, 11, 0, 0, 0, time.UTC), nil)
 	createRoutine(t, household.Owner, "Too far ahead", time.Date(2031, time.January, 15, 13, 0, 0, 0, time.UTC), nil)
+	createRoutine(t, household.Owner, "Date-only before the window", time.Date(2029, time.October, 17, 0, 0, 0, 0, time.Local), nil)
+	createRoutine(t, household.Owner, "Date-only on the last day", time.Date(2031, time.January, 15, 0, 0, 0, 0, time.Local), nil)
 	household.Owner.Post("/api/v1/routines", map[string]any{"title": "Never due"}).Expect(http.StatusCreated)
 	elsewhere := h.SeedHousehold()
 	createRoutine(t, elsewhere.Owner, "Another Household's", soon, nil)
 
 	cal := household.Member.ConnectCalendar()
 
-	expectDeadlines(t, cal, "Routine: Mine", "Routine: Unassigned")
+	expectDeadlines(t, cal, "Routine: Date-only on the last day", "Routine: Mine", "Routine: Unassigned")
 }
 
 func TestARoutineDropsOutOfTheDeadlinesCalendarOnceItsGeneratedTaskExists(t *testing.T) {
