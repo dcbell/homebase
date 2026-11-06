@@ -282,8 +282,7 @@ func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledRemi
 }
 
 // appointmentReminders keeps an Appointment's Reminders in line with its
-// start time and Attendees. An archived Appointment has none. Every
-// Appointment has the built-in Appointment Reminder Times.
+// start time, Attendees and Reminder Times. An archived Appointment has none.
 func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.Event) error {
 	subject := store.ReminderSubject{HouseholdID: appointment.HouseholdID, Type: store.SubjectAppointment, ID: appointment.ID}
 	if appointment.Status == "archived" {
@@ -294,7 +293,7 @@ func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.E
 		return err
 	}
 	starts := appointment.StartsAt
-	return n.scheduleReminders(ctx, subject, recipients, &starts, store.AppointmentReminderTimes)
+	return n.scheduleReminders(ctx, subject, recipients, &starts, appointment.ReminderTimes)
 }
 
 // AppointmentRemoved is called after an Appointment is archived. It cancels
