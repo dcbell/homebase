@@ -1,0 +1,154 @@
+# Builds and publishes the api and web images to Docker Hub, then tags the
+# commit and creates a GitHub Release. Run it by hand from the Actions tab;
+# it never runs on push.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version as YYMMDD-NN. Leave empty to use today's date (America/Chicago) and the next free number."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE: somethingamusing/homebase
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: homebase
+          POSTGRES_USER: homebase
+          POSTGRES_PASSWORD: homebase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U homebase -d homebase"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Only release from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Releases run from main only (got ${GITHUB_REF})."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://homebase:homebase@localhost:5432/homebase?sslmode=disable
+        run: go test -count=1 ./...
+
+  release:
+    name: Publish images and release
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Choose version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$REQUESTED" ]; then
+            if ! [[ "$REQUESTED" =~ ^[0-9]{6}-[0-9]{2}$ ]]; then
+              echo "::error::Version must look like YYMMDD-NN, got '$REQUESTED'."
+              exit 1
+            fi
+            version="$REQUESTED"
+          else
+            day=$(TZ=America/Chicago date +%y%m%d)
+            last=$(curl -fsS --max-time 30 "https://hub.docker.com/v2/repositories/${IMAGE}/tags?page_size=100&name=api-${day}-" \
+              | jq -r --arg prefix "api-${day}-" '.results[].name | select(startswith($prefix)) | ltrimstr($prefix)' \
+              | sort -n | tail -n 1)
+            next=$(( 10#${last:-0} + 1 ))
+            version=$(printf '%s-%02d' "$day" "$next")
+          fi
+          status=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "https://hub.docker.com/v2/repositories/${IMAGE}/tags/api-${version}")
+          if [ "$status" != "404" ]; then
+            echo "::error::Can't confirm ${IMAGE}:api-${version} is unused (Docker Hub answered ${status})."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "::error::Git tag v${version} already exists."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${version}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:api-${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:api-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:web-${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:web-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Docker images:"
+            echo
+            echo "- \`${IMAGE}:api-${VERSION}\`"
+            echo "- \`${IMAGE}:web-${VERSION}\`"
+            echo
+          } > notes.md
+          gh release create "v${VERSION}" \
+            --target "$GITHUB_SHA" \
+            --title "v${VERSION}" \
+            --notes-file notes.md \
+            --generate-notes
