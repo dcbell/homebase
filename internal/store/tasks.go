@@ -196,8 +196,28 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 		return Task{}, Task{}, errors.New("status must be open, done, or archived")
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, Task{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var previousDue *time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT due_at FROM tasks WHERE household_id = $1 AND id = $2 FOR UPDATE
+	`, householdID, id).Scan(&previousDue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, Task{}, err
+	}
+	reminderTimes, err := updatedTaskReminderTimes(previousDue, input)
+	if err != nil {
+		return Task{}, Task{}, err
+	}
+
 	var t, p Task
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		WITH previous AS (
 			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 			FROM tasks
@@ -215,6 +235,7 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 				status = $11,
 				priority = $12,
 				due_at = $13,
+				reminder_times = COALESCE($14::jsonb, reminder_times),
 				completed_at = CASE
 					WHEN $11 = 'done' AND completed_at IS NULL THEN now()
 					WHEN $11 <> 'done' THEN NULL
@@ -230,7 +251,7 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
-	`, householdID, id, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Status, input.Priority, input.DueAt).Scan(
+	`, householdID, id, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Status, input.Priority, input.DueAt, reminderTimes).Scan(
 		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.CalendarUID, taskReminderTimes{&p},
 	)
@@ -238,6 +259,9 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 		return Task{}, Task{}, ErrNotFound
 	}
 	if err != nil {
+		return Task{}, Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Task{}, Task{}, err
 	}
 	// Only the open→done transition advances the Task's source; saving a Task
@@ -428,6 +452,28 @@ func (s taskReminderTimes) Scan(src any) error {
 		return json.Unmarshal(v, &s.task.ReminderTimes)
 	}
 	return fmt.Errorf("scan reminder_times: unexpected %T", src)
+}
+
+// updatedTaskReminderTimes are the Reminder Times to store for a Task due at
+// previousDue being updated with input, as JSON, or NULL to keep its own.
+// Switching between a timed and a date-only due date resets them to the
+// defaults for the new kind, whatever input says, as the old ones no longer
+// fit: clients that resend the whole Task, such as phones moving its due
+// date, resend the old ones.
+func updatedTaskReminderTimes(previousDue *time.Time, input TaskInput) (sql.NullString, error) {
+	reminderTimes := input.ReminderTimes
+	if taskDateOnly(previousDue) != taskDateOnly(input.DueAt) {
+		reminderTimes = defaultTaskReminderTimes(input.DueAt)
+	} else if reminderTimes == nil {
+		return sql.NullString{}, nil
+	} else if err := ValidateReminderTimes(reminderTimes, SubjectTask, taskDateOnly(input.DueAt)); err != nil {
+		return sql.NullString{}, err
+	}
+	encoded, err := json.Marshal(reminderTimes)
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
 // taskDateOnly reports whether a Task due at due has a due date with no time
