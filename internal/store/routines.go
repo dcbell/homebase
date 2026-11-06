@@ -3,14 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
 
 func (s *Store) ListRoutines(ctx context.Context, householdID int64) ([]Routine, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id, r.household_id, r.assigned_to, COALESCE(assigned.name, ''), r.title, r.notes, r.cadence, r.status, r.next_due_at, r.last_completed_at, r.created_by, r.created_at, r.updated_at
+		SELECT r.id, r.household_id, r.assigned_to, COALESCE(assigned.name, ''), r.title, r.notes, r.cadence, r.status, r.next_due_at, r.last_completed_at, r.created_by, r.created_at, r.updated_at, r.reminder_times
 		FROM routines r
 		LEFT JOIN users assigned ON assigned.id = r.assigned_to
 		WHERE r.household_id = $1 AND r.status <> 'archived'
@@ -35,12 +37,12 @@ func (s *Store) ListRoutines(ctx context.Context, householdID int64) ([]Routine,
 func (s *Store) GetRoutine(ctx context.Context, householdID, id int64) (Routine, error) {
 	var routine Routine
 	err := s.db.QueryRowContext(ctx, `
-		SELECT r.id, r.household_id, r.assigned_to, COALESCE(assigned.name, ''), r.title, r.notes, r.cadence, r.status, r.next_due_at, r.last_completed_at, r.created_by, r.created_at, r.updated_at
+		SELECT r.id, r.household_id, r.assigned_to, COALESCE(assigned.name, ''), r.title, r.notes, r.cadence, r.status, r.next_due_at, r.last_completed_at, r.created_by, r.created_at, r.updated_at, r.reminder_times
 		FROM routines r
 		LEFT JOIN users assigned ON assigned.id = r.assigned_to
 		WHERE r.household_id = $1 AND r.id = $2
 	`, householdID, id).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt,
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, ErrNotFound
@@ -52,19 +54,26 @@ func (s *Store) CreateRoutine(ctx context.Context, householdID, userID int64, in
 	if err := s.validateRoutineInput(ctx, householdID, &input); err != nil {
 		return Routine{}, err
 	}
+	if input.ReminderTimes == nil {
+		input.ReminderTimes = DateOnlyTaskReminderTimes
+	}
+	reminderTimes, err := reminderTimesJSON(input.ReminderTimes)
+	if err != nil {
+		return Routine{}, err
+	}
 
 	var routine Routine
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO routines (household_id, assigned_to, title, notes, cadence, status, next_due_at, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			RETURNING id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+			INSERT INTO routines (household_id, assigned_to, title, notes, cadence, status, next_due_at, created_by, reminder_times)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			RETURNING id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 		)
-		SELECT inserted.id, inserted.household_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.cadence, inserted.status, inserted.next_due_at, inserted.last_completed_at, inserted.created_by, inserted.created_at, inserted.updated_at
+		SELECT inserted.id, inserted.household_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.cadence, inserted.status, inserted.next_due_at, inserted.last_completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, inserted.reminder_times
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
-	`, householdID, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt,
+	`, householdID, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
 	)
 	return routine, err
 }
@@ -75,11 +84,15 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 	if err := s.validateRoutineInput(ctx, householdID, &input); err != nil {
 		return Routine{}, Routine{}, err
 	}
+	reminderTimes, err := keptReminderTimesJSON(input.ReminderTimes)
+	if err != nil {
+		return Routine{}, Routine{}, err
+	}
 
 	var routine, prev Routine
 	err = s.db.QueryRowContext(ctx, `
 		WITH previous AS (
-			SELECT id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+			SELECT id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 			FROM routines
 			WHERE household_id = $1 AND id = $2
 		), updated AS (
@@ -90,19 +103,20 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 				cadence = $6,
 				status = $7,
 				next_due_at = $8,
+				reminder_times = COALESCE($9::jsonb, reminder_times),
 				updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+			RETURNING id, household_id, assigned_to, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 		)
-		SELECT updated.id, updated.household_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.cadence, updated.status, updated.next_due_at, updated.last_completed_at, updated.created_by, updated.created_at, updated.updated_at,
-			previous.id, previous.household_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.cadence, previous.status, previous.next_due_at, previous.last_completed_at, previous.created_by, previous.created_at, previous.updated_at
+		SELECT updated.id, updated.household_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.cadence, updated.status, updated.next_due_at, updated.last_completed_at, updated.created_by, updated.created_at, updated.updated_at, updated.reminder_times,
+			previous.id, previous.household_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.cadence, previous.status, previous.next_due_at, previous.last_completed_at, previous.created_by, previous.created_at, previous.updated_at, previous.reminder_times
 		FROM updated
 		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
-	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt,
-		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt,
+	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes},
+		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt, routineReminderTimes{&prev.ReminderTimes},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, Routine{}, ErrNotFound
@@ -160,6 +174,8 @@ func (s *Store) GenerateRoutineTask(ctx context.Context, householdID, userID, id
 		Notes:      routine.Notes,
 		Priority:   "normal",
 		DueAt:      routine.NextDueAt,
+		// A copy, so later edits to the Routine don't reach this Task.
+		ReminderTimes: routine.ReminderTimes,
 	}
 	task, err = s.CreateTask(ctx, householdID, userID, input)
 	if err != nil {
@@ -193,8 +209,8 @@ func (s *Store) getOpenRoutineTaskForDue(ctx context.Context, routineID int64, d
 func (s *Store) GenerateDueRoutineTasks(ctx context.Context, now time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO tasks (household_id, routine_id, assigned_to, title, notes, priority, due_at, created_by)
-			SELECT r.household_id, r.id, r.assigned_to, r.title, r.notes, 'normal', r.next_due_at, r.created_by
+			INSERT INTO tasks (household_id, routine_id, assigned_to, title, notes, priority, due_at, created_by, reminder_times)
+			SELECT r.household_id, r.id, r.assigned_to, r.title, r.notes, 'normal', r.next_due_at, r.created_by, r.reminder_times
 			FROM routines r
 			WHERE r.status = 'active'
 				AND r.next_due_at IS NOT NULL
@@ -268,6 +284,11 @@ func (s *Store) validateRoutineInput(ctx context.Context, householdID int64, inp
 	}
 	if input.Status != "active" && input.Status != "archived" {
 		return errors.New("status must be active or archived")
+	}
+	if input.ReminderTimes != nil {
+		if err := ValidateReminderTimes(input.ReminderTimes, SubjectTask, true); err != nil {
+			return err
+		}
 	}
 	if input.AssignedTo != nil {
 		ok, err := s.userInHousehold(ctx, householdID, *input.AssignedTo)
@@ -347,5 +368,31 @@ type routineScanner interface {
 }
 
 func scanRoutine(scanner routineScanner, routine *Routine) error {
-	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt)
+	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, routineReminderTimes{&routine.ReminderTimes})
+}
+
+// routineReminderTimes scans the reminder_times column of a Routine or
+// Maintenance Schedule into its ReminderTimes.
+type routineReminderTimes struct {
+	times *[]ReminderTime
+}
+
+func (s routineReminderTimes) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), s.times)
+	case []byte:
+		return json.Unmarshal(v, s.times)
+	}
+	return fmt.Errorf("scan reminder_times: unexpected %T", src)
+}
+
+// keptReminderTimesJSON is a list of Reminder Times to store on an update:
+// NULL for nil, which keeps the stored ones.
+func keptReminderTimesJSON(times []ReminderTime) (sql.NullString, error) {
+	if times == nil {
+		return sql.NullString{}, nil
+	}
+	encoded, err := reminderTimesJSON(times)
+	return sql.NullString{String: encoded, Valid: true}, err
 }

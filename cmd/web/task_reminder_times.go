@@ -74,6 +74,12 @@ func taskPersonalReminderForm(task store.Task) taskReminderForm {
 	return taskReminderForm{Known: true, Kind: "timed", Timed: taskReminderSlots(times)}
 }
 
+// sourceReminderEditForm shows the Reminder Times of a Routine or
+// Maintenance Schedule, which are always for a date with no time of day.
+func sourceReminderEditForm(times []store.ReminderTime) taskReminderForm {
+	return taskReminderForm{Known: true, Kind: "date_only", DateOnly: taskReminderSlots(times)}
+}
+
 // taskReminderSlots lays out Reminder Times as form rows, the timed form in
 // the largest unit that divides it, with blank rows after them up to the
 // most a list may have.

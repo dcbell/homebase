@@ -206,6 +206,7 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"money":                 formatMoney,
 		"reminderSlots":         appointmentReminderSlots,
 		"taskReminderCreate":    taskReminderCreateForm,
+		"sourceReminderEdit":    sourceReminderEditForm,
 		"taskReminderEdit":      taskReminderEditForm,
 		"taskReminderPersonal":  taskPersonalReminderForm,
 	}).Parse(appTemplate))
@@ -1381,6 +1382,8 @@ func (s *webServer) routineIndex(w http.ResponseWriter, r *http.Request) {
 		Members:      dashboard.Members,
 		RoutineIndex: true,
 		Now:          time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1759,6 +1762,7 @@ func (s *webServer) assetDetail(w http.ResponseWriter, r *http.Request) {
 		RelatedContacts:       relatedContacts,
 		Tasks:                 dashboard.Tasks,
 		Now:                   time.Now(),
+		ReminderTimeDefaults:  s.reminderTimeDefaults(r),
 	})
 }
 
@@ -2937,6 +2941,9 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
+	if times, ok := taskReminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
+	}
 	return payload
 }
 
@@ -3008,6 +3015,9 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 	}
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
+	}
+	if times, ok := taskReminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	return payload
 }
