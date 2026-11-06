@@ -14,6 +14,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"sync"
@@ -104,7 +106,11 @@ func open(t testing.TB, before string) (*store.Store, string) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	if err := migrateLocked(ctx, admin, st, before); err != nil {
+	migrate := st.Migrate
+	if before != "" {
+		migrate = func(ctx context.Context) error { return migrateBefore(ctx, schemaURL, before) }
+	}
+	if err := migrateLocked(ctx, admin, migrate); err != nil {
 		t.Fatalf("migrate test schema: %v", err)
 	}
 	return st, schemaURL
@@ -166,10 +172,11 @@ func Migrate(t testing.TB, st *store.Store) error {
 		return err
 	}
 	defer func() { _ = admin.Close() }()
-	return migrateLocked(ctx, admin, st, "")
+	return migrateLocked(ctx, admin, st.Migrate)
 }
 
-func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store, before string) error {
+// migrateLocked runs migrate under the lock that serializes migrations.
+func migrateLocked(ctx context.Context, admin *sql.DB, migrate func(context.Context) error) error {
 	conn, err := admin.Conn(ctx)
 	if err != nil {
 		return err
@@ -183,7 +190,34 @@ func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store, before s
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockID)
 	}()
 
-	return st.MigrateBefore(ctx, before)
+	return migrate(ctx)
+}
+
+// migrateBefore runs, in the schema at schemaURL, the migrations that come
+// before the named one, setting the schema up as it was before an upgrade.
+func migrateBefore(ctx context.Context, schemaURL, before string) error {
+	db, err := sql.Open("pgx", schemaURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	names, err := fs.Glob(store.Migrations, "*.sql")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if name >= before {
+			break
+		}
+		body, err := fs.ReadFile(store.Migrations, name)
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, string(body)); err != nil {
+			return fmt.Errorf("run migration %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func withDatabase(rawURL, database string) (string, error) {
