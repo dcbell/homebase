@@ -1517,7 +1517,7 @@ const appTemplate = `
 			<h2>Add Appointment</h2>
 			<button class="secondary compact" type="button" data-modal-close>Close</button>
 		</div>
-		<form method="post" action="/events">
+		<form id="add-appointment-form" method="post" action="/events">
 			<label>Title<input name="title" required></label>
 			<label>Location<input name="location"></label>
 			<div class="form-row">
@@ -1525,6 +1525,11 @@ const appTemplate = `
 				<label>Ends<input name="ends_at" type="datetime-local" required></label>
 			</div>
 			{{ template "attendeePicker" (dict "Members" .Dashboard.Members) }}
+			{{ if .ReminderTimeDefaults }}
+				{{ template "appointmentReminderTimes" (dict "Times" .ReminderTimeDefaults.Appointment "Known" true) }}
+			{{ else }}
+				{{ template "appointmentReminderTimes" (dict "Known" false) }}
+			{{ end }}
 			<label>Description<textarea name="description"></textarea></label>
 			<button type="submit">Add appointment</button>
 		</form>
@@ -1693,6 +1698,29 @@ const appTemplate = `
 		{{ range .Members }}<label><input type="checkbox" name="attendee_ids" value="{{ .ID }}"{{ if hasID $selected .ID }} checked{{ end }}>{{ .Name }}</label>{{ end }}
 	</div>
 	<span class="hint">None selected means the whole household.</span>
+</fieldset>
+{{ end }}
+
+{{ define "appointmentReminderTimes" }}
+<fieldset class="reminder-times">
+	<legend>Reminders</legend>
+	{{ if .Known }}
+		<input type="hidden" name="reminder_times" value="1">
+		{{ range reminderSlots .Times }}
+		<div class="form-row reminder-time">
+			<input name="reminder_before" type="number" min="0" step="1" value="{{ .Before }}" aria-label="How long before the start">
+			<select name="reminder_unit" aria-label="Unit">
+				<option value="minutes"{{ if eq .Unit "minutes" }} selected{{ end }}>minutes</option>
+				<option value="hours"{{ if eq .Unit "hours" }} selected{{ end }}>hours</option>
+				<option value="days"{{ if eq .Unit "days" }} selected{{ end }}>days</option>
+			</select>
+			<span>before</span>
+		</div>
+		{{ end }}
+		<span class="hint">0 minutes is at the start. Clear a row to drop it; clear them all for no reminders.</span>
+	{{ else }}
+		<span class="hint">The default reminders apply.</span>
+	{{ end }}
 </fieldset>
 {{ end }}
 
@@ -3813,6 +3841,7 @@ const appTemplate = `
 				<label>Ends<input name="ends_at" type="datetime-local" value="{{ datetimeInput .Event.EndsAt }}" required></label>
 			</div>
 			{{ template "attendeePicker" (dict "Members" .Dashboard.Members "Selected" .Event.AttendeeIDs) }}
+			{{ template "appointmentReminderTimes" (dict "Times" .Event.ReminderTimes "Known" true) }}
 			<label>Description<textarea name="description">{{ .Event.Description }}</textarea></label>
 			<button type="submit">Save appointment</button>
 		</form>

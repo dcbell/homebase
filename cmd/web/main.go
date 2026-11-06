@@ -87,6 +87,9 @@ type pageData struct {
 	LoginURL              string
 	LogoutURL             string
 	Now                   time.Time
+	// ReminderTimeDefaults prefill create forms; nil when the API's could
+	// not be loaded, so the forms leave Reminder Times to the API.
+	ReminderTimeDefaults *store.ReminderTimeDefaults
 }
 
 func main() {
@@ -201,6 +204,7 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"documentSourceLabel":   documentSourceLabel,
 		"fileSize":              fileSize,
 		"money":                 formatMoney,
+		"reminderSlots":         appointmentReminderSlots,
 	}).Parse(appTemplate))
 	return s
 }
@@ -442,7 +446,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.render(w, r, http.StatusOK, pageData{
+	page := pageData{
 		Title:         "Homebase",
 		Error:         pageError,
 		Dashboard:     dashboard,
@@ -456,7 +460,14 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		LoginURL:      s.cfg.APIBaseURL + "/auth/oauth/start",
 		LogoutURL:     "/logout",
 		Now:           time.Now(),
-	})
+	}
+	var reminderTimeDefaults store.ReminderTimeDefaults
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/reminder-times/defaults", nil, &reminderTimeDefaults); err != nil {
+		s.logger.Error("load default reminder times", "error", err)
+	} else {
+		page.ReminderTimeDefaults = &reminderTimeDefaults
+	}
+	s.render(w, r, http.StatusOK, page)
 }
 
 func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
@@ -1225,6 +1236,9 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
+	if times, ok := appointmentReminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
+	}
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
 		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
@@ -1266,6 +1280,9 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		"starts_at":    formTime(r.FormValue("starts_at")),
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
+	}
+	if times, ok := appointmentReminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
