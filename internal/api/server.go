@@ -237,6 +237,12 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/archive"):
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/archive")
 		s.archiveTask(w, r, id)
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/personal-reminder-times")
+		s.setTaskPersonalReminderTimes(w, r, id)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/personal-reminder-times")
+		s.useSharedTaskReminderTimes(w, r, id)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/tasks/"):
 		s.getTask(w, r, strings.TrimPrefix(path, "/tasks/"))
 	case r.Method == http.MethodPatch && strings.HasPrefix(path, "/tasks/"):
@@ -958,7 +964,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 	if !ok {
 		return
 	}
-	task, err := s.store.GetTask(r.Context(), householdFrom(r).ID, id)
+	task, err := s.taskFor(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -968,6 +974,51 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// personalReminderTimesInput is the body that sets a Member's Personal
+// Reminder Times. An empty list means no Reminders for them.
+type personalReminderTimesInput struct {
+	ReminderTimes []store.ReminderTime `json:"reminder_times"`
+}
+
+func (s *Server) setTaskPersonalReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	var input personalReminderTimesInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.ReminderTimes == nil {
+		writeError(w, http.StatusBadRequest, "reminder_times is required")
+		return
+	}
+	task, err := s.SetTaskPersonalReminderTimes(r.Context(), householdFrom(r), userFrom(r), id, input.ReminderTimes)
+	writeTaskPersonalReminderTimesResult(w, task, err)
+}
+
+func (s *Server) useSharedTaskReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	task, err := s.UseSharedTaskReminderTimes(r.Context(), householdFrom(r), userFrom(r), id)
+	writeTaskPersonalReminderTimesResult(w, task, err)
+}
+
+func writeTaskPersonalReminderTimesResult(w http.ResponseWriter, task store.Task, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "task not found")
+	case errors.Is(err, store.ErrForbidden):
+		writeError(w, http.StatusForbidden, "only the assignee can set personal reminder times")
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, task)
+	}
 }
 
 func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string) {

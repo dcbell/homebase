@@ -261,6 +261,10 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 	if err != nil {
 		return Task{}, Task{}, err
 	}
+	kindSwitched := taskDateOnly(previousDue) != taskDateOnly(input.DueAt)
+	if err := dropTaskPersonalReminderTimes(ctx, tx, householdID, id, t.AssignedTo, kindSwitched); err != nil {
+		return Task{}, Task{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Task{}, Task{}, err
 	}

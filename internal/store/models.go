@@ -89,6 +89,10 @@ type Task struct {
 	// ReminderTimes are when the assignee is reminded of the Task. An empty
 	// list means no Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// PersonalReminderTimes are the calling Member's own, set only when they
+	// are the assignee, who alone may set them. Other Members' are never
+	// returned.
+	PersonalReminderTimes *PersonalReminderTimes `json:"personal_reminder_times,omitempty"`
 	// CalendarUID is the UID a device chose when it created the Task over
 	// CalDAV, or empty.
 	CalendarUID string `json:"-"`

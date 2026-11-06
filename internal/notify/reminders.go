@@ -18,8 +18,9 @@ const reminderBatchSize = 100
 // subject's current state.
 type reminderRenderer func(ctx context.Context, r store.ScheduledReminder) (input store.NotificationInput, ok bool, err error)
 
-// scheduleReminders makes the subject's Reminders one per Reminder Time in
-// times for each recipient at due. With no recipients or no due time, every
+// scheduleReminders makes the subject's Reminders one per Reminder Time for
+// each recipient at due: the recipient's Personal Reminder Times if they have
+// any, otherwise the shared times. With no recipients or no due time, every
 // pending Reminder for the subject is cancelled. Reminders whose time has
 // already passed are skipped, not sent late.
 func (n *Notifier) scheduleReminders(ctx context.Context, subject store.ReminderSubject, recipients []int64, due *time.Time, times []store.ReminderTime) error {
@@ -29,8 +30,16 @@ func (n *Notifier) scheduleReminders(ctx context.Context, subject store.Reminder
 		if err != nil {
 			return fmt.Errorf("schedule %s %d reminders: %w", subject.Type, subject.ID, err)
 		}
+		personal, err := n.store.ListPersonalReminderTimes(ctx, subject)
+		if err != nil {
+			return fmt.Errorf("schedule %s %d reminders: personal reminder times: %w", subject.Type, subject.ID, err)
+		}
 		for _, recipientID := range recipients {
-			for _, reminderTime := range times {
+			recipientTimes, ok := personal[recipientID]
+			if !ok {
+				recipientTimes = times
+			}
+			for _, reminderTime := range recipientTimes {
 				want = append(want, store.ReminderInput{
 					RecipientID:  recipientID,
 					ReminderTime: reminderTime,
@@ -76,6 +85,13 @@ func (n *Notifier) TaskStatusChanged(ctx context.Context, task store.Task) error
 	return n.taskReminders(ctx, task)
 }
 
+// TaskPersonalReminderTimesChanged is called after the assignee sets or
+// removes their Personal Reminder Times on a Task. Their Reminders still
+// ahead follow the new times.
+func (n *Notifier) TaskPersonalReminderTimesChanged(ctx context.Context, task store.Task) error {
+	return n.taskReminders(ctx, task)
+}
+
 // ProjectChanged is called after a Project is updated or archived. Tasks of
 // an archived Project get no Reminders; restoring the Project restores those
 // still ahead. The Tasks' own status is untouched.
@@ -95,7 +111,8 @@ func (n *Notifier) ProjectChanged(ctx context.Context, householdID, projectID in
 
 // taskReminders keeps a Task's Reminders in line with its current state: an
 // open Task with a due date and an assignee, outside any archived Project,
-// has them, one per Reminder Time of the Task; any other Task has none.
+// has them, one per Reminder Time of the Task, or of the assignee's Personal
+// Reminder Times when they have them; any other Task has none.
 func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 	active, err := n.taskActive(ctx, task)
 	if err != nil {
