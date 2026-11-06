@@ -135,79 +135,80 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		client: &http.Client{Timeout: cfg.HTTPClientTimeout},
 	}
 	s.templates = template.Must(template.New("app").Funcs(template.FuncMap{
-		"date":                  formatDate,
-		"datetime":              formatDateTime,
-		"dateInput":             formatDateInput,
-		"datetimeInput":         formatDateTimeInput,
-		"datetimeInputPtr":      formatDateTimeInputPtr,
-		"selectedID":            selectedID,
-		"hasID":                 hasID,
-		"attendeeNames":         attendeeNames,
-		"selectedString":        selectedString,
-		"idValue":               idValue,
-		"initials":              initials,
-		"count":                 count,
-		"order":                 tileOrder,
-		"tileActive":            tileActive,
-		"activeTasks":           activeTasks,
-		"activeStandaloneTasks": activeStandaloneTasks,
-		"activeProjectTasks":    activeProjectTasks,
-		"taskContext":           taskContext,
-		"standaloneTasks":       standaloneTasks,
-		"projectTasks":          projectTasks,
-		"tasksInFolder":         tasksInFolder,
-		"tasksWithoutFolder":    tasksWithoutFolder,
-		"openTaskCount":         openTaskCount,
-		"doneTaskCount":         doneTaskCount,
-		"folderDue":             folderDue,
-		"folderStatus":          folderStatus,
-		"openListItemCount":     openListItemCount,
-		"doneListItemCount":     doneListItemCount,
-		"routineTasks":          routineTasks,
-		"assetTasks":            assetTasks,
-		"taskStatCount":         taskStatCount,
-		"projectStatCount":      projectStatCount,
-		"taskDueBucket":         taskDueBucket,
-		"projectDueBucket":      projectDueBucket,
-		"eventsForDayOffset":    eventsForDayOffset,
-		"monthTitle":            monthTitle,
-		"dayNumber":             dayNumber,
-		"dateTitle":             dateTitle,
-		"dateShort":             dateShort,
-		"weekdayShort":          weekdayShort,
-		"entryTime":             entryTime,
-		"calendarDay":           calendarDay,
-		"calendarWeek":          calendarWeek,
-		"addDays":               addDays,
-		"addMonths":             addMonths,
-		"calendarStep":          calendarStep,
-		"dashboardCalendarURL":  dashboardCalendarURL,
-		"calendarPageURL":       calendarPageURL,
-		"dictRelated":           dictRelated,
-		"dict":                  dict,
-		"dictRelatedPrefix":     dictRelatedPrefix,
-		"dictDocumentInfo":      dictDocumentInfo,
-		"dictRelatedContacts":   dictRelatedContacts,
-		"dictContactInfo":       dictContactInfo,
-		"dictRelatedAssets":     dictRelatedAssets,
-		"dictAssetInfo":         dictAssetInfo,
-		"dictAttach":            dictAttach,
-		"dictAttachContact":     dictAttachContact,
-		"dictAttachAsset":       dictAttachAsset,
-		"taskRelatedDocs":       taskRelatedDocs,
-		"hasTaskDocuments":      hasTaskDocuments,
-		"taskRelatedContacts":   taskRelatedContacts,
-		"hasTaskContacts":       hasTaskContacts,
-		"taskRelatedAssets":     taskRelatedAssets,
-		"hasTaskAssets":         hasTaskAssets,
-		"documentOpenURL":       documentOpenURL,
-		"documentSourceLabel":   documentSourceLabel,
-		"fileSize":              fileSize,
-		"money":                 formatMoney,
-		"reminderSlots":         appointmentReminderSlots,
-		"taskReminderCreate":    taskReminderCreateForm,
-		"taskReminderEdit":      taskReminderEditForm,
-		"taskReminderPersonal":  taskPersonalReminderForm,
+		"date":                        formatDate,
+		"datetime":                    formatDateTime,
+		"dateInput":                   formatDateInput,
+		"datetimeInput":               formatDateTimeInput,
+		"datetimeInputPtr":            formatDateTimeInputPtr,
+		"selectedID":                  selectedID,
+		"hasID":                       hasID,
+		"attendeeNames":               attendeeNames,
+		"selectedString":              selectedString,
+		"idValue":                     idValue,
+		"initials":                    initials,
+		"count":                       count,
+		"order":                       tileOrder,
+		"tileActive":                  tileActive,
+		"activeTasks":                 activeTasks,
+		"activeStandaloneTasks":       activeStandaloneTasks,
+		"activeProjectTasks":          activeProjectTasks,
+		"taskContext":                 taskContext,
+		"standaloneTasks":             standaloneTasks,
+		"projectTasks":                projectTasks,
+		"tasksInFolder":               tasksInFolder,
+		"tasksWithoutFolder":          tasksWithoutFolder,
+		"openTaskCount":               openTaskCount,
+		"doneTaskCount":               doneTaskCount,
+		"folderDue":                   folderDue,
+		"folderStatus":                folderStatus,
+		"openListItemCount":           openListItemCount,
+		"doneListItemCount":           doneListItemCount,
+		"routineTasks":                routineTasks,
+		"assetTasks":                  assetTasks,
+		"taskStatCount":               taskStatCount,
+		"projectStatCount":            projectStatCount,
+		"taskDueBucket":               taskDueBucket,
+		"projectDueBucket":            projectDueBucket,
+		"eventsForDayOffset":          eventsForDayOffset,
+		"monthTitle":                  monthTitle,
+		"dayNumber":                   dayNumber,
+		"dateTitle":                   dateTitle,
+		"dateShort":                   dateShort,
+		"weekdayShort":                weekdayShort,
+		"entryTime":                   entryTime,
+		"calendarDay":                 calendarDay,
+		"calendarWeek":                calendarWeek,
+		"addDays":                     addDays,
+		"addMonths":                   addMonths,
+		"calendarStep":                calendarStep,
+		"dashboardCalendarURL":        dashboardCalendarURL,
+		"calendarPageURL":             calendarPageURL,
+		"dictRelated":                 dictRelated,
+		"dict":                        dict,
+		"dictRelatedPrefix":           dictRelatedPrefix,
+		"dictDocumentInfo":            dictDocumentInfo,
+		"dictRelatedContacts":         dictRelatedContacts,
+		"dictContactInfo":             dictContactInfo,
+		"dictRelatedAssets":           dictRelatedAssets,
+		"dictAssetInfo":               dictAssetInfo,
+		"dictAttach":                  dictAttach,
+		"dictAttachContact":           dictAttachContact,
+		"dictAttachAsset":             dictAttachAsset,
+		"taskRelatedDocs":             taskRelatedDocs,
+		"hasTaskDocuments":            hasTaskDocuments,
+		"taskRelatedContacts":         taskRelatedContacts,
+		"hasTaskContacts":             hasTaskContacts,
+		"taskRelatedAssets":           taskRelatedAssets,
+		"hasTaskAssets":               hasTaskAssets,
+		"documentOpenURL":             documentOpenURL,
+		"documentSourceLabel":         documentSourceLabel,
+		"fileSize":                    fileSize,
+		"money":                       formatMoney,
+		"reminderSlots":               appointmentReminderSlots,
+		"taskReminderCreate":          taskReminderCreateForm,
+		"taskReminderEdit":            taskReminderEditForm,
+		"taskReminderPersonal":        taskPersonalReminderForm,
+		"appointmentReminderPersonal": appointmentPersonalReminderTimes,
 	}).Parse(appTemplate))
 	return s
 }
@@ -268,6 +269,8 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks", s.createTask)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setAppointmentPersonalReminderTimes)
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times/shared", s.useSharedAppointmentReminderTimes)
 	mux.HandleFunc("POST /events/{id}/delete", s.deleteEvent)
 	mux.HandleFunc("POST /events", s.createEvent)
 	mux.HandleFunc("GET /routines", s.routineIndex)
@@ -1271,6 +1274,38 @@ func (s *webServer) useSharedTaskReminderTimes(w http.ResponseWriter, r *http.Re
 		return
 	}
 	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
+}
+
+// setAppointmentPersonalReminderTimes forwards "Use my own": the caller's
+// Personal Reminder Times on an Appointment. Clearing every row sends an
+// empty list, meaning no Reminders for them.
+func (s *webServer) setAppointmentPersonalReminderTimes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error=form", http.StatusSeeOther)
+		return
+	}
+	times, ok := appointmentReminderTimesFromForm(r)
+	if !ok {
+		times = []store.ReminderTime{}
+	}
+	payload := map[string]any{"reminder_times": times}
+	if err := s.apiJSON(r, http.MethodPut, "/api/v1/events/"+url.PathEscape(id)+"/personal-reminder-times", payload, nil); err != nil {
+		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/events/"+url.PathEscape(id), http.StatusSeeOther)
+}
+
+// useSharedAppointmentReminderTimes forwards "Use shared": the caller goes
+// back to the Appointment's shared Reminder Times.
+func (s *webServer) useSharedAppointmentReminderTimes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id)+"/personal-reminder-times", nil, nil); err != nil {
+		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/events/"+url.PathEscape(id), http.StatusSeeOther)
 }
 
 func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
