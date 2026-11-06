@@ -15,6 +15,7 @@ import (
 func (s *Server) caldavRoutes() {
 	dav := caldav.New(calendarAuthenticator{s}, s.clock, s.logger,
 		caldav.Appointments{Store: s.store, WebBaseURL: s.cfg.WebBaseURL},
+		caldav.Tasks{Store: s.store, WebBaseURL: s.cfg.WebBaseURL},
 	)
 	s.mux.Handle(caldav.Root, dav)
 	s.mux.Handle(strings.TrimSuffix(caldav.Root, "/"), dav)

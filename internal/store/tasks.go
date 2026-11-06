@@ -76,6 +76,36 @@ func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int
 	return tasks, rows.Err()
 }
 
+// ListOpenTasksConcerning returns the Household's open Tasks that concern a
+// Member, meaning they are assigned to the Member or to nobody, and that are
+// either undated or due within [from, to).
+func (s *Store) ListOpenTasksConcerning(ctx context.Context, householdID, userID int64, from, to time.Time) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at
+		FROM tasks t
+		LEFT JOIN users assigned ON assigned.id = t.assigned_to
+		WHERE t.household_id = $1
+		  AND t.status = 'open'
+		  AND (t.assigned_to = $2 OR t.assigned_to IS NULL)
+		  AND (t.due_at IS NULL OR (t.due_at >= $3 AND t.due_at < $4))
+		ORDER BY t.id
+	`, householdID, userID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks := []Task{}
+	for rows.Next() {
+		var t Task
+		if err := scanTask(rows, &t); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
 func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input TaskInput) (Task, error) {
 	if err := s.validateTaskInput(ctx, householdID, &input); err != nil {
 		return Task{}, err
