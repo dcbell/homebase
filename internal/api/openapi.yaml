@@ -1911,6 +1911,22 @@ components:
         status: { type: string, example: open }
         priority: { type: string, example: normal }
         due_at: { $ref: "#/components/schemas/Timestamp" }
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            When the assignee is reminded. A Task due at a time of day takes either form; one
+            due on a date with no time of day (local midnight in the app timezone) takes only
+            the date-only form. At most 30 days either way, no repeats (400 otherwise). Several
+            Overdue Reminder Times are sent in turn while the Task stays open. On create,
+            omitting the field gives the defaults for the kind of due date (see
+            /reminder-times/defaults; a Task with no due date counts as timed). On update,
+            omitting it keeps the current Reminder Times. An update that switches the due date
+            between a time of day and a date with none resets them to the new kind's defaults,
+            whatever is sent. An empty list means no Reminders. Changing them reschedules
+            pending Reminders; any whose moment has passed are skipped.
+          example: [{ minutes: -1440 }, { minutes: 0 }, { days: 1, at: "08:00" }]
     Task:
       allOf:
         - $ref: "#/components/schemas/TaskInput"
