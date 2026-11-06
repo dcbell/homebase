@@ -474,6 +474,33 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/v1/reminder-times/defaults:
+    get:
+      tags: [Notifications]
+      summary: Get the default Reminder Times
+      operationId: getDefaultReminderTimes
+      description: >
+        The built-in Reminder Times a new Task or Appointment gets when its
+        create request leaves reminder_times out, for prefilling create forms.
+      responses:
+        "200":
+          description: The built-in Reminder Times for each kind of subject.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timed_task:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+                  date_only_task:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+                  appointment:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReminderTime" }
+        "401":
+          $ref: "#/components/responses/Error"
   /api/v1/push-settings:
     get:
       tags: [Push]
@@ -843,6 +870,46 @@ paths:
         "200":
           $ref: "#/components/responses/Task"
 
+  /api/v1/tasks/{id}/personal-reminder-times:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    put:
+      tags: [Tasks]
+      summary: Set my Personal Reminder Times on a task
+      description: >-
+        Sets the caller's own Reminder Times on a Task assigned to them, used instead of the
+        Task's Reminder Times for them alone. An empty list means no Reminders for them. Only
+        the assignee may; they are dropped when the Task is reassigned, switches between a timed
+        and a date-only due date, or they leave the Household.
+      operationId: setTaskPersonalReminderTimes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalReminderTimesInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Tasks]
+      summary: Use the shared Reminder Times on a task
+      description: Removes the caller's Personal Reminder Times, so the Task's Reminder Times apply to them again. Only the assignee may.
+      operationId: useSharedTaskReminderTimes
+      responses:
+        "200":
+          $ref: "#/components/responses/Task"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/v1/tasks/{id}/archive:
     parameters:
       - $ref: "#/components/parameters/ID"
@@ -899,6 +966,49 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/Ok"
+
+  /api/v1/events/{id}/personal-reminder-times:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    put:
+      tags: [Events]
+      summary: Set my Personal Reminder Times on an appointment
+      description: >-
+        Sets the caller's own Reminder Times on an Appointment, used instead of the
+        Appointment's Reminder Times for them alone. An empty list means no Reminders for them.
+        Only an Attendee may, or any Member when the Appointment has no Attendees; they are
+        dropped when the caller stops being an Attendee (including when a whole-household
+        Appointment gains Attendees without them) or leaves the Household.
+      operationId: setEventPersonalReminderTimes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalReminderTimesInput"
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Events]
+      summary: Use the shared Reminder Times on an appointment
+      description: >-
+        Removes the caller's Personal Reminder Times, so the Appointment's Reminder Times apply
+        to them again. Only an Attendee may, or any Member when the Appointment has no Attendees.
+      operationId: useSharedEventReminderTimes
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 
   /api/v1/routines:
     get:
@@ -1884,6 +1994,22 @@ components:
         status: { type: string, example: open }
         priority: { type: string, example: normal }
         due_at: { $ref: "#/components/schemas/Timestamp" }
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            When the assignee is reminded. A Task due at a time of day takes either form; one
+            due on a date with no time of day (local midnight in the app timezone) takes only
+            the date-only form. At most 30 days either way, no repeats (400 otherwise). Several
+            Overdue Reminder Times are sent in turn while the Task stays open. On create,
+            omitting the field gives the defaults for the kind of due date (see
+            /reminder-times/defaults; a Task with no due date counts as timed). On update,
+            omitting it keeps the current Reminder Times. An update that switches the due date
+            between a time of day and a date with none resets them: to those sent when they fit
+            the new kind, otherwise to the new kind's defaults. An empty list means no Reminders. Changing them reschedules
+            pending Reminders; any whose moment has passed are skipped.
+          example: [{ minutes: -1440 }, { minutes: 0 }, { days: 1, at: "08:00" }]
     Task:
       allOf:
         - $ref: "#/components/schemas/TaskInput"
@@ -1894,6 +2020,13 @@ components:
             household_id: { type: integer, format: int64 }
             assigned_name: { type: string }
             completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when the Task is due on a date with no time of day (local midnight in the
+                app timezone), so its Reminder Times take only the date-only form.
+            personal_reminder_times:
+              $ref: "#/components/schemas/PersonalReminderTimes"
     EventInput:
       type: object
       properties:
@@ -1910,6 +2043,57 @@ components:
             Member of the Household (400 otherwise). Empty means the whole Household. On update,
             omitting the field keeps the current Attendees and an empty list clears them. Adding
             another Member sends them an Assignment Notification; adding yourself sends nothing.
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            When Attendees (or every Member, for a whole-household Appointment) are reminded.
+            Appointments take only the timed form, before or at the start: minutes from -43200
+            to 0, no repeats (400 otherwise). On create, omitting the field gives the defaults:
+            24 hours before, an hour before and at the start. On update, omitting it keeps the
+            current Reminder Times. An empty list means no Reminders. Changing them reschedules
+            pending Reminders; any whose moment has passed are skipped.
+          example: [{ minutes: -1440 }, { minutes: -60 }, { minutes: 0 }]
+    ReminderTime:
+      type: object
+      description: >-
+        A moment, relative to when something is due, at which a Reminder is sent. Timed form:
+        minutes from the due time, negative before it, zero at it, positive after it. Date-only
+        form: days from the due date at a local time of day. Before is Due Soon, at is Due Now,
+        after is Overdue. Offsets are at most 30 days either way.
+      properties:
+        minutes: { type: integer, example: -60 }
+        days: { type: integer, example: -1 }
+        at: { type: string, pattern: "^[0-2][0-9]:[0-5][0-9]$", example: "08:00" }
+    PersonalReminderTimes:
+      type: object
+      description: >-
+        The calling Member's own Reminder Times on a Task or Appointment. Returned by
+        GET /tasks/{id}, GET /events/{id}, creating or updating one, and the
+        personal-reminder-times endpoints, and only to
+        the Member who may set them (a Task's assignee; an Appointment's Attendees, or every
+        Member when it has none); other Members' are never returned.
+      properties:
+        using_shared:
+          type: boolean
+          description: True when the caller has none of their own, so the shared reminder_times apply to them.
+        reminder_times:
+          type: array
+          maxItems: 5
+          description: The caller's own Reminder Times; empty when using_shared. Empty when not using_shared means no Reminders.
+          items:
+            $ref: "#/components/schemas/ReminderTime"
+    PersonalReminderTimesInput:
+      type: object
+      required: [reminder_times]
+      properties:
+        reminder_times:
+          type: array
+          maxItems: 5
+          description: In the form that matches the Task's due date. An empty list means no Reminders for the caller.
+          items:
+            $ref: "#/components/schemas/ReminderTime"
     Attendee:
       type: object
       description: A Member an Appointment is for.
@@ -1929,6 +2113,8 @@ components:
               type: array
               description: The Attendees ordered by name. Empty means the whole Household.
               items: { $ref: "#/components/schemas/Attendee" }
+            personal_reminder_times:
+              $ref: "#/components/schemas/PersonalReminderTimes"
     RoutineInput:
       type: object
       properties:
@@ -1938,6 +2124,20 @@ components:
         cadence: { type: string, example: monthly }
         status: { type: string, example: active }
         next_due_at: { $ref: "#/components/schemas/Timestamp" }
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            Copied onto each Task the Routine generates; later changes don't reach Tasks already
+            generated. They must fit next_due_at as a Task's fit its due date: either form for a
+            time of day, only the date-only form (days at a time of day) for a date with none;
+            at most 30 days either way, no repeats (400 otherwise). On create, omitting the field
+            gives the Task defaults for the kind of next due date (see /reminder-times/defaults;
+            none counts as timed). On update, omitting it keeps the current Reminder Times, and
+            switching next_due_at between a time of day and a date with none resets them as for
+            a Task. An empty list means its Tasks get no Reminders.
+          example: [{ days: -1, at: "08:00" }, { days: 0, at: "08:00" }, { days: 1, at: "08:00" }]
     Routine:
       allOf:
         - $ref: "#/components/schemas/RoutineInput"
@@ -1948,6 +2148,11 @@ components:
             household_id: { type: integer, format: int64 }
             assigned_name: { type: string }
             last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when next_due_at is a date with no time of day, so the Reminder Times take
+                only the date-only form.
     HouseholdListInput:
       type: object
       properties:
@@ -2031,6 +2236,15 @@ components:
         cadence: { type: string, example: monthly }
         status: { type: string, example: active }
         next_due_at: { $ref: "#/components/schemas/Timestamp" }
+        reminder_times:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ReminderTime" }
+          description: >-
+            Copied onto each Task the Maintenance Schedule generates; later changes don't reach
+            Tasks already generated. They must fit next_due_at, are defaulted and are reset as
+            for a Routine. An empty list means its Tasks get no Reminders.
+          example: [{ days: -1, at: "08:00" }, { days: 0, at: "08:00" }, { days: 1, at: "08:00" }]
     AssetMaintenanceItem:
       allOf:
         - $ref: "#/components/schemas/AssetMaintenanceInput"
@@ -2041,6 +2255,11 @@ components:
             household_id: { type: integer, format: int64 }
             asset_id: { type: integer, format: int64 }
             last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when next_due_at is a date with no time of day, so the Reminder Times take
+                only the date-only form.
     DocumentInput:
       type: object
       properties:

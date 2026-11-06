@@ -13,79 +13,37 @@ import (
 // reminderBatchSize is how many Reminders the runner claims at a time.
 const reminderBatchSize = 100
 
-// ReminderStage is one Reminder a subject gets, and when it is sent relative
-// to the subject's due time.
-type ReminderStage struct {
-	Stage  string
-	SendAt func(due time.Time) time.Time
-}
-
-// TaskReminderStages are a Task's Reminders: Due Soon 24h before, Due Now at
-// the due time, and Overdue at 08:00 APP_TIMEZONE on the first morning after
-// the due date. A Task due at exactly local midnight has a due date with no
-// time of day, so its Due Soon and Due Now go out at 08:00 the day before and
-// on the day instead of in the night.
-var TaskReminderStages = []ReminderStage{
-	{Stage: store.ReminderDueSoon, SendAt: allDayAware(before(24*time.Hour), morningOf(-1))},
-	{Stage: store.ReminderDueNow, SendAt: allDayAware(before(0), morningOf(0))},
-	{Stage: store.ReminderOverdue, SendAt: overdueMorning},
-}
-
-func before(d time.Duration) func(time.Time) time.Time {
-	return func(due time.Time) time.Time { return due.Add(-d) }
-}
-
-// allDayAware uses allDay for a due time of exactly local midnight (a date
-// with no time of day) and timed for any other.
-func allDayAware(timed, allDay func(time.Time) time.Time) func(time.Time) time.Time {
-	return func(due time.Time) time.Time {
-		local := due.In(time.Local)
-		if local.Hour() == 0 && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0 {
-			return allDay(due)
-		}
-		return timed(due)
-	}
-}
-
-// morningOf is 08:00 local time the given number of days from due's local
-// date.
-func morningOf(days int) func(time.Time) time.Time {
-	return func(due time.Time) time.Time {
-		local := due.In(time.Local)
-		return time.Date(local.Year(), local.Month(), local.Day()+days, 8, 0, 0, 0, time.Local)
-	}
-}
-
-// overdueMorning is 08:00 on the calendar day after due. The day is the one
-// the calendar shows the due time on: the stored instant read in time.Local,
-// which the API sets to APP_TIMEZONE.
-func overdueMorning(due time.Time) time.Time {
-	return morningOf(1)(due)
-}
-
 // reminderRenderer turns a claimed Reminder into the Notification to store.
 // It returns ok=false to drop a Reminder that no longer applies to its
 // subject's current state.
 type reminderRenderer func(ctx context.Context, r store.ScheduledReminder) (input store.NotificationInput, ok bool, err error)
 
-// scheduleReminders makes the subject's Reminders those of stages for each
-// recipient at due. With no recipients or no due time, every pending Reminder
-// for the subject is cancelled. Reminders whose time has already passed are
-// skipped, not sent late.
-func (n *Notifier) scheduleReminders(ctx context.Context, subject store.ReminderSubject, recipients []int64, due *time.Time, stages []ReminderStage) error {
+// scheduleReminders makes the subject's Reminders one per Reminder Time for
+// each recipient at due: the recipient's Personal Reminder Times if they have
+// any, otherwise the shared times. With no recipients or no due time, every
+// pending Reminder for the subject is cancelled. Reminders whose time has
+// already passed are skipped, not sent late.
+func (n *Notifier) scheduleReminders(ctx context.Context, subject store.ReminderSubject, recipients []int64, due *time.Time, times []store.ReminderTime) error {
 	want := []store.ReminderInput{}
 	if due != nil {
 		recipients, err := n.members(ctx, subject.HouseholdID, recipients)
 		if err != nil {
 			return fmt.Errorf("schedule %s %d reminders: %w", subject.Type, subject.ID, err)
 		}
+		personal, err := n.store.ListPersonalReminderTimes(ctx, subject)
+		if err != nil {
+			return fmt.Errorf("schedule %s %d reminders: personal reminder times: %w", subject.Type, subject.ID, err)
+		}
 		for _, recipientID := range recipients {
-			for _, stage := range stages {
+			recipientTimes, ok := personal[recipientID]
+			if !ok {
+				recipientTimes = times
+			}
+			for _, reminderTime := range recipientTimes {
 				want = append(want, store.ReminderInput{
-					RecipientID: recipientID,
-					Stage:       stage.Stage,
-					DueAt:       *due,
-					SendAt:      stage.SendAt(*due),
+					RecipientID:  recipientID,
+					ReminderTime: reminderTime,
+					DueAt:        *due,
 				})
 			}
 		}
@@ -127,6 +85,13 @@ func (n *Notifier) TaskStatusChanged(ctx context.Context, task store.Task) error
 	return n.taskReminders(ctx, task)
 }
 
+// TaskPersonalReminderTimesChanged is called after the assignee sets or
+// removes their Personal Reminder Times on a Task. Their Reminders still
+// ahead follow the new times.
+func (n *Notifier) TaskPersonalReminderTimesChanged(ctx context.Context, task store.Task) error {
+	return n.taskReminders(ctx, task)
+}
+
 // ProjectChanged is called after a Project is updated or archived. Tasks of
 // an archived Project get no Reminders; restoring the Project restores those
 // still ahead. The Tasks' own status is untouched.
@@ -146,7 +111,8 @@ func (n *Notifier) ProjectChanged(ctx context.Context, householdID, projectID in
 
 // taskReminders keeps a Task's Reminders in line with its current state: an
 // open Task with a due date and an assignee, outside any archived Project,
-// has them; any other Task has none.
+// has them, one per Reminder Time of the Task, or of the assignee's Personal
+// Reminder Times when they have them; any other Task has none.
 func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 	active, err := n.taskActive(ctx, task)
 	if err != nil {
@@ -157,7 +123,7 @@ func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 		recipients = []int64{*task.AssignedTo}
 	}
 	subject := store.ReminderSubject{HouseholdID: task.HouseholdID, Type: store.SubjectTask, ID: task.ID}
-	return n.scheduleReminders(ctx, subject, recipients, task.DueAt, TaskReminderStages)
+	return n.scheduleReminders(ctx, subject, recipients, task.DueAt, task.ReminderTimes)
 }
 
 // taskActive reports whether a Task is still something to be reminded of:
@@ -242,16 +208,69 @@ func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) 
 	}
 	input.HouseholdID = r.HouseholdID
 	input.RecipientID = r.RecipientID
-	input.Stage = r.Stage
+	input.Stage = r.ReminderTime.Stage()
 	input.SubjectType = r.SubjectType
 	input.SubjectID = r.SubjectID
 	return n.notify(ctx, input)
 }
 
-var taskReminderTitles = map[string]string{
-	store.ReminderDueSoon: "Task due in 24 hours",
-	store.ReminderDueNow:  "Task due now",
-	store.ReminderOverdue: "Task overdue",
+// taskReminderTitle says how far a Task's due time is from its Reminder,
+// such as "Task due in 24 hours", "Task due now" or "Task overdue by 1 day".
+func taskReminderTitle(r store.ReminderTime) string {
+	switch r.Stage() {
+	case store.ReminderDueSoon:
+		return "Task due in " + reminderDistance(r)
+	case store.ReminderOverdue:
+		return "Task overdue by " + reminderDistance(r)
+	}
+	if r.IsDateOnly() {
+		return "Task due today"
+	}
+	return "Task due now"
+}
+
+// appointmentReminderTitle says how soon an Appointment starts, such as
+// "Appointment in 1 hour" or "Appointment starting now".
+func appointmentReminderTitle(r store.ReminderTime) string {
+	if r.Stage() == store.ReminderDueNow {
+		return "Appointment starting now"
+	}
+	return "Appointment in " + reminderDistance(r)
+}
+
+// reminderDistance is how far a Reminder Time is from the due time, before or
+// after: whole days for the date-only form; for the timed form, days when it
+// is a whole number of them beyond one, otherwise hours and minutes, so 24
+// hours stays "24 hours".
+func reminderDistance(r store.ReminderTime) string {
+	if r.IsDateOnly() {
+		return plural(abs(r.Days), "day")
+	}
+	minutes := abs(r.Minutes)
+	const day = 24 * 60
+	switch {
+	case minutes > day && minutes%day == 0:
+		return plural(minutes/day, "day")
+	case minutes%60 == 0:
+		return plural(minutes/60, "hour")
+	case minutes < 60:
+		return plural(minutes, "minute")
+	}
+	return plural(minutes/60, "hour") + " " + plural(minutes%60, "minute")
+}
+
+func plural(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // renderTaskReminder builds a Task Reminder from the Task as it is now. It
@@ -274,39 +293,38 @@ func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledRemi
 	}
 	return store.NotificationInput{
 		Kind:  store.NotificationTaskReminder,
-		Title: taskReminderTitles[r.Stage],
+		Title: taskReminderTitle(r.ReminderTime),
 		Body:  task.Title,
 	}, true, nil
 }
 
-// AppointmentReminderStages are an Appointment's Reminders: Due Soon 24h
-// before, one an hour before, and Due Now when it starts.
-var AppointmentReminderStages = []ReminderStage{
-	{Stage: store.ReminderDueSoon, SendAt: before(24 * time.Hour)},
-	{Stage: store.ReminderHourBefore, SendAt: before(time.Hour)},
-	{Stage: store.ReminderDueNow, SendAt: before(0)},
-}
-
 // appointmentReminders keeps an Appointment's Reminders in line with its
-// start time and Attendees. An archived Appointment has none.
+// start time, Attendees and Reminder Times. An archived Appointment has none.
 func (n *Notifier) appointmentReminders(ctx context.Context, appointment store.Event) error {
 	subject := store.ReminderSubject{HouseholdID: appointment.HouseholdID, Type: store.SubjectAppointment, ID: appointment.ID}
 	if appointment.Status == "archived" {
-		return n.scheduleReminders(ctx, subject, nil, nil, AppointmentReminderStages)
+		return n.scheduleReminders(ctx, subject, nil, nil, nil)
 	}
 	recipients, err := n.appointmentRecipients(ctx, appointment)
 	if err != nil {
 		return err
 	}
 	starts := appointment.StartsAt
-	return n.scheduleReminders(ctx, subject, recipients, &starts, AppointmentReminderStages)
+	return n.scheduleReminders(ctx, subject, recipients, &starts, appointment.ReminderTimes)
+}
+
+// AppointmentPersonalReminderTimesChanged is called after a Member sets or
+// removes their Personal Reminder Times on an Appointment. Their Reminders
+// still ahead follow the new times.
+func (n *Notifier) AppointmentPersonalReminderTimesChanged(ctx context.Context, appointment store.Event) error {
+	return n.appointmentReminders(ctx, appointment)
 }
 
 // AppointmentRemoved is called after an Appointment is archived. It cancels
 // the Appointment's pending Reminders.
 func (n *Notifier) AppointmentRemoved(ctx context.Context, householdID, appointmentID int64) error {
 	subject := store.ReminderSubject{HouseholdID: householdID, Type: store.SubjectAppointment, ID: appointmentID}
-	return n.scheduleReminders(ctx, subject, nil, nil, AppointmentReminderStages)
+	return n.scheduleReminders(ctx, subject, nil, nil, nil)
 }
 
 // MembersChanged is called after a Member joins or leaves the household. An
@@ -344,12 +362,6 @@ func (n *Notifier) appointmentRecipients(ctx context.Context, appointment store.
 	return ids, nil
 }
 
-var appointmentReminderTitles = map[string]string{
-	store.ReminderDueSoon:    "Appointment in 24 hours",
-	store.ReminderHourBefore: "Appointment in 1 hour",
-	store.ReminderDueNow:     "Appointment starting now",
-}
-
 // renderAppointmentReminder builds an Appointment Reminder from the
 // Appointment as it is now. It drops the Reminder if the Appointment has since
 // been archived or rescheduled, as a guard behind cancellation.
@@ -366,7 +378,7 @@ func (n *Notifier) renderAppointmentReminder(ctx context.Context, r store.Schedu
 	}
 	return store.NotificationInput{
 		Kind:  store.NotificationAppointmentReminder,
-		Title: appointmentReminderTitles[r.Stage],
+		Title: appointmentReminderTitle(r.ReminderTime),
 		Body:  appointment.Title,
 	}, true, nil
 }

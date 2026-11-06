@@ -203,11 +203,13 @@ func (s *Store) RemoveMember(ctx context.Context, householdID, memberID, actorID
 		return err
 	}
 	// A removed Member's devices must stop receiving household information,
-	// so their Push Subscriptions, Notifications and pending Reminders go too.
+	// so their Push Subscriptions, Notifications and pending Reminders go too,
+	// along with their Personal Reminder Times.
 	for _, query := range []string{
 		`DELETE FROM push_subscriptions WHERE household_id = $1 AND user_id = $2`,
 		`DELETE FROM notifications WHERE household_id = $1 AND recipient_id = $2`,
 		`DELETE FROM scheduled_reminders WHERE household_id = $1 AND recipient_id = $2 AND sent_at IS NULL`,
+		`DELETE FROM personal_reminder_times WHERE household_id = $1 AND member_id = $2`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, householdID, memberID); err != nil {
 			return err

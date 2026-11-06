@@ -41,7 +41,7 @@ func TestArchivingAppointmentCancelsItsPendingReminders(t *testing.T) {
 	kept, _ := keptAndArchivedAppointments(t, household.Owner)
 
 	sendRemindersAt(t, h, at(20, 9, 0))
-	expectAppointmentReminders(t, household.Member, stages(kept.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(kept.ID, "due_soon", "due_soon", "due_now")...)
 }
 
 func TestMemberAddedLaterGetsNoRemindersForArchivedAppointments(t *testing.T) {
@@ -54,7 +54,7 @@ func TestMemberAddedLaterGetsNoRemindersForArchivedAppointments(t *testing.T) {
 	newcomer := addMember(t, h, household, "newcomer@example.test", "Newcomer")
 
 	sendRemindersAt(t, h, at(20, 9, 0))
-	expectAppointmentReminders(t, newcomer, stages(kept.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, newcomer, stages(kept.ID, "due_soon", "due_soon", "due_now")...)
 }
 
 func TestEditingArchivedAppointmentSchedulesNoReminders(t *testing.T) {

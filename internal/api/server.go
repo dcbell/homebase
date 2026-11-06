@@ -178,6 +178,8 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.registerPushSubscription(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/push-subscriptions/"):
 		s.deletePushSubscription(w, r, strings.TrimPrefix(path, "/push-subscriptions/"))
+	case r.Method == http.MethodGet && path == "/reminder-times/defaults":
+		writeJSON(w, http.StatusOK, store.BuiltInReminderTimes())
 	case r.Method == http.MethodGet && path == "/push-settings":
 		s.getPushSettings(w, r)
 	case r.Method == http.MethodPatch && path == "/push-settings":
@@ -235,10 +237,22 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/archive"):
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/archive")
 		s.archiveTask(w, r, id)
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/personal-reminder-times")
+		s.setTaskPersonalReminderTimes(w, r, id)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/tasks/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/tasks/"), "/personal-reminder-times")
+		s.useSharedTaskReminderTimes(w, r, id)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/tasks/"):
 		s.getTask(w, r, strings.TrimPrefix(path, "/tasks/"))
 	case r.Method == http.MethodPatch && strings.HasPrefix(path, "/tasks/"):
 		s.updateTask(w, r, strings.TrimPrefix(path, "/tasks/"))
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/events/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/events/"), "/personal-reminder-times")
+		s.setAppointmentPersonalReminderTimes(w, r, id)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/events/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/events/"), "/personal-reminder-times")
+		s.useSharedAppointmentReminderTimes(w, r, id)
 	case r.Method == http.MethodGet && path == "/events":
 		s.listEvents(w, r)
 	case r.Method == http.MethodPost && path == "/events":
@@ -916,7 +930,19 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, task)
+	writeJSON(w, http.StatusCreated, s.savedTask(r, task))
+}
+
+// savedTask is a Task just saved as the caller sees it. The save has already
+// happened, so failing to load their Personal Reminder Times is logged and
+// the Task is returned without them.
+func (s *Server) savedTask(r *http.Request, task store.Task) store.Task {
+	seen, err := s.taskAsSeenBy(r.Context(), householdFrom(r), userFrom(r), task)
+	if err != nil {
+		s.logger.Error("load personal reminder times", "task_id", task.ID, "error", err)
+		return task
+	}
+	return seen
 }
 
 // taskChanged reports a Task change to the Notifier. The change is already
@@ -956,7 +982,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 	if !ok {
 		return
 	}
-	task, err := s.store.GetTask(r.Context(), householdFrom(r).ID, id)
+	task, err := s.taskFor(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -966,6 +992,51 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, rawID string) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// personalReminderTimesInput is the body that sets a Member's Personal
+// Reminder Times. An empty list means no Reminders for them.
+type personalReminderTimesInput struct {
+	ReminderTimes []store.ReminderTime `json:"reminder_times"`
+}
+
+func (s *Server) setTaskPersonalReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	var input personalReminderTimesInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.ReminderTimes == nil {
+		writeError(w, http.StatusBadRequest, "reminder_times is required")
+		return
+	}
+	task, err := s.SetTaskPersonalReminderTimes(r.Context(), householdFrom(r), userFrom(r), id, input.ReminderTimes)
+	writeTaskPersonalReminderTimesResult(w, task, err)
+}
+
+func (s *Server) useSharedTaskReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	task, err := s.UseSharedTaskReminderTimes(r.Context(), householdFrom(r), userFrom(r), id)
+	writeTaskPersonalReminderTimesResult(w, task, err)
+}
+
+func writeTaskPersonalReminderTimesResult(w http.ResponseWriter, task store.Task, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "task not found")
+	case errors.Is(err, store.ErrForbidden):
+		writeError(w, http.StatusForbidden, "only the assignee can set personal reminder times")
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, task)
+	}
 }
 
 func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -986,7 +1057,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request, rawID string
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeJSON(w, http.StatusOK, s.savedTask(r, task))
 }
 
 func (s *Server) completeTask(w http.ResponseWriter, r *http.Request, rawID string) {
@@ -1058,7 +1129,18 @@ func (s *Server) createEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, event)
+	writeJSON(w, http.StatusCreated, s.savedAppointment(r, event))
+}
+
+// savedAppointment is an Appointment just saved as the caller sees it, as
+// savedTask is for a Task.
+func (s *Server) savedAppointment(r *http.Request, appointment store.Event) store.Event {
+	seen, err := s.appointmentAsSeenBy(r.Context(), householdFrom(r), userFrom(r), appointment)
+	if err != nil {
+		s.logger.Error("load personal reminder times", "event_id", appointment.ID, "error", err)
+		return appointment
+	}
+	return seen
 }
 
 // appointmentChanged reports an Appointment change to the Notifier. The change
@@ -1075,7 +1157,7 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request, rawID string) 
 	if !ok {
 		return
 	}
-	event, err := s.store.GetEvent(r.Context(), householdFrom(r).ID, id)
+	event, err := s.appointmentFor(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -1105,7 +1187,46 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, event)
+	writeJSON(w, http.StatusOK, s.savedAppointment(r, event))
+}
+
+func (s *Server) setAppointmentPersonalReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	var input personalReminderTimesInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.ReminderTimes == nil {
+		writeError(w, http.StatusBadRequest, "reminder_times is required")
+		return
+	}
+	event, err := s.SetAppointmentPersonalReminderTimes(r.Context(), householdFrom(r), userFrom(r), id, input.ReminderTimes)
+	writeAppointmentPersonalReminderTimesResult(w, event, err)
+}
+
+func (s *Server) useSharedAppointmentReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	event, err := s.UseSharedAppointmentReminderTimes(r.Context(), householdFrom(r), userFrom(r), id)
+	writeAppointmentPersonalReminderTimesResult(w, event, err)
+}
+
+func writeAppointmentPersonalReminderTimesResult(w http.ResponseWriter, event store.Event, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "event not found")
+	case errors.Is(err, store.ErrForbidden):
+		writeError(w, http.StatusForbidden, "only an attendee can set personal reminder times")
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, event)
+	}
 }
 
 func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID string) {

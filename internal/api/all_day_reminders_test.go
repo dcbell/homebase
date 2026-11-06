@@ -39,3 +39,17 @@ func TestTaskDueOnADateGetsItsRemindersInTheMorning(t *testing.T) {
 	sendRemindersAt(t, h, localAt(18, 8, 0))
 	expectReminders(t, household.Member, dueSoon, dueNow, overdue)
 }
+
+func TestTaskDueOnADateHasRemindersTitledInDays(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	createDueTask(t, household.Owner, household.Member, localAt(17, 0, 0))
+
+	sendRemindersAt(t, h, localAt(25, 8, 0))
+	got := reminderTitlesOf(t, household.Member, "task_reminder")
+	want := []string{"Task due in 1 day", "Task due today", "Task overdue by 1 day"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Reminder titles = %q, want %q", got, want)
+	}
+}

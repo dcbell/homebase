@@ -382,7 +382,7 @@ func TestMovingAnAppointmentFromThePhoneMovesItsReminders(t *testing.T) {
 	sendRemindersAt(t, h, at(17, 9, 0))
 	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon")...)
 	sendRemindersAt(t, h, at(18, 8, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon")...)
 	sendRemindersAt(t, h, at(18, 9, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 }

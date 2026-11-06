@@ -184,7 +184,7 @@ func (s *Store) UnlinkAsset(ctx context.Context, householdID, linkID int64) erro
 
 func (s *Store) ListAssetMaintenanceItems(ctx context.Context, householdID, assetID int64) ([]AssetMaintenanceItem, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+		SELECT id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 		FROM asset_maintenance_items
 		WHERE household_id = $1 AND asset_id = $2 AND status <> 'archived'
 		ORDER BY COALESCE(next_due_at, '9999-12-31'::timestamptz), title
@@ -214,14 +214,18 @@ func (s *Store) CreateAssetMaintenanceItem(ctx context.Context, householdID, use
 	if err := validateAssetMaintenanceInput(&input); err != nil {
 		return AssetMaintenanceItem{}, err
 	}
+	reminderTimes, err := newReminderTimes(input.NextDueAt, input.ReminderTimes)
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
 
 	var item AssetMaintenanceItem
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO asset_maintenance_items (household_id, asset_id, title, notes, cadence, status, next_due_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
-	`, householdID, assetID, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO asset_maintenance_items (household_id, asset_id, title, notes, cadence, status, next_due_at, created_by, reminder_times)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
+	`, householdID, assetID, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	return item, err
 }
@@ -229,11 +233,11 @@ func (s *Store) CreateAssetMaintenanceItem(ctx context.Context, householdID, use
 func (s *Store) GetAssetMaintenanceItem(ctx context.Context, householdID, id int64) (AssetMaintenanceItem, error) {
 	var item AssetMaintenanceItem
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
+		SELECT id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 		FROM asset_maintenance_items
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
@@ -245,25 +249,48 @@ func (s *Store) UpdateAssetMaintenanceItem(ctx context.Context, householdID, id 
 	if err := validateAssetMaintenanceInput(&input); err != nil {
 		return AssetMaintenanceItem{}, err
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var previousDue *time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT next_due_at FROM asset_maintenance_items WHERE household_id = $1 AND id = $2 FOR UPDATE
+	`, householdID, id).Scan(&previousDue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AssetMaintenanceItem{}, ErrNotFound
+	}
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	reminderTimes, err := updatedReminderTimes(previousDue, input.NextDueAt, input.ReminderTimes)
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
 
 	var item AssetMaintenanceItem
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE asset_maintenance_items
 		SET title = $3,
 			notes = $4,
 			cadence = $5,
 			status = $6,
 			next_due_at = $7,
+			reminder_times = COALESCE($8::jsonb, reminder_times),
 			updated_at = now()
 		WHERE household_id = $1 AND id = $2
-		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at
-	`, householdID, id, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
+		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
+	`, householdID, id, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return AssetMaintenanceItem{}, err
+	}
+	return item, tx.Commit()
 }
 
 func (s *Store) ArchiveAssetMaintenanceItem(ctx context.Context, householdID, id int64) error {
@@ -320,6 +347,9 @@ func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdI
 		Notes:                  assetMaintenanceTaskNotes(asset, item),
 		Priority:               "normal",
 		DueAt:                  item.NextDueAt,
+		// A copy, so later edits to the Maintenance Schedule don't reach
+		// this Task.
+		ReminderTimes: item.ReminderTimes,
 	}
 	task, err = s.CreateTask(ctx, householdID, userID, input)
 	if err != nil {
@@ -334,7 +364,7 @@ func (s *Store) GenerateAssetMaintenanceItemTask(ctx context.Context, householdI
 func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID int64, dueAt time.Time) (Task, error) {
 	var task Task
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, ''), t.reminder_times
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.asset_maintenance_item_id = $1
@@ -342,7 +372,7 @@ func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID in
 			AND t.due_at IS NOT DISTINCT FROM $2
 		LIMIT 1
 	`, itemID, dueAt).Scan(
-		&task.ID, &task.HouseholdID, &task.ProjectID, &task.ProjectFolderID, &task.RoutineID, &task.AssetID, &task.AssetMaintenanceItemID, &task.AssignedTo, &task.AssignedName, &task.Title, &task.Notes, &task.Status, &task.Priority, &task.DueAt, &task.CompletedAt, &task.CreatedBy, &task.CreatedAt, &task.UpdatedAt, &task.CalendarUID,
+		&task.ID, &task.HouseholdID, &task.ProjectID, &task.ProjectFolderID, &task.RoutineID, &task.AssetID, &task.AssetMaintenanceItemID, &task.AssignedTo, &task.AssignedName, &task.Title, &task.Notes, &task.Status, &task.Priority, &task.DueAt, &task.CompletedAt, &task.CreatedBy, &task.CreatedAt, &task.UpdatedAt, &task.CalendarUID, taskReminderTimes{&task},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -356,13 +386,13 @@ func (s *Store) getOpenAssetMaintenanceTaskForDue(ctx context.Context, itemID in
 func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO tasks (household_id, asset_id, asset_maintenance_item_id, title, notes, priority, due_at, created_by)
+			INSERT INTO tasks (household_id, asset_id, asset_maintenance_item_id, title, notes, priority, due_at, created_by, reminder_times)
 			SELECT i.household_id, i.asset_id, i.id, i.title,
 				CASE
 					WHEN i.notes = '' THEN 'Asset maintenance for ' || a.name
 					ELSE 'Asset maintenance for ' || a.name || E'\n\n' || i.notes
 				END,
-				'normal', i.next_due_at, i.created_by
+				'normal', i.next_due_at, i.created_by, i.reminder_times
 			FROM asset_maintenance_items i
 			JOIN assets a ON a.id = i.asset_id AND a.household_id = i.household_id
 			WHERE i.status = 'active'
@@ -377,14 +407,14 @@ func (s *Store) GenerateDueAssetMaintenanceTasks(ctx context.Context, now time.T
 						AND t.due_at IS NOT DISTINCT FROM i.next_due_at
 				)
 			ON CONFLICT DO NOTHING
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 		), linked AS (
 			INSERT INTO asset_links (household_id, asset_id, entity_type, entity_id, created_by)
 			SELECT household_id, asset_id, 'task', id, created_by
 			FROM inserted
 			ON CONFLICT DO NOTHING
 		)
-		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, '')
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, ''), inserted.reminder_times
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
 		ORDER BY inserted.id
@@ -548,5 +578,5 @@ func scanAsset(scanner assetScanner, asset *Asset) error {
 }
 
 func scanAssetMaintenanceItem(scanner assetScanner, item *AssetMaintenanceItem) error {
-	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt)
+	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly})
 }

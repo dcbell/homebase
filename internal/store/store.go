@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 
 //go:embed migrations/*.sql
 var migrations embed.FS
+
+// Migrations are the schema migrations Migrate runs, in name order, such as
+// for a test to set up a schema as it was before an upgrade.
+var Migrations, _ = fs.Sub(migrations, "migrations")
 
 var ErrNotFound = errors.New("not found")
 var ErrForbidden = errors.New("forbidden")

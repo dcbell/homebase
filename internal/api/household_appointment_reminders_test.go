@@ -31,6 +31,6 @@ func TestMemberAddedLaterGetsRemindersForWholeHouseholdAppointments(t *testing.T
 	sendRemindersAt(t, h, at(17, 10, 0))
 	// Due Soon (16th 09:00) had passed when they joined, so it is skipped;
 	// the Appointment with Attendees is not theirs.
-	expectAppointmentReminders(t, newcomer, stages(appt.ID, "hour_before", "due_now")...)
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before", "due_now")...)
+	expectAppointmentReminders(t, newcomer, stages(appt.ID, "due_soon", "due_now")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon", "due_now")...)
 }

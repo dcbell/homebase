@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
-// Reminder stages.
+// Reminder stages. A Reminder's stage is worked out from its Reminder Time;
+// ReminderHourBefore remains only on Notifications sent before Reminder Times
+// replaced the fixed stages.
 const (
 	ReminderDueSoon    = "due_soon"
 	ReminderHourBefore = "hour_before"
@@ -22,34 +25,53 @@ type ReminderSubject struct {
 }
 
 // ReminderInput is one Reminder the subject should have: who receives it, at
-// which stage, for which due time, and when to send it.
+// which Reminder Time, and for which due time. It is sent at
+// ReminderTime.SendAt(DueAt).
 type ReminderInput struct {
-	RecipientID int64
-	Stage       string
-	DueAt       time.Time
-	SendAt      time.Time
+	RecipientID  int64
+	ReminderTime ReminderTime
+	DueAt        time.Time
 }
 
 // ScheduledReminder is a Reminder claimed by the runner for sending.
 type ScheduledReminder struct {
-	ID          int64
-	HouseholdID int64
-	RecipientID int64
-	SubjectType string
-	SubjectID   int64
-	Stage       string
-	DueAt       time.Time
-	SendAt      time.Time
+	ID           int64
+	HouseholdID  int64
+	RecipientID  int64
+	SubjectType  string
+	SubjectID    int64
+	ReminderTime ReminderTime
+	DueAt        time.Time
+	SendAt       time.Time
 }
 
 type reminderKey struct {
-	recipientID int64
-	stage       string
-	dueAt       int64
+	recipientID  int64
+	reminderTime ReminderTime
+	dueAt        int64
 }
 
-func keyOf(recipientID int64, stage string, dueAt time.Time) reminderKey {
-	return reminderKey{recipientID: recipientID, stage: stage, dueAt: dueAt.UnixMicro()}
+func keyOf(recipientID int64, reminderTime ReminderTime, dueAt time.Time) reminderKey {
+	return reminderKey{recipientID: recipientID, reminderTime: reminderTime, dueAt: dueAt.UnixMicro()}
+}
+
+// reminderTimeColumns are a Reminder Time as the offset_minutes, offset_days
+// and at_time columns store it: the timed form sets only offset_minutes, the
+// date-only form only offset_days and at_time.
+func reminderTimeColumns(r ReminderTime) (minutes, days sql.NullInt64, at sql.NullString) {
+	if r.IsDateOnly() {
+		return minutes, sql.NullInt64{Int64: int64(r.Days), Valid: true}, sql.NullString{String: r.At, Valid: true}
+	}
+	return sql.NullInt64{Int64: int64(r.Minutes), Valid: true}, days, at
+}
+
+// reminderTimeFromColumns reverses reminderTimeColumns. at must be selected
+// as HH:MM.
+func reminderTimeFromColumns(minutes, days sql.NullInt64, at sql.NullString) ReminderTime {
+	if at.Valid {
+		return ReminderTime{Days: int(days.Int64), At: at.String}
+	}
+	return ReminderTime{Minutes: int(minutes.Int64)}
 }
 
 // ScheduleReminders makes want the complete set of Reminders for subject.
@@ -69,11 +91,11 @@ func (s *Store) ScheduleReminders(ctx context.Context, subject ReminderSubject, 
 
 	wanted := map[reminderKey]bool{}
 	for _, r := range want {
-		wanted[keyOf(r.RecipientID, r.Stage, r.DueAt)] = true
+		wanted[keyOf(r.RecipientID, r.ReminderTime, r.DueAt)] = true
 	}
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, recipient_id, stage, due_at
+		SELECT id, recipient_id, offset_minutes, offset_days, to_char(at_time, 'HH24:MI'), due_at
 		FROM scheduled_reminders
 		WHERE subject_type = $1 AND subject_id = $2 AND sent_at IS NULL AND cancelled_at IS NULL
 		FOR UPDATE
@@ -84,13 +106,14 @@ func (s *Store) ScheduleReminders(ctx context.Context, subject ReminderSubject, 
 	var cancel []int64
 	for rows.Next() {
 		var id, recipientID int64
-		var stage string
+		var minutes, days sql.NullInt64
+		var at sql.NullString
 		var dueAt time.Time
-		if err := rows.Scan(&id, &recipientID, &stage, &dueAt); err != nil {
+		if err := rows.Scan(&id, &recipientID, &minutes, &days, &at, &dueAt); err != nil {
 			_ = rows.Close()
 			return err
 		}
-		if !wanted[keyOf(recipientID, stage, dueAt)] {
+		if !wanted[keyOf(recipientID, reminderTimeFromColumns(minutes, days, at), dueAt)] {
 			cancel = append(cancel, id)
 		}
 	}
@@ -104,16 +127,18 @@ func (s *Store) ScheduleReminders(ctx context.Context, subject ReminderSubject, 
 	}
 
 	for _, r := range want {
-		if !r.SendAt.After(now) {
+		sendAt := r.ReminderTime.SendAt(r.DueAt)
+		if !sendAt.After(now) {
 			continue
 		}
+		minutes, days, at := reminderTimeColumns(r.ReminderTime)
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO scheduled_reminders (household_id, recipient_id, subject_type, subject_id, stage, due_at, send_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (recipient_id, subject_type, subject_id, stage, due_at)
+			INSERT INTO scheduled_reminders (household_id, recipient_id, subject_type, subject_id, stage, offset_minutes, offset_days, at_time, due_at, send_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::time, $9, $10)
+			ON CONFLICT (recipient_id, subject_type, subject_id, offset_minutes, offset_days, at_time, due_at)
 			DO UPDATE SET send_at = EXCLUDED.send_at, cancelled_at = NULL, household_id = EXCLUDED.household_id
 			WHERE scheduled_reminders.sent_at IS NULL
-		`, subject.HouseholdID, r.RecipientID, subject.Type, subject.ID, r.Stage, r.DueAt, r.SendAt); err != nil {
+		`, subject.HouseholdID, r.RecipientID, subject.Type, subject.ID, r.ReminderTime.Stage(), minutes, days, at, r.DueAt, sendAt); err != nil {
 			return err
 		}
 	}
@@ -149,7 +174,8 @@ func (s *Store) ClaimDueReminders(ctx context.Context, asOf time.Time, limit int
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, household_id, recipient_id, subject_type, subject_id, stage, due_at, send_at
+		RETURNING id, household_id, recipient_id, subject_type, subject_id,
+			offset_minutes, offset_days, to_char(at_time, 'HH24:MI'), due_at, send_at
 	`, asOf, limit)
 	if err != nil {
 		return nil, err
@@ -159,9 +185,12 @@ func (s *Store) ClaimDueReminders(ctx context.Context, asOf time.Time, limit int
 	claimed := []ScheduledReminder{}
 	for rows.Next() {
 		var r ScheduledReminder
-		if err := rows.Scan(&r.ID, &r.HouseholdID, &r.RecipientID, &r.SubjectType, &r.SubjectID, &r.Stage, &r.DueAt, &r.SendAt); err != nil {
+		var minutes, days sql.NullInt64
+		var at sql.NullString
+		if err := rows.Scan(&r.ID, &r.HouseholdID, &r.RecipientID, &r.SubjectType, &r.SubjectID, &minutes, &days, &at, &r.DueAt, &r.SendAt); err != nil {
 			return nil, err
 		}
+		r.ReminderTime = reminderTimeFromColumns(minutes, days, at)
 		claimed = append(claimed, r)
 	}
 	return claimed, rows.Err()

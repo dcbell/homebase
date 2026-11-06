@@ -120,17 +120,25 @@ _Avoid_: Alert, notice, message
 A Notification telling a Member that a Task, List Item, Routine, or Appointment has become theirs, whether another Member assigned it or a Routine or Maintenance Schedule generated it. It is never sent when you assign something to yourself.
 
 **Reminder**:
-A Notification that something assigned to a Member is coming due or is overdue. It is sent whoever made the assignment. A Task gets Due Soon, Due Now, and Overdue Reminders. An Appointment gets Due Soon, an hour-before Reminder, and Due Now.
+A Notification that something assigned to a Member is coming due or is overdue. It is sent whoever made the assignment, once at each of the Reminder Times that apply to that Member. A Task's Reminders are Due Soon, Due Now, and Overdue; an Appointment's are Due Soon and Due Now only.
 _Avoid_: Alert, nudge
 
+**Reminder Time**:
+One moment, set relative to when something is due, at which a Reminder is sent, such as 24 hours before or one day after at 08:00. A Task, Appointment, Routine, or Maintenance Schedule has up to five Reminder Times, which anyone who can edit it may change; a Routine's or Maintenance Schedule's are copied onto each Generated Task. None means no Reminders.
+_Avoid_: Alert, alarm, reminder schedule
+
+**Personal Reminder Times**:
+A Member's own Reminder Times on one Task or Appointment, used instead of its Reminder Times for that Member only. Only that Member sees them. They are dropped when the Member is no longer its assignee or Attendee.
+_Avoid_: Override, my reminders
+
 **Due Soon**:
-The Reminder sent 24 hours before something is due. For a Task due on a date with no time of day, it is sent at 08:00 the day before.
+A Reminder sent a set time before something is due, such as 24 hours before, or one day before at 08:00 for a Task due on a date with no time of day.
 
 **Due Now**:
-The Reminder sent at the due date and time, or when an Appointment starts. For a Task due on a date with no time of day, it is sent at 08:00 on that date.
+A Reminder sent at the due date and time, or when an Appointment starts. For a Task due on a date with no time of day, it is sent at a set time of day on that date.
 
 **Overdue**:
-The Reminder sent the morning after the due date if the Task is still open.
+A Reminder sent a set time after a Task's due date if the Task is still open, such as 08:00 the next morning. A Task can have several.
 _Avoid_: Late, past due
 
 **Unread**:

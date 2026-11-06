@@ -817,6 +817,22 @@ const appTemplate = `
 					form.requestSubmit();
 				});
 			});
+			// Reminder Times reset when a due date switches between a time of
+			// day and a date with none (midnight), so show the set for the due
+			// date's kind; the hidden set is disabled and not sent.
+			document.querySelectorAll("[data-reminder-times]").forEach(function (editor) {
+				var form = editor.closest("form");
+				var due = form && (form.elements["due_at"] || form.elements["next_due_at"]);
+				if (!due || editor.querySelectorAll("[data-reminder-kind]").length < 2) return;
+				due.addEventListener("change", function () {
+					var kind = due.value !== "" && (due.type === "date" || /T00:00$/.test(due.value)) ? "date_only" : "timed";
+					editor.querySelectorAll("[data-reminder-kind]").forEach(function (set) {
+						var off = set.getAttribute("data-reminder-kind") !== kind;
+						set.disabled = off;
+						set.hidden = off;
+					});
+				});
+			});
 			document.querySelectorAll("[data-date-field]").forEach(function (fieldControl) {
 				fieldControl.addEventListener("change", function () {
 					var form = document.getElementById(fieldControl.getAttribute("data-form"));
@@ -1471,7 +1487,7 @@ const appTemplate = `
 			<h2>Add Task</h2>
 			<button class="secondary compact" type="button" data-modal-close>Close</button>
 		</div>
-		<form method="post" action="/tasks">
+		<form id="add-task-form" method="post" action="/tasks">
 			<label>Title<input name="title" required></label>
 			<label>Notes<textarea name="notes"></textarea></label>
 			<div class="form-row">
@@ -1488,6 +1504,7 @@ const appTemplate = `
 				<label>Due<input name="due_at" type="datetime-local"></label>
 				<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 			</div>
+			{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults false) }}
 			<button type="submit">Add task</button>
 		</form>
 	</div>
@@ -1517,7 +1534,7 @@ const appTemplate = `
 			<h2>Add Appointment</h2>
 			<button class="secondary compact" type="button" data-modal-close>Close</button>
 		</div>
-		<form method="post" action="/events">
+		<form id="add-appointment-form" method="post" action="/events">
 			<label>Title<input name="title" required></label>
 			<label>Location<input name="location"></label>
 			<div class="form-row">
@@ -1525,6 +1542,7 @@ const appTemplate = `
 				<label>Ends<input name="ends_at" type="datetime-local" required></label>
 			</div>
 			{{ template "attendeePicker" (dict "Members" .Dashboard.Members) }}
+			{{ template "reminderTimes" (appointmentReminderCreate .ReminderTimeDefaults) }}
 			<label>Description<textarea name="description"></textarea></label>
 			<button type="submit">Add appointment</button>
 		</form>
@@ -1554,6 +1572,7 @@ const appTemplate = `
 				</select></label>
 			</div>
 			<label>Next due<input name="next_due_at" type="date"></label>
+			{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 			<button type="submit">Add routine</button>
 		</form>
 	</div>
@@ -1694,6 +1713,68 @@ const appTemplate = `
 	</div>
 	<span class="hint">None selected means the whole household.</span>
 </fieldset>
+{{ end }}
+
+{{ define "reminderTimes" }}
+{{ if .Known }}
+<div class="reminder-times-editor" data-reminder-times>
+	<input type="hidden" name="reminder_times" value="1">
+	{{ if .Timed }}{{ template "reminderTimeRows" (dict "Kind" "timed" "Shown" (eq .Kind "timed") "Rows" .Timed "Appointment" .Appointment) }}{{ end }}
+	{{ if .DateOnly }}{{ template "reminderTimeRows" (dict "Kind" "date_only" "Shown" (eq .Kind "date_only") "Rows" .DateOnly "Appointment" false) }}{{ end }}
+</div>
+{{ else }}
+<fieldset class="reminder-times">
+	<legend>Reminders</legend>
+	<span class="hint">The default reminders apply.</span>
+</fieldset>
+{{ end }}
+{{ end }}
+
+{{ define "reminderTimeRows" }}
+<fieldset class="reminder-times" data-reminder-kind="{{ .Kind }}"{{ if not .Shown }} disabled hidden{{ end }}>
+	<legend>Reminders</legend>
+	{{ $dateOnly := eq .Kind "date_only" }}
+	{{ $appointment := .Appointment }}
+	{{ range .Rows }}
+	<div class="form-row reminder-time">
+		<input name="reminder_amount" type="number" min="0" step="1" value="{{ .Amount }}" aria-label="How long">
+		<select name="reminder_unit" aria-label="Unit">
+			{{ if not $dateOnly }}
+			<option value="minutes"{{ if eq .Unit "minutes" }} selected{{ end }}>minutes</option>
+			<option value="hours"{{ if eq .Unit "hours" }} selected{{ end }}>hours</option>
+			{{ end }}
+			<option value="days"{{ if eq .Unit "days" }} selected{{ end }}>days</option>
+		</select>
+		<select name="reminder_direction" aria-label="{{ if $appointment }}Before or at the start{{ else }}Before or after{{ end }}">
+			<option value="before"{{ if eq .Direction "before" }} selected{{ end }}>before</option>
+			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $appointment }}at the start{{ else if $dateOnly }}on the day{{ else }}at the time{{ end }}</option>
+			{{ if not $appointment }}<option value="after"{{ if eq .Direction "after" }} selected{{ end }}>after</option>{{ end }}
+		</select>
+		{{ if not $appointment }}<input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day">{{ end }}
+	</div>
+	{{ end }}
+	<span class="hint">{{ if $appointment }}Before the start, or 0 at the start.{{ else if $dateOnly }}Days before or after the due date, at a time of day; 0 on the day.{{ else }}Before or after the due time, or 0 at it; set a time of day for days at that time.{{ end }} Clear a row's number to drop it; clear them all for no reminders.</span>
+</fieldset>
+{{ end }}
+
+{{ define "personalReminderTimes" }}
+<section class="panel">
+	<div class="tile-head"><h2>Your Reminder Times</h2></div>
+	{{ if .Personal.UsingShared }}
+		<p class="hint">You get this {{ .Noun }}'s Reminder Times. Use your own to replace them for you alone.</p>
+	{{ else }}
+		<p class="hint">Your own Reminder Times replace this {{ .Noun }}'s for you. Only you see them.</p>
+	{{ end }}
+	<form id="{{ .ID }}-personal-reminders" method="post" action="{{ .Path }}/personal-reminder-times">
+		{{ template "reminderTimes" .Form }}
+		<button type="submit">{{ if .Personal.UsingShared }}Use your own Reminder Times{{ else }}Save your Reminder Times{{ end }}</button>
+	</form>
+	{{ if not .Personal.UsingShared }}
+	<form id="{{ .ID }}-use-shared-reminders" method="post" action="{{ .Path }}/personal-reminder-times/shared">
+		<button class="secondary" type="submit">Use shared Reminder Times</button>
+	</form>
+	{{ end }}
+</section>
 {{ end }}
 
 {{ define "calendarWeekView" }}
@@ -1883,7 +1964,7 @@ const appTemplate = `
 				<h2>Add Task</h2>
 				<button class="secondary compact" type="button" data-modal-close>Close</button>
 			</div>
-			<form method="post" action="/tasks">
+			<form id="task-create-form" method="post" action="/tasks">
 				<input type="hidden" name="return_to" value="/tasks">
 				<label>Title<input name="title" required></label>
 				<label>Notes<textarea name="notes"></textarea></label>
@@ -1901,6 +1982,7 @@ const appTemplate = `
 					<label>Due<input name="due_at" type="datetime-local"></label>
 					<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 				</div>
+				{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults false) }}
 				<button type="submit">Add task</button>
 			</form>
 		</div>
@@ -1973,6 +2055,7 @@ const appTemplate = `
 					</select></label>
 				</div>
 				<label>Next due<input name="next_due_at" type="date"></label>
+				{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add routine</button>
 			</form>
 		</div>
@@ -3018,6 +3101,7 @@ const appTemplate = `
 					</select></label>
 					<label>Next due<input name="next_due_at" type="date"></label>
 				</div>
+				{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add maintenance</button>
 			</form>
 		</div>
@@ -3032,6 +3116,7 @@ const appTemplate = `
 			</div>
 			<form method="post" action="/assets/{{ $.Asset.ID }}/maintenance/{{ .ID }}">
 				{{ template "assetMaintenanceFields" . }}
+				{{ template "reminderTimes" (reminderEdit .ReminderTimes .DateOnly $.ReminderTimeDefaults) }}
 				<button type="submit">Save maintenance</button>
 			</form>
 		</div>
@@ -3095,12 +3180,20 @@ const appTemplate = `
 		<option value="quarterly" {{ selectedString .Cadence "quarterly" }}>quarterly</option>
 		<option value="yearly" {{ selectedString .Cadence "yearly" }}>yearly</option>
 	</select></label>
-	<label>Next due<input name="next_due_at" type="date" value="{{ dateInput .NextDueAt }}"></label>
+	{{ template "nextDueInput" . }}
 </div>
 <label>Status<select name="status">
 	<option value="active" {{ selectedString .Status "active" }}>active</option>
 	<option value="archived" {{ selectedString .Status "archived" }}>archived</option>
 </select></label>
+{{ end }}
+
+{{ define "nextDueInput" }}
+{{ if and .NextDueAt (not .DateOnly) }}
+<label>Next due<input name="next_due_at" type="datetime-local" value="{{ datetimeInputPtr .NextDueAt }}"></label>
+{{ else }}
+<label>Next due<input name="next_due_at" type="date" value="{{ dateInput .NextDueAt }}"></label>
+{{ end }}
 {{ end }}
 
 {{ define "listDetail" }}
@@ -3625,7 +3718,7 @@ const appTemplate = `
 				<h2>Add Project Task</h2>
 				<button class="secondary compact" type="button" data-modal-close>Close</button>
 			</div>
-			<form method="post" action="/projects/{{ .Project.ID }}/tasks">
+			<form id="project-task-create-form" method="post" action="/projects/{{ .Project.ID }}/tasks">
 				<label>Title<input name="title" required></label>
 				<label>Notes<textarea name="notes"></textarea></label>
 				<div class="form-row">
@@ -3642,6 +3735,7 @@ const appTemplate = `
 					<label>Due<input name="due_at" type="date"></label>
 					<label>Priority<select name="priority"><option>normal</option><option>high</option><option>low</option></select></label>
 				</div>
+				{{ template "reminderTimes" (taskReminderCreate .ReminderTimeDefaults true) }}
 				<button type="submit">Add task</button>
 			</form>
 		</div>
@@ -3747,9 +3841,13 @@ const appTemplate = `
 				</select></label>
 			</div>
 			<label>Due<input name="due_at" type="datetime-local" value="{{ datetimeInputPtr .Task.DueAt }}"></label>
+			{{ template "reminderTimes" (reminderEdit .Task.ReminderTimes .Task.DateOnly .ReminderTimeDefaults) }}
 			<button type="submit">Save task</button>
 		</form>
 	</section>
+	{{ with .Task.PersonalReminderTimes }}
+	{{ template "personalReminderTimes" (dict "Personal" . "Noun" "Task" "ID" "task" "Path" (printf "/tasks/%d" $.Task.ID) "Form" (taskReminderPersonal $.Task)) }}
+	{{ end }}
 	</div>
 
 	<aside class="panel detail-sidebar">
@@ -3813,10 +3911,14 @@ const appTemplate = `
 				<label>Ends<input name="ends_at" type="datetime-local" value="{{ datetimeInput .Event.EndsAt }}" required></label>
 			</div>
 			{{ template "attendeePicker" (dict "Members" .Dashboard.Members "Selected" .Event.AttendeeIDs) }}
+			{{ template "reminderTimes" (appointmentReminderEdit .Event) }}
 			<label>Description<textarea name="description">{{ .Event.Description }}</textarea></label>
 			<button type="submit">Save appointment</button>
 		</form>
 	</section>
+	{{ with .Event.PersonalReminderTimes }}
+	{{ template "personalReminderTimes" (dict "Personal" . "Noun" "Appointment" "ID" "event" "Path" (printf "/events/%d" $.Event.ID) "Form" (appointmentReminderPersonal $.Event)) }}
+	{{ end }}
 </main>
 {{ end }}
 
@@ -3861,8 +3963,9 @@ const appTemplate = `
 						<option value="active" {{ selectedString .Routine.Status "active" }}>active</option>
 						<option value="archived" {{ selectedString .Routine.Status "archived" }}>archived</option>
 					</select></label>
-					<label>Next due<input name="next_due_at" type="date" value="{{ dateInput .Routine.NextDueAt }}"></label>
+					{{ template "nextDueInput" .Routine }}
 				</div>
+				{{ template "reminderTimes" (reminderEdit .Routine.ReminderTimes .Routine.DateOnly .ReminderTimeDefaults) }}
 				<button type="submit">Save routine</button>
 			</form>
 		</section>

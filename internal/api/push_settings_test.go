@@ -113,7 +113,7 @@ func TestAppointmentReminderIsPushedOnlyWhileItsKindIsOn(t *testing.T) {
 
 	household.Member.Patch("/api/v1/push-settings", map[string]any{"appointment_reminder": true}).Expect(http.StatusOK)
 	sendRemindersAt(t, h, at(17, 8, 0))
-	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "hour_before")...)
+	expectAppointmentReminders(t, household.Member, stages(appt.ID, "due_soon", "due_soon")...)
 	if sent := recorder.Sent(); len(sent) != before+1 {
 		t.Errorf("sent %d Pushes for the hour-before Reminder with the kind back on, want 1", len(sent)-before)
 	}

@@ -51,6 +51,71 @@ func (s *Server) ArchiveAppointment(ctx context.Context, household store.Househo
 	return nil
 }
 
+// SetAppointmentPersonalReminderTimes sets the acting Member's Personal
+// Reminder Times on an Appointment, rescheduling their Reminders. It returns
+// store.ErrForbidden when they aren't an Attendee and it has Attendees.
+func (s *Server) SetAppointmentPersonalReminderTimes(ctx context.Context, household store.Household, actor store.User, id int64, times []store.ReminderTime) (store.Event, error) {
+	if err := s.store.SetPersonalReminderTimes(ctx, appointmentSubject(household, id), actor.ID, times); err != nil {
+		return store.Event{}, err
+	}
+	return s.appointmentPersonalReminderTimesChanged(ctx, household, actor, id)
+}
+
+// UseSharedAppointmentReminderTimes removes the acting Member's Personal
+// Reminder Times on an Appointment, so its shared Reminder Times apply to
+// them again. It returns store.ErrForbidden when they aren't an Attendee and
+// it has Attendees.
+func (s *Server) UseSharedAppointmentReminderTimes(ctx context.Context, household store.Household, actor store.User, id int64) (store.Event, error) {
+	if err := s.store.RemovePersonalReminderTimes(ctx, appointmentSubject(household, id), actor.ID); err != nil {
+		return store.Event{}, err
+	}
+	return s.appointmentPersonalReminderTimesChanged(ctx, household, actor, id)
+}
+
+// appointmentPersonalReminderTimesChanged reschedules an Appointment's
+// Reminders after a Member changed their Personal Reminder Times, and returns
+// the Appointment as they see it.
+func (s *Server) appointmentPersonalReminderTimesChanged(ctx context.Context, household store.Household, actor store.User, id int64) (store.Event, error) {
+	appointment, err := s.appointmentFor(ctx, household, actor, id)
+	if err != nil {
+		return store.Event{}, err
+	}
+	if err := s.notifier.AppointmentPersonalReminderTimesChanged(ctx, appointment); err != nil {
+		s.logger.Error("notify appointment personal reminder times changed", "event_id", id, "error", err)
+	}
+	return appointment, nil
+}
+
+// appointmentFor loads an Appointment as the acting Member sees it.
+func (s *Server) appointmentFor(ctx context.Context, household store.Household, actor store.User, id int64) (store.Event, error) {
+	appointment, err := s.store.GetEvent(ctx, household.ID, id)
+	if err != nil {
+		return store.Event{}, err
+	}
+	return s.appointmentAsSeenBy(ctx, household, actor, appointment)
+}
+
+// appointmentAsSeenBy is an Appointment as the acting Member sees it: with
+// their own Personal Reminder Times when it is for them, as only then may
+// they set them.
+func (s *Server) appointmentAsSeenBy(ctx context.Context, household store.Household, actor store.User, appointment store.Event) (store.Event, error) {
+	if !store.AppointmentIsFor(appointment, actor.ID) {
+		return appointment, nil
+	}
+	personal, err := s.store.PersonalReminderTimesOf(ctx, appointmentSubject(household, appointment.ID), actor.ID)
+	if err != nil {
+		return store.Event{}, err
+	}
+	appointment.PersonalReminderTimes = &personal
+	return appointment, nil
+}
+
+// appointmentSubject is an Appointment of the Household as a subject of
+// Reminders.
+func appointmentSubject(household store.Household, id int64) store.ReminderSubject {
+	return store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectAppointment, ID: id}
+}
+
 // CreateTask adds a Task, scheduling its Reminders and notifying its
 // assignee.
 func (s *Server) CreateTask(ctx context.Context, household store.Household, actor store.User, input store.TaskInput) (store.Task, error) {
@@ -92,6 +157,68 @@ func (s *Server) ReopenTask(ctx context.Context, household store.Household, acto
 	}
 	s.taskStatusChanged(ctx, task)
 	return task, nil
+}
+
+// SetTaskPersonalReminderTimes sets the acting Member's Personal Reminder
+// Times on a Task assigned to them, rescheduling their Reminders. It returns
+// store.ErrForbidden when they aren't its assignee.
+func (s *Server) SetTaskPersonalReminderTimes(ctx context.Context, household store.Household, actor store.User, id int64, times []store.ReminderTime) (store.Task, error) {
+	if err := s.store.SetPersonalReminderTimes(ctx, taskSubject(household, id), actor.ID, times); err != nil {
+		return store.Task{}, err
+	}
+	return s.taskPersonalReminderTimesChanged(ctx, household, actor, id)
+}
+
+// UseSharedTaskReminderTimes removes the acting Member's Personal Reminder
+// Times on a Task assigned to them, so its shared Reminder Times apply to
+// them again. It returns store.ErrForbidden when they aren't its assignee.
+func (s *Server) UseSharedTaskReminderTimes(ctx context.Context, household store.Household, actor store.User, id int64) (store.Task, error) {
+	if err := s.store.RemovePersonalReminderTimes(ctx, taskSubject(household, id), actor.ID); err != nil {
+		return store.Task{}, err
+	}
+	return s.taskPersonalReminderTimesChanged(ctx, household, actor, id)
+}
+
+// taskPersonalReminderTimesChanged reschedules a Task's Reminders after its
+// assignee changed their Personal Reminder Times, and returns the Task as
+// they see it.
+func (s *Server) taskPersonalReminderTimesChanged(ctx context.Context, household store.Household, actor store.User, id int64) (store.Task, error) {
+	task, err := s.taskFor(ctx, household, actor, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if err := s.notifier.TaskPersonalReminderTimesChanged(ctx, task); err != nil {
+		s.logger.Error("notify task personal reminder times changed", "task_id", id, "error", err)
+	}
+	return task, nil
+}
+
+// taskFor loads a Task as the acting Member sees it.
+func (s *Server) taskFor(ctx context.Context, household store.Household, actor store.User, id int64) (store.Task, error) {
+	task, err := s.store.GetTask(ctx, household.ID, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	return s.taskAsSeenBy(ctx, household, actor, task)
+}
+
+// taskAsSeenBy is a Task as the acting Member sees it: with their own
+// Personal Reminder Times when they are its assignee, who alone may set them.
+func (s *Server) taskAsSeenBy(ctx context.Context, household store.Household, actor store.User, task store.Task) (store.Task, error) {
+	if task.AssignedTo == nil || *task.AssignedTo != actor.ID {
+		return task, nil
+	}
+	personal, err := s.store.PersonalReminderTimesOf(ctx, taskSubject(household, task.ID), actor.ID)
+	if err != nil {
+		return store.Task{}, err
+	}
+	task.PersonalReminderTimes = &personal
+	return task, nil
+}
+
+// taskSubject is a Task of the Household as a subject of Reminders.
+func taskSubject(household store.Household, id int64) store.ReminderSubject {
+	return store.ReminderSubject{HouseholdID: household.ID, Type: store.SubjectTask, ID: id}
 }
 
 // ArchiveTask archives a Task and cancels its Reminders.

@@ -352,3 +352,31 @@ func TestCompletingTaskThroughEditCancelsItsReminders(t *testing.T) {
 	sendRemindersAt(t, h, at(30, 8, 0))
 	expectReminders(t, household.Member)
 }
+
+// reminderTitlesOf returns the titles of the Reminders of kind a Member has
+// received, oldest first.
+func reminderTitlesOf(t *testing.T, c *apitest.Client, kind string) []string {
+	t.Helper()
+	got := []string{}
+	list := notificationsOf(t, c)
+	for i := len(list.Notifications) - 1; i >= 0; i-- {
+		if n := list.Notifications[i]; n.Kind == kind {
+			got = append(got, n.Title)
+		}
+	}
+	return got
+}
+
+func TestTaskReminderTitlesSayHowFarAwayTheDueTimeIs(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	createDueTask(t, household.Owner, household.Member, at(17, 18, 0))
+
+	sendRemindersAt(t, h, at(25, 8, 0))
+	got := reminderTitlesOf(t, household.Member, "task_reminder")
+	want := []string{"Task due in 24 hours", "Task due now", "Task overdue by 1 day"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Reminder titles = %q, want %q", got, want)
+	}
+}

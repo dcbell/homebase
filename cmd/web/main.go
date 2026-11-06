@@ -87,6 +87,9 @@ type pageData struct {
 	LoginURL              string
 	LogoutURL             string
 	Now                   time.Time
+	// ReminderTimeDefaults prefill create forms; nil when the API's could
+	// not be loaded, so the forms leave Reminder Times to the API.
+	ReminderTimeDefaults *store.ReminderTimeDefaults
 }
 
 func main() {
@@ -132,75 +135,81 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		client: &http.Client{Timeout: cfg.HTTPClientTimeout},
 	}
 	s.templates = template.Must(template.New("app").Funcs(template.FuncMap{
-		"date":                  formatDate,
-		"datetime":              formatDateTime,
-		"dateInput":             formatDateInput,
-		"datetimeInput":         formatDateTimeInput,
-		"datetimeInputPtr":      formatDateTimeInputPtr,
-		"selectedID":            selectedID,
-		"hasID":                 hasID,
-		"attendeeNames":         attendeeNames,
-		"selectedString":        selectedString,
-		"idValue":               idValue,
-		"initials":              initials,
-		"count":                 count,
-		"order":                 tileOrder,
-		"tileActive":            tileActive,
-		"activeTasks":           activeTasks,
-		"activeStandaloneTasks": activeStandaloneTasks,
-		"activeProjectTasks":    activeProjectTasks,
-		"taskContext":           taskContext,
-		"standaloneTasks":       standaloneTasks,
-		"projectTasks":          projectTasks,
-		"tasksInFolder":         tasksInFolder,
-		"tasksWithoutFolder":    tasksWithoutFolder,
-		"openTaskCount":         openTaskCount,
-		"doneTaskCount":         doneTaskCount,
-		"folderDue":             folderDue,
-		"folderStatus":          folderStatus,
-		"openListItemCount":     openListItemCount,
-		"doneListItemCount":     doneListItemCount,
-		"routineTasks":          routineTasks,
-		"assetTasks":            assetTasks,
-		"taskStatCount":         taskStatCount,
-		"projectStatCount":      projectStatCount,
-		"taskDueBucket":         taskDueBucket,
-		"projectDueBucket":      projectDueBucket,
-		"eventsForDayOffset":    eventsForDayOffset,
-		"monthTitle":            monthTitle,
-		"dayNumber":             dayNumber,
-		"dateTitle":             dateTitle,
-		"dateShort":             dateShort,
-		"weekdayShort":          weekdayShort,
-		"entryTime":             entryTime,
-		"calendarDay":           calendarDay,
-		"calendarWeek":          calendarWeek,
-		"addDays":               addDays,
-		"addMonths":             addMonths,
-		"calendarStep":          calendarStep,
-		"dashboardCalendarURL":  dashboardCalendarURL,
-		"calendarPageURL":       calendarPageURL,
-		"dictRelated":           dictRelated,
-		"dict":                  dict,
-		"dictRelatedPrefix":     dictRelatedPrefix,
-		"dictDocumentInfo":      dictDocumentInfo,
-		"dictRelatedContacts":   dictRelatedContacts,
-		"dictContactInfo":       dictContactInfo,
-		"dictRelatedAssets":     dictRelatedAssets,
-		"dictAssetInfo":         dictAssetInfo,
-		"dictAttach":            dictAttach,
-		"dictAttachContact":     dictAttachContact,
-		"dictAttachAsset":       dictAttachAsset,
-		"taskRelatedDocs":       taskRelatedDocs,
-		"hasTaskDocuments":      hasTaskDocuments,
-		"taskRelatedContacts":   taskRelatedContacts,
-		"hasTaskContacts":       hasTaskContacts,
-		"taskRelatedAssets":     taskRelatedAssets,
-		"hasTaskAssets":         hasTaskAssets,
-		"documentOpenURL":       documentOpenURL,
-		"documentSourceLabel":   documentSourceLabel,
-		"fileSize":              fileSize,
-		"money":                 formatMoney,
+		"date":                        formatDate,
+		"datetime":                    formatDateTime,
+		"dateInput":                   formatDateInput,
+		"datetimeInput":               formatDateTimeInput,
+		"datetimeInputPtr":            formatDateTimeInputPtr,
+		"selectedID":                  selectedID,
+		"hasID":                       hasID,
+		"attendeeNames":               attendeeNames,
+		"selectedString":              selectedString,
+		"idValue":                     idValue,
+		"initials":                    initials,
+		"count":                       count,
+		"order":                       tileOrder,
+		"tileActive":                  tileActive,
+		"activeTasks":                 activeTasks,
+		"activeStandaloneTasks":       activeStandaloneTasks,
+		"activeProjectTasks":          activeProjectTasks,
+		"taskContext":                 taskContext,
+		"standaloneTasks":             standaloneTasks,
+		"projectTasks":                projectTasks,
+		"tasksInFolder":               tasksInFolder,
+		"tasksWithoutFolder":          tasksWithoutFolder,
+		"openTaskCount":               openTaskCount,
+		"doneTaskCount":               doneTaskCount,
+		"folderDue":                   folderDue,
+		"folderStatus":                folderStatus,
+		"openListItemCount":           openListItemCount,
+		"doneListItemCount":           doneListItemCount,
+		"routineTasks":                routineTasks,
+		"assetTasks":                  assetTasks,
+		"taskStatCount":               taskStatCount,
+		"projectStatCount":            projectStatCount,
+		"taskDueBucket":               taskDueBucket,
+		"projectDueBucket":            projectDueBucket,
+		"eventsForDayOffset":          eventsForDayOffset,
+		"monthTitle":                  monthTitle,
+		"dayNumber":                   dayNumber,
+		"dateTitle":                   dateTitle,
+		"dateShort":                   dateShort,
+		"weekdayShort":                weekdayShort,
+		"entryTime":                   entryTime,
+		"calendarDay":                 calendarDay,
+		"calendarWeek":                calendarWeek,
+		"addDays":                     addDays,
+		"addMonths":                   addMonths,
+		"calendarStep":                calendarStep,
+		"dashboardCalendarURL":        dashboardCalendarURL,
+		"calendarPageURL":             calendarPageURL,
+		"dictRelated":                 dictRelated,
+		"dict":                        dict,
+		"dictRelatedPrefix":           dictRelatedPrefix,
+		"dictDocumentInfo":            dictDocumentInfo,
+		"dictRelatedContacts":         dictRelatedContacts,
+		"dictContactInfo":             dictContactInfo,
+		"dictRelatedAssets":           dictRelatedAssets,
+		"dictAssetInfo":               dictAssetInfo,
+		"dictAttach":                  dictAttach,
+		"dictAttachContact":           dictAttachContact,
+		"dictAttachAsset":             dictAttachAsset,
+		"taskRelatedDocs":             taskRelatedDocs,
+		"hasTaskDocuments":            hasTaskDocuments,
+		"taskRelatedContacts":         taskRelatedContacts,
+		"hasTaskContacts":             hasTaskContacts,
+		"taskRelatedAssets":           taskRelatedAssets,
+		"hasTaskAssets":               hasTaskAssets,
+		"documentOpenURL":             documentOpenURL,
+		"documentSourceLabel":         documentSourceLabel,
+		"fileSize":                    fileSize,
+		"money":                       formatMoney,
+		"taskReminderCreate":          taskReminderCreateForm,
+		"reminderEdit":                reminderEditForm,
+		"taskReminderPersonal":        taskPersonalReminderForm,
+		"appointmentReminderCreate":   appointmentReminderCreateForm,
+		"appointmentReminderEdit":     appointmentReminderEditForm,
+		"appointmentReminderPersonal": appointmentPersonalReminderForm,
 	}).Parse(appTemplate))
 	return s
 }
@@ -256,9 +265,13 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}", s.updateTask)
 	mux.HandleFunc("POST /tasks/{id}/archive", s.archiveTask)
 	mux.HandleFunc("POST /tasks/{id}/reopen", s.reopenTask)
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setPersonalReminderTimes("/tasks"))
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/tasks"))
 	mux.HandleFunc("POST /tasks", s.createTask)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setPersonalReminderTimes("/events"))
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/events"))
 	mux.HandleFunc("POST /events/{id}/delete", s.deleteEvent)
 	mux.HandleFunc("POST /events", s.createEvent)
 	mux.HandleFunc("GET /routines", s.routineIndex)
@@ -442,7 +455,7 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.render(w, r, http.StatusOK, pageData{
+	page := pageData{
 		Title:         "Homebase",
 		Error:         pageError,
 		Dashboard:     dashboard,
@@ -456,7 +469,21 @@ func (s *webServer) dashboard(w http.ResponseWriter, r *http.Request) {
 		LoginURL:      s.cfg.APIBaseURL + "/auth/oauth/start",
 		LogoutURL:     "/logout",
 		Now:           time.Now(),
-	})
+	}
+	page.ReminderTimeDefaults = s.reminderTimeDefaults(r)
+	s.render(w, r, http.StatusOK, page)
+}
+
+// reminderTimeDefaults loads the API's default Reminder Times to prefill
+// forms, or nil if they could not be loaded, so create forms leave Reminder
+// Times to the API.
+func (s *webServer) reminderTimeDefaults(r *http.Request) *store.ReminderTimeDefaults {
+	var defaults store.ReminderTimeDefaults
+	if err := s.apiJSON(r, http.MethodGet, "/api/v1/reminder-times/defaults", nil, &defaults); err != nil {
+		s.logger.Error("load default reminder times", "error", err)
+		return nil
+	}
+	return &defaults
 }
 
 func (s *webServer) calendar(w http.ResponseWriter, r *http.Request) {
@@ -948,6 +975,8 @@ func (s *webServer) projectDetail(w http.ResponseWriter, r *http.Request) {
 		TaskContacts:    taskContacts,
 		TaskAssets:      taskAssets,
 		Now:             time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1125,6 +1154,8 @@ func (s *webServer) taskIndex(w http.ResponseWriter, r *http.Request) {
 		TaskIndex: true,
 		DueFilter: dueFilterFromRequest(r),
 		Now:       time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1186,6 +1217,8 @@ func (s *webServer) taskDetail(w http.ResponseWriter, r *http.Request) {
 		RelatedDocs:     relatedDocs,
 		RelatedAssets:   relatedAssets,
 		Now:             time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1224,6 +1257,9 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"starts_at":    formTime(r.FormValue("starts_at")),
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
+	}
+	if times, ok := reminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
 		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -1266,6 +1302,9 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		"starts_at":    formTime(r.FormValue("starts_at")),
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
+	}
+	if times, ok := reminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
 		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
@@ -1314,6 +1353,8 @@ func (s *webServer) routineIndex(w http.ResponseWriter, r *http.Request) {
 		Members:      dashboard.Members,
 		RoutineIndex: true,
 		Now:          time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1336,6 +1377,8 @@ func (s *webServer) routineDetail(w http.ResponseWriter, r *http.Request) {
 		Dashboard: dashboard,
 		Members:   dashboard.Members,
 		Now:       time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -1692,6 +1735,7 @@ func (s *webServer) assetDetail(w http.ResponseWriter, r *http.Request) {
 		RelatedContacts:       relatedContacts,
 		Tasks:                 dashboard.Tasks,
 		Now:                   time.Now(),
+		ReminderTimeDefaults:  s.reminderTimeDefaults(r),
 	})
 }
 
@@ -2870,6 +2914,9 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
+	if times, ok := reminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
+	}
 	return payload
 }
 
@@ -2942,6 +2989,9 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
+	if times, ok := reminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
+	}
 	return payload
 }
 
@@ -2991,6 +3041,9 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 	}
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
 		payload["due_at"] = formTime(due)
+	}
+	if times, ok := reminderTimesFromForm(r); ok {
+		payload["reminder_times"] = times
 	}
 	return payload
 }

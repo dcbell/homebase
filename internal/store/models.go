@@ -86,6 +86,16 @@ type Task struct {
 	CreatedBy              int64      `json:"created_by"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	// ReminderTimes are when the assignee is reminded of the Task. An empty
+	// list means no Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when the Task is due on a date with no time of day,
+	// so its Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
+	// PersonalReminderTimes are the calling Member's own, set only when they
+	// are the assignee, who alone may set them. Other Members' are never
+	// returned.
+	PersonalReminderTimes *PersonalReminderTimes `json:"personal_reminder_times,omitempty"`
 	// CalendarUID is the UID a device chose when it created the Task over
 	// CalDAV, or empty.
 	CalendarUID string `json:"-"`
@@ -107,6 +117,13 @@ type Event struct {
 	// means the whole Household.
 	AttendeeIDs []int64    `json:"attendee_ids"`
 	Attendees   []Attendee `json:"attendees"`
+	// ReminderTimes are when Attendees are reminded, each before or at the
+	// start. Empty means no Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// PersonalReminderTimes are the calling Member's own, set only when they
+	// are an Attendee, or any Member when there are no Attendees, as only
+	// they may set them. Other Members' are never returned.
+	PersonalReminderTimes *PersonalReminderTimes `json:"personal_reminder_times,omitempty"`
 	// CalendarUID is the UID a device chose when it created the Appointment
 	// over CalDAV; empty for Appointments made in Homebase.
 	CalendarUID string `json:"-"`
@@ -132,6 +149,13 @@ type Routine struct {
 	CreatedBy       int64      `json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	// ReminderTimes are copied onto each Task generated from it, in the
+	// form that matches its next due date. Empty means its Tasks get no
+	// Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when its next due date has no time of day, so its
+	// Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
 }
 
 type HouseholdList struct {
@@ -210,6 +234,13 @@ type AssetMaintenanceItem struct {
 	CreatedBy       int64      `json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	// ReminderTimes are copied onto each Task generated from it, in the
+	// form that matches its next due date. Empty means its Tasks get no
+	// Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when its next due date has no time of day, so its
+	// Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
 }
 
 type Document struct {
@@ -342,6 +373,13 @@ type RoutineInput struct {
 	Cadence    string     `json:"cadence"`
 	Status     string     `json:"status"`
 	NextDueAt  *time.Time `json:"next_due_at"`
+	// ReminderTimes are copied onto each Task generated from the Routine,
+	// and must fit its next due date as a Task's fit its due date. On
+	// create, omitting the field (nil) gives the built-in defaults for that
+	// kind of due date; on update it keeps the current ones. An update that
+	// switches the next due date between timed and date-only resets them as
+	// for a Task. An empty list means no Reminders.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
 }
 
 type ProjectFolderInput struct {
@@ -394,6 +432,9 @@ type AssetMaintenanceInput struct {
 	Cadence   string     `json:"cadence"`
 	Status    string     `json:"status"`
 	NextDueAt *time.Time `json:"next_due_at"`
+	// ReminderTimes are copied onto each Task generated from the Maintenance
+	// Schedule, as for RoutineInput.ReminderTimes.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
 }
 
 type DocumentInput struct {
