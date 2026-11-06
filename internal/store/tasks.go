@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -20,6 +23,12 @@ type TaskInput struct {
 	Status                 string     `json:"status"`
 	Priority               string     `json:"priority"`
 	DueAt                  *time.Time `json:"due_at"`
+	// ReminderTimes are the Task's Reminder Times. Left out (nil), a new
+	// Task gets the built-in defaults for its kind of due date and an
+	// updated one keeps its own; an empty list means no Reminders. On an
+	// update that switches the due date between timed and date-only, they
+	// are reset to the defaults for the new kind whatever is sent.
+	ReminderTimes []ReminderTime `json:"reminder_times"`
 	// CalendarUID is the UID a device chose when creating the Task over
 	// CalDAV. It is only read on create.
 	CalendarUID string `json:"-"`
@@ -27,7 +36,7 @@ type TaskInput struct {
 
 func (s *Store) ListTasks(ctx context.Context, householdID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, ''), t.reminder_times
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.status <> 'archived'
@@ -57,7 +66,7 @@ func (s *Store) ListTasks(ctx context.Context, householdID int64) ([]Task, error
 // ListProjectTasks returns every Task of a Project, whatever its status.
 func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int64) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, ''), t.reminder_times
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.project_id = $2
@@ -84,7 +93,7 @@ func (s *Store) ListProjectTasks(ctx context.Context, householdID, projectID int
 // either undated or due within [from, to).
 func (s *Store) ListOpenTasksConcerning(ctx context.Context, householdID, userID int64, from, to time.Time) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, ''), t.reminder_times
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1
@@ -113,19 +122,29 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 	if err := s.validateTaskInput(ctx, householdID, &input); err != nil {
 		return Task{}, err
 	}
+	reminderTimes := input.ReminderTimes
+	if reminderTimes == nil {
+		reminderTimes = defaultTaskReminderTimes(input.DueAt)
+	} else if err := ValidateReminderTimes(reminderTimes, SubjectTask, taskDateOnly(input.DueAt)); err != nil {
+		return Task{}, err
+	}
+	reminderTimesJSON, err := json.Marshal(reminderTimes)
+	if err != nil {
+		return Task{}, err
+	}
 
 	var t Task
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO tasks (household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, priority, due_at, created_by, calendar_uid)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''))
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			INSERT INTO tasks (household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, priority, due_at, created_by, calendar_uid, reminder_times)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), $14::jsonb)
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 		)
-		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, '')
+		SELECT inserted.id, inserted.household_id, inserted.project_id, inserted.project_folder_id, inserted.routine_id, inserted.asset_id, inserted.asset_maintenance_item_id, inserted.assigned_to, COALESCE(assigned.name, ''), inserted.title, inserted.notes, inserted.status, inserted.priority, inserted.due_at, inserted.completed_at, inserted.created_by, inserted.created_at, inserted.updated_at, COALESCE(inserted.calendar_uid, ''), inserted.reminder_times
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
-	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID, input.CalendarUID).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
+	`, householdID, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Priority, input.DueAt, userID, input.CalendarUID, string(reminderTimesJSON)).Scan(
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 	)
 	return t, err
 }
@@ -133,12 +152,12 @@ func (s *Store) CreateTask(ctx context.Context, householdID, userID int64, input
 func (s *Store) GetTask(ctx context.Context, householdID, id int64) (Task, error) {
 	var t Task
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, '')
+		SELECT t.id, t.household_id, t.project_id, t.project_folder_id, t.routine_id, t.asset_id, t.asset_maintenance_item_id, t.assigned_to, COALESCE(assigned.name, ''), t.title, t.notes, t.status, t.priority, t.due_at, t.completed_at, t.created_by, t.created_at, t.updated_at, COALESCE(t.calendar_uid, ''), t.reminder_times
 		FROM tasks t
 		LEFT JOIN users assigned ON assigned.id = t.assigned_to
 		WHERE t.household_id = $1 AND t.id = $2
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -180,7 +199,7 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 	var t, p Task
 	err = s.db.QueryRowContext(ctx, `
 		WITH previous AS (
-			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			SELECT id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 			FROM tasks
 			WHERE household_id = $1 AND id = $2
 		), updated AS (
@@ -203,17 +222,17 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 				END,
 				updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, ''),
-			previous.id, previous.household_id, previous.project_id, previous.project_folder_id, previous.routine_id, previous.asset_id, previous.asset_maintenance_item_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.priority, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at, COALESCE(previous.calendar_uid, '')
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, ''), updated.reminder_times,
+			previous.id, previous.household_id, previous.project_id, previous.project_folder_id, previous.routine_id, previous.asset_id, previous.asset_maintenance_item_id, previous.assigned_to, COALESCE(previous_assigned.name, ''), previous.title, previous.notes, previous.status, previous.priority, previous.due_at, previous.completed_at, previous.created_by, previous.created_at, previous.updated_at, COALESCE(previous.calendar_uid, ''), previous.reminder_times
 		FROM updated
 		JOIN previous ON previous.id = updated.id
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.ProjectID, input.ProjectFolderID, input.RoutineID, input.AssetID, input.AssetMaintenanceItemID, input.AssignedTo, input.Title, input.Notes, input.Status, input.Priority, input.DueAt).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
-		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.CalendarUID,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
+		&p.ID, &p.HouseholdID, &p.ProjectID, &p.ProjectFolderID, &p.RoutineID, &p.AssetID, &p.AssetMaintenanceItemID, &p.AssignedTo, &p.AssignedName, &p.Title, &p.Notes, &p.Status, &p.Priority, &p.DueAt, &p.CompletedAt, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt, &p.CalendarUID, taskReminderTimes{&p},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, Task{}, ErrNotFound
@@ -263,13 +282,13 @@ func (s *Store) ReopenTask(ctx context.Context, householdID, id int64) (Task, er
 			UPDATE tasks
 			SET status = 'open', completed_at = NULL, updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, '')
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, ''), updated.reminder_times
 		FROM updated
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -284,13 +303,13 @@ func (s *Store) CompleteTask(ctx context.Context, householdID, id int64) (Task, 
 			UPDATE tasks
 			SET status = 'done', completed_at = now(), updated_at = now()
 			WHERE household_id = $1 AND id = $2
-			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid
+			RETURNING id, household_id, project_id, project_folder_id, routine_id, asset_id, asset_maintenance_item_id, assigned_to, title, notes, status, priority, due_at, completed_at, created_by, created_at, updated_at, calendar_uid, reminder_times
 		)
-		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, '')
+		SELECT updated.id, updated.household_id, updated.project_id, updated.project_folder_id, updated.routine_id, updated.asset_id, updated.asset_maintenance_item_id, updated.assigned_to, COALESCE(assigned.name, ''), updated.title, updated.notes, updated.status, updated.priority, updated.due_at, updated.completed_at, updated.created_by, updated.created_at, updated.updated_at, COALESCE(updated.calendar_uid, ''), updated.reminder_times
 		FROM updated
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 	`, householdID, id).Scan(
-		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID,
+		&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{&t},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
@@ -391,6 +410,41 @@ type taskScanner interface {
 	Scan(dest ...any) error
 }
 
+// taskReminderTimes scans a Task's reminder_times column into its
+// ReminderTimes. NULL means the built-in defaults for the Task's due date, so
+// it must come after due_at in the Scan, which fills columns in order.
+type taskReminderTimes struct {
+	task *Task
+}
+
+func (s taskReminderTimes) Scan(src any) error {
+	switch v := src.(type) {
+	case nil:
+		s.task.ReminderTimes = defaultTaskReminderTimes(s.task.DueAt)
+		return nil
+	case string:
+		return json.Unmarshal([]byte(v), &s.task.ReminderTimes)
+	case []byte:
+		return json.Unmarshal(v, &s.task.ReminderTimes)
+	}
+	return fmt.Errorf("scan reminder_times: unexpected %T", src)
+}
+
+// taskDateOnly reports whether a Task due at due has a due date with no time
+// of day. A Task with no due date counts as timed.
+func taskDateOnly(due *time.Time) bool {
+	return due != nil && DateOnly(*due)
+}
+
+// defaultTaskReminderTimes are the built-in Reminder Times for a Task due at
+// due, or the timed ones when it has no due date.
+func defaultTaskReminderTimes(due *time.Time) []ReminderTime {
+	if taskDateOnly(due) {
+		return slices.Clone(DateOnlyTaskReminderTimes)
+	}
+	return slices.Clone(TimedTaskReminderTimes)
+}
+
 func scanTask(scanner taskScanner, t *Task) error {
-	return scanner.Scan(&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID)
+	return scanner.Scan(&t.ID, &t.HouseholdID, &t.ProjectID, &t.ProjectFolderID, &t.RoutineID, &t.AssetID, &t.AssetMaintenanceItemID, &t.AssignedTo, &t.AssignedName, &t.Title, &t.Notes, &t.Status, &t.Priority, &t.DueAt, &t.CompletedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.CalendarUID, taskReminderTimes{t})
 }

@@ -95,8 +95,7 @@ func (n *Notifier) ProjectChanged(ctx context.Context, householdID, projectID in
 
 // taskReminders keeps a Task's Reminders in line with its current state: an
 // open Task with a due date and an assignee, outside any archived Project,
-// has them; any other Task has none. Every Task has the built-in Reminder
-// Times for its kind of due date.
+// has them, one per Reminder Time of the Task; any other Task has none.
 func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 	active, err := n.taskActive(ctx, task)
 	if err != nil {
@@ -106,12 +105,8 @@ func (n *Notifier) taskReminders(ctx context.Context, task store.Task) error {
 	if active && task.AssignedTo != nil {
 		recipients = []int64{*task.AssignedTo}
 	}
-	var times []store.ReminderTime
-	if task.DueAt != nil {
-		times = store.DefaultTaskReminderTimes(*task.DueAt)
-	}
 	subject := store.ReminderSubject{HouseholdID: task.HouseholdID, Type: store.SubjectTask, ID: task.ID}
-	return n.scheduleReminders(ctx, subject, recipients, task.DueAt, times)
+	return n.scheduleReminders(ctx, subject, recipients, task.DueAt, task.ReminderTimes)
 }
 
 // taskActive reports whether a Task is still something to be reminded of:

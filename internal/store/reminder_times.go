@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -16,11 +17,26 @@ import (
 //     this form; a timed Task may use it too, such as for Overdue at 08:00
 //     the next morning.
 //
-// At is empty for the timed form and set for the date-only form.
+// At is empty for the timed form and set for the date-only form. In JSON
+// the timed form is {"minutes": -120} and the date-only form
+// {"days": -1, "at": "08:00"}.
 type ReminderTime struct {
-	Minutes int
-	Days    int
-	At      string
+	Minutes int    `json:"minutes"`
+	Days    int    `json:"days"`
+	At      string `json:"at"`
+}
+
+// MarshalJSON writes only the fields of r's form.
+func (r ReminderTime) MarshalJSON() ([]byte, error) {
+	if r.IsDateOnly() {
+		return json.Marshal(struct {
+			Days int    `json:"days"`
+			At   string `json:"at"`
+		}{r.Days, r.At})
+	}
+	return json.Marshal(struct {
+		Minutes int `json:"minutes"`
+	}{r.Minutes})
 }
 
 // MaxReminderTimes is how many Reminder Times one list may have.
