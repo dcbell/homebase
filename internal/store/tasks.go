@@ -27,7 +27,7 @@ type TaskInput struct {
 	// Task gets the built-in defaults for its kind of due date and an
 	// updated one keeps its own; an empty list means no Reminders. On an
 	// update that switches the due date between timed and date-only, they
-	// are reset to the defaults for the new kind whatever is sent.
+	// are reset to the defaults for the new kind unless those sent fit it.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
 	// CalendarUID is the UID a device chose when creating the Task over
 	// CalDAV. It is only read on create.
@@ -211,7 +211,7 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 	if err != nil {
 		return Task{}, Task{}, err
 	}
-	reminderTimes, err := updatedTaskReminderTimes(previousDue, input)
+	reminderTimes, err := updatedReminderTimes(previousDue, input.DueAt, input.ReminderTimes)
 	if err != nil {
 		return Task{}, Task{}, err
 	}
@@ -458,26 +458,42 @@ func (s taskReminderTimes) Scan(src any) error {
 	return fmt.Errorf("scan reminder_times: unexpected %T", src)
 }
 
-// updatedTaskReminderTimes are the Reminder Times to store for a Task due at
-// previousDue being updated with input, as JSON, or NULL to keep its own.
-// Switching between a timed and a date-only due date resets them to the
-// defaults for the new kind, whatever input says, as the old ones no longer
-// fit: clients that resend the whole Task, such as phones moving its due
-// date, resend the old ones.
-func updatedTaskReminderTimes(previousDue *time.Time, input TaskInput) (sql.NullString, error) {
-	reminderTimes := input.ReminderTimes
-	if taskDateOnly(previousDue) != taskDateOnly(input.DueAt) {
-		reminderTimes = defaultTaskReminderTimes(input.DueAt)
-	} else if reminderTimes == nil {
+// updatedReminderTimes are the Reminder Times to store for something due at
+// previousDue being saved due at due with times, as JSON, or NULL to keep its
+// own. Switching between a timed and a date-only due date resets them, as the
+// old ones no longer fit: to times when they are in a form that fits the new
+// kind, as a form showing the new kind's defaults as rows sends them, and
+// otherwise, such as when they are left out or are the old ones resent, to
+// the defaults for the new kind.
+func updatedReminderTimes(previousDue, due *time.Time, times []ReminderTime) (sql.NullString, error) {
+	dateOnly := taskDateOnly(due)
+	if taskDateOnly(previousDue) != dateOnly && !fitDueDate(times, dateOnly) {
+		times = defaultTaskReminderTimes(due)
+	} else if times == nil {
 		return sql.NullString{}, nil
-	} else if err := ValidateReminderTimes(reminderTimes, SubjectTask, taskDateOnly(input.DueAt)); err != nil {
+	}
+	if err := ValidateReminderTimes(times, SubjectTask, dateOnly); err != nil {
 		return sql.NullString{}, err
 	}
-	encoded, err := json.Marshal(reminderTimes)
+	encoded, err := json.Marshal(times)
 	if err != nil {
 		return sql.NullString{}, err
 	}
 	return sql.NullString{String: string(encoded), Valid: true}, nil
+}
+
+// fitDueDate reports whether times were given and are each in a form a due
+// date that is dateOnly or timed takes: a timed one takes both.
+func fitDueDate(times []ReminderTime, dateOnly bool) bool {
+	if times == nil {
+		return false
+	}
+	for _, r := range times {
+		if dateOnly && !r.IsDateOnly() {
+			return false
+		}
+	}
+	return true
 }
 
 // taskDateOnly reports whether a Task due at due has a due date with no time

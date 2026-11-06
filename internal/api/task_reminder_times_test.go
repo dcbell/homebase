@@ -228,6 +228,27 @@ func TestSwitchingBetweenTimedAndDateOnlyResetsReminderTimesToTheNewDefaults(t *
 		"due_soon: Task due in 1 day", "due_soon: Task due in 24 hours", "due_now: Task due now", "overdue: Task overdue by 1 day")
 }
 
+func TestSwitchingBetweenTimedAndDateOnlyUsesReminderTimesSentForTheNewKind(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	task := createTaskWithReminderTimes(t, household.Owner, household.Member, at(17, 18, 0), []map[string]any{{"minutes": -120}})
+
+	// The form shows the new kind's defaults as rows to edit, so Reminder
+	// Times sent with the switch that fit the new kind are kept.
+	dated := updateTask(t, household.Owner, task, map[string]any{"due_at": localAt(20, 0, 0), "reminder_times": []map[string]any{{"days": -2, "at": "07:00"}}})
+	if want := []store.ReminderTime{{Days: -2, At: "07:00"}}; fmt.Sprint(dated.ReminderTimes) != fmt.Sprint(want) {
+		t.Errorf("Reminder Times after switching to date-only = %v, want %v", dated.ReminderTimes, want)
+	}
+
+	timed := updateTask(t, household.Owner, dated, map[string]any{"due_at": at(25, 18, 0), "reminder_times": []map[string]any{{"minutes": -30}}})
+	if want := []store.ReminderTime{{Minutes: -30}}; fmt.Sprint(timed.ReminderTimes) != fmt.Sprint(want) {
+		t.Errorf("Reminder Times after switching to timed = %v, want %v", timed.ReminderTimes, want)
+	}
+	sendRemindersAt(t, h, at(28, 8, 0))
+	expectTaskReminders(t, household.Member, "due_soon: Task due in 30 minutes")
+}
+
 func TestATaskCreatedFromAPhoneGetsTheDefaultReminderTimes(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)
@@ -251,7 +272,7 @@ func TestATaskCreatedFromAPhoneGetsTheDefaultReminderTimes(t *testing.T) {
 	expectTaskReminders(t, household.Member, "due_soon: Task due in 24 hours", "due_now: Task due now", "overdue: Task overdue by 1 day")
 }
 
-func TestAPhoneEditLeavesReminderTimesUnchangedUnlessItSwitchesTheKindOfDueDate(t *testing.T) {
+func TestAPhoneEditKeepsReminderTimesButMovingTheDueDateToADateResetsThem(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)
 	household := h.SeedHousehold()
@@ -271,9 +292,9 @@ func TestAPhoneEditLeavesReminderTimesUnchangedUnlessItSwitchesTheKindOfDueDate(
 	sendRemindersAt(t, h, at(20, 18, 0))
 	expectTaskReminders(t, household.Member, "due_soon: Task due in 2 hours")
 
-	// Moving it to a date with no time of day changes the due date in a way
-	// its Reminder Times no longer fit, so they reset to the date-only
-	// defaults: the phone moved the due date, it didn't set Reminder Times.
+	// Moving it to a date with no time of day is a change of due date that
+	// resets its Reminder Times to the date-only defaults, as any client's
+	// would: the phone never sets Reminder Times itself.
 	putObject(cal, "tasks", uid, http.Header{"If-Match": {currentETag(t, cal, path)}}, vtodo(
 		"UID:"+uid, "DTSTAMP:20300115T120000Z", "SUMMARY:Pay the water and sewer bill", "DUE;VALUE=DATE:20300125",
 	)).Expect(http.StatusCreated)
