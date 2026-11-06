@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"testing"
 )
 
@@ -11,15 +12,18 @@ func TestRoutineAndMaintenanceFormsShowTheirReminderTimes(t *testing.T) {
 	_, web := newRecordingAPI(t, map[string]cannedResponse{
 		"GET /api/v1/dashboard":               {http.StatusOK, `{"current_user":{"id":1,"name":"Owner"}}`},
 		"GET /api/v1/reminder-times/defaults": {http.StatusOK, taskReminderDefaults},
-		"GET /api/v1/routines/5":              {http.StatusOK, `{"id":5,"title":"Water the plants","cadence":"weekly","reminder_times":[{"days":-2,"at":"19:00"}]}`},
+		"GET /api/v1/routines/5":              {http.StatusOK, `{"id":5,"title":"Water the plants","cadence":"weekly","next_due_at":"2030-01-20T00:00:00Z","date_only":true,"reminder_times":[{"days":-2,"at":"19:00"}]}`},
+		"GET /api/v1/routines/8":              {http.StatusOK, `{"id":8,"title":"Take the bins out","cadence":"weekly","next_due_at":"2030-01-20T19:00:00Z","date_only":false,"reminder_times":[{"minutes":-120}]}`},
 		"GET /api/v1/assets/4":                {http.StatusOK, `{"id":4,"name":"Boiler"}`},
-		"GET /api/v1/assets/4/maintenance":    {http.StatusOK, `[{"id":6,"asset_id":4,"title":"Service the boiler","cadence":"yearly","reminder_times":[]}]`},
+		"GET /api/v1/assets/4/maintenance":    {http.StatusOK, `[{"id":6,"asset_id":4,"title":"Service the boiler","cadence":"yearly","next_due_at":"2030-01-20T00:00:00Z","date_only":true,"reminder_times":[]}]`},
 		"GET /api/v1/documents":               {http.StatusOK, `[]`},
 		"GET /api/v1/contacts":                {http.StatusOK, `[]`},
 		"GET /api/v1/related-documents":       {http.StatusOK, `[]`},
 		"GET /api/v1/related-contacts":        {http.StatusOK, `[]`},
 	})
-	defaults := map[string][]string{"date_only": {"2 days before 07:30", "days at 07:30", "", "", ""}}
+	dateOnlyDefaults := []string{"2 days before 07:30", "0 days at 07:30", "", "", ""}
+	timedDefaults := []string{"2 days before", "90 minutes before", "0 minutes at", "1 days after 09:00", ""}
+	defaults := map[string][]string{"date_only": dateOnlyDefaults}
 
 	// Routines and Maintenance Schedules are due on a date, so their create
 	// forms show only the date-only defaults.
@@ -29,22 +33,33 @@ func TestRoutineAndMaintenanceFormsShowTheirReminderTimes(t *testing.T) {
 		{"/assets/4", "add-asset-maintenance"},
 	} {
 		page := serve(web.routes(), browserRequest(http.MethodGet, form.path, "")).Body.String()
-		sets, shown := taskReminderSetsIn(t, page, form.id)
+		sets, shown := reminderSetsIn(t, page, form.id)
 		if fmt.Sprint(sets) != fmt.Sprint(defaults) || shown != "date_only" {
 			t.Errorf("%s #%s Reminder Times = %q, showing %q; want only date-only %q", form.path, form.id, sets, shown, defaults)
 		}
 	}
 
-	// Edit forms show each one's own.
+	// Edit forms show each one's own in the form for its next due date, and
+	// the defaults for the other kind, as the API resets them on a switch.
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/routines/5", "")).Body.String()
-	sets, shown := taskReminderSetsIn(t, page, "routine-edit")
-	if want := map[string][]string{"date_only": {"2 days before 19:00", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
+	sets, shown := reminderSetsIn(t, page, "routine-edit")
+	if want := map[string][]string{"date_only": {"2 days before 19:00", "", "", "", ""}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
 		t.Errorf("Routine edit Reminder Times = %q, showing %q; want %q", sets, shown, want)
 	}
 	page = serve(web.routes(), browserRequest(http.MethodGet, "/assets/4", "")).Body.String()
-	sets, shown = taskReminderSetsIn(t, page, "edit-asset-maintenance-6")
-	if want := map[string][]string{"date_only": {"", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
+	sets, shown = reminderSetsIn(t, page, "edit-asset-maintenance-6")
+	if want := map[string][]string{"date_only": {"", "", "", "", ""}, "timed": timedDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "date_only" {
 		t.Errorf("Maintenance Schedule edit Reminder Times = %q, showing %q; want %q", sets, shown, want)
+	}
+
+	// One with a due time of day keeps it, and shows the timed form.
+	page = serve(web.routes(), browserRequest(http.MethodGet, "/routines/8", "")).Body.String()
+	sets, shown = reminderSetsIn(t, page, "routine-edit")
+	if want := map[string][]string{"timed": {"2 hours before", "", "", "", ""}, "date_only": dateOnlyDefaults}; fmt.Sprint(sets) != fmt.Sprint(want) || shown != "timed" {
+		t.Errorf("timed Routine edit Reminder Times = %q, showing %q; want %q, showing timed", sets, shown, want)
+	}
+	if !regexp.MustCompile(`name="next_due_at" type="datetime-local"`).MatchString(page) {
+		t.Errorf("timed Routine edit form has no due time of day:\n%s", page)
 	}
 }
 
@@ -58,7 +73,7 @@ func TestRoutineAndMaintenanceFormsSendReminderTimesToTheAPI(t *testing.T) {
 	form := url.Values{
 		"title": {"Water the plants"}, "next_due_at": {"2030-01-20"},
 		"reminder_times":     {"1"},
-		"reminder_amount":    {"2", "", "1", "", ""},
+		"reminder_amount":    {"2", "0", "1", "", ""},
 		"reminder_unit":      {"days", "days", "days", "days", "days"},
 		"reminder_direction": {"before", "at", "after", "before", "before"},
 		"reminder_at":        {"19:00", "08:00", "09:00", "", ""},

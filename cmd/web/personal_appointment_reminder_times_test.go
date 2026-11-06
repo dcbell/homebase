@@ -23,23 +23,23 @@ func TestPersonalAppointmentReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing
 	const event = `"id":5,"title":"Dentist","attendee_ids":[2],"reminder_times":[{"minutes":-120}]`
 
 	// The API leaves them out for a Member who isn't an Attendee.
-	if page := appointmentPageWith(t, `{`+event+`}`); strings.Contains(page, "event-personal-reminders") || strings.Contains(page, "Use my own") {
+	if page := appointmentPageWith(t, `{`+event+`}`); strings.Contains(page, "event-personal-reminders") || strings.Contains(page, "Use your own Reminder Times") {
 		t.Errorf("Appointment page offers Personal Reminder Times the API didn't:\n%s", page)
 	}
 
-	// Using the shared ones: "Use my own" starts from them.
+	// Using the shared ones: "Use your own Reminder Times" starts from them.
 	page := appointmentPageWith(t, `{`+event+`,"personal_reminder_times":{"using_shared":true,"reminder_times":[]}}`)
-	if got, want := reminderSlotsIn(t, page, "event-personal-reminders"), []string{"2 hours", "", "", "", ""}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("Personal Reminder Times rows = %q, want the shared ones %q", got, want)
+	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"2 hours before", "", "", "", ""}}) {
+		t.Errorf("Personal Reminder Times rows = %q, want the shared ones", got)
 	}
-	if !strings.Contains(page, "Use my own") || strings.Contains(page, "event-use-shared-reminders") {
-		t.Errorf("Appointment page using shared Reminder Times should offer Use my own only:\n%s", page)
+	if !strings.Contains(page, "Use your own Reminder Times") || strings.Contains(page, "event-use-shared-reminders") {
+		t.Errorf("Appointment page using shared Reminder Times should offer Use your own Reminder Times only:\n%s", page)
 	}
 
 	// With their own: those show, and "Use shared" goes back.
 	page = appointmentPageWith(t, `{`+event+`,"personal_reminder_times":{"using_shared":false,"reminder_times":[{"minutes":-30}]}}`)
-	if got, want := reminderSlotsIn(t, page, "event-personal-reminders"), []string{"30 minutes", "", "", "", ""}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("Personal Reminder Times rows = %q, want %q", got, want)
+	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"30 minutes before", "", "", "", ""}}) {
+		t.Errorf("Personal Reminder Times rows = %q, want their own", got)
 	}
 	if !strings.Contains(page, `id="event-use-shared-reminders"`) || !strings.Contains(page, "Use shared") {
 		t.Errorf("Appointment page with Personal Reminder Times has no Use shared:\n%s", page)
@@ -58,14 +58,16 @@ func TestPersonalAppointmentReminderTimesChoicesAreSentToTheAPI(t *testing.T) {
 	}
 
 	post("/events/5/personal-reminder-times", url.Values{
-		"reminder_times":  {"1"},
-		"reminder_before": {"2", "", "30"},
-		"reminder_unit":   {"hours", "minutes", "minutes"},
+		"reminder_times":     {"1"},
+		"reminder_amount":    {"2", "", "30"},
+		"reminder_unit":      {"hours", "minutes", "minutes"},
+		"reminder_direction": {"before", "before", "before"},
 	})
 	post("/events/5/personal-reminder-times", url.Values{
-		"reminder_times":  {"1"},
-		"reminder_before": {"", ""},
-		"reminder_unit":   {"minutes", "minutes"},
+		"reminder_times":     {"1"},
+		"reminder_amount":    {"", ""},
+		"reminder_unit":      {"minutes", "minutes"},
+		"reminder_direction": {"before", "at"},
 	})
 	res := post("/events/5/personal-reminder-times/shared", url.Values{})
 	if got := res.Header.Get("Location"); !strings.HasPrefix(got, "/events/5") || strings.Contains(got, "error") {

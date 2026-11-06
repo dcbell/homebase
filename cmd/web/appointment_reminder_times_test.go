@@ -10,27 +10,6 @@ import (
 	"testing"
 )
 
-// reminderSlotsIn returns the Reminder Time rows of the form inside the
-// element with the given id, as "amount unit" strings, empty rows included.
-func reminderSlotsIn(t *testing.T, page, id string) []string {
-	t.Helper()
-	form := regexp.MustCompile(`(?s)id="` + id + `".*?</form>`).FindString(page)
-	if form == "" {
-		t.Fatalf("page has no #%s form:\n%s", id, page)
-	}
-	slots := []string{}
-	row := regexp.MustCompile(`(?s)name="reminder_before"[^>]*value="(\d*)".*?<select name="reminder_unit"[^>]*>(.*?)</select>`)
-	selected := regexp.MustCompile(`<option value="(\w+)" selected>`)
-	for _, m := range row.FindAllStringSubmatch(form, -1) {
-		unit := ""
-		if s := selected.FindStringSubmatch(m[2]); s != nil {
-			unit = s[1]
-		}
-		slots = append(slots, strings.TrimSpace(m[1]+" "+unit))
-	}
-	return slots
-}
-
 // sentReminderTimes returns the reminder_times a forwarded body carried, as
 // JSON, or "absent".
 func sentReminderTimes(t *testing.T, body string) string {
@@ -54,9 +33,14 @@ func TestAddAppointmentFormShowsTheAPIsDefaultReminderTimes(t *testing.T) {
 
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/", "")).Body.String()
 
-	got := reminderSlotsIn(t, page, "add-appointment-form")
-	if want := []string{"2 days", "3 hours", "45 minutes", "0 minutes", ""}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("Reminder Time rows = %q, want %q", got, want)
+	sets, _ := reminderSetsIn(t, page, "add-appointment-form")
+	if want := map[string][]string{"timed": {"2 days before", "3 hours before", "45 minutes before", "0 minutes at", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+		t.Errorf("Reminder Time rows = %q, want %q", sets, want)
+	}
+	// An Appointment's Reminder Times are only ever before or at the start.
+	form := regexp.MustCompile(`(?s)id="add-appointment-form".*?</form>`).FindString(page)
+	if strings.Contains(form, `value="after"`) || strings.Contains(form, `name="reminder_at"`) {
+		t.Errorf("Appointment form offers Reminder Times after the start or at a time of day:\n%s", form)
 	}
 }
 
@@ -68,9 +52,9 @@ func TestAppointmentEditFormShowsItsReminderTimes(t *testing.T) {
 
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/events/5", "")).Body.String()
 
-	got := reminderSlotsIn(t, page, "event-edit")
-	if want := []string{"90 minutes", "", "", "", ""}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("Reminder Time rows = %q, want %q", got, want)
+	sets, _ := reminderSetsIn(t, page, "event-edit")
+	if want := map[string][]string{"timed": {"90 minutes before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+		t.Errorf("Reminder Time rows = %q, want %q", sets, want)
 	}
 }
 
@@ -81,9 +65,10 @@ func TestAppointmentFormsSendReminderTimesToTheAPI(t *testing.T) {
 	})
 	form := url.Values{
 		"title": {"Dentist"}, "starts_at": {"2030-01-20T09:00"}, "ends_at": {"2030-01-20T10:00"},
-		"reminder_times":  {"1"},
-		"reminder_before": {"2", "", "30", "1", "0"},
-		"reminder_unit":   {"hours", "minutes", "minutes", "days", "minutes"},
+		"reminder_times":     {"1"},
+		"reminder_amount":    {"2", "", "30", "1", "0"},
+		"reminder_unit":      {"hours", "minutes", "minutes", "days", "minutes"},
+		"reminder_direction": {"before", "before", "before", "before", "at"},
 	}
 	post := func(path string) {
 		req := browserRequest(http.MethodPost, path, form.Encode())
@@ -92,7 +77,7 @@ func TestAppointmentFormsSendReminderTimesToTheAPI(t *testing.T) {
 	}
 
 	post("/events")
-	form["reminder_before"] = []string{"", "", "", "", ""}
+	form["reminder_amount"] = []string{"", "", "", "", ""}
 	post("/events/5")
 
 	calls := api.Calls()

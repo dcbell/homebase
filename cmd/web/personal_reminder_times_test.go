@@ -29,23 +29,23 @@ func TestPersonalReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing.T) {
 	const task = `"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-120}]`
 
 	// The API leaves them out for anyone but the assignee.
-	if page := taskPageWith(t, `{`+task+`}`); strings.Contains(page, "task-personal-reminders") || strings.Contains(page, "Use my own") {
+	if page := taskPageWith(t, `{`+task+`}`); strings.Contains(page, "task-personal-reminders") || strings.Contains(page, "Use your own Reminder Times") {
 		t.Errorf("Task page offers Personal Reminder Times the API didn't:\n%s", page)
 	}
 
-	// Using the shared ones: "Use my own" starts from them.
+	// Using the shared ones: "Use your own Reminder Times" starts from them.
 	page := taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":true,"reminder_times":[]}}`)
-	sets, _ := taskReminderSetsIn(t, page, "task-personal-reminders")
+	sets, _ := reminderSetsIn(t, page, "task-personal-reminders")
 	if want := map[string][]string{"timed": {"2 hours before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Personal Reminder Times rows = %q, want the shared ones %q", sets, want)
 	}
-	if !strings.Contains(page, "Use my own") || strings.Contains(page, "task-use-shared-reminders") {
-		t.Errorf("Task page using shared Reminder Times should offer Use my own only:\n%s", page)
+	if !strings.Contains(page, "Use your own Reminder Times") || strings.Contains(page, "task-use-shared-reminders") {
+		t.Errorf("Task page using shared Reminder Times should offer Use your own Reminder Times only:\n%s", page)
 	}
 
 	// With their own: those show, and "Use shared" goes back.
 	page = taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":false,"reminder_times":[{"minutes":-30}]}}`)
-	sets, _ = taskReminderSetsIn(t, page, "task-personal-reminders")
+	sets, _ = reminderSetsIn(t, page, "task-personal-reminders")
 	if want := map[string][]string{"timed": {"30 minutes before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Personal Reminder Times rows = %q, want %q", sets, want)
 	}

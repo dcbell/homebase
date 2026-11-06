@@ -204,12 +204,12 @@ func newWebServer(cfg config.Config, logger *slog.Logger) *webServer {
 		"documentSourceLabel":         documentSourceLabel,
 		"fileSize":                    fileSize,
 		"money":                       formatMoney,
-		"reminderSlots":               appointmentReminderSlots,
 		"taskReminderCreate":          taskReminderCreateForm,
-		"sourceReminderEdit":          sourceReminderEditForm,
-		"taskReminderEdit":            taskReminderEditForm,
+		"reminderEdit":                reminderEditForm,
 		"taskReminderPersonal":        taskPersonalReminderForm,
-		"appointmentReminderPersonal": appointmentPersonalReminderTimes,
+		"appointmentReminderCreate":   appointmentReminderCreateForm,
+		"appointmentReminderEdit":     appointmentReminderEditForm,
+		"appointmentReminderPersonal": appointmentPersonalReminderForm,
 	}).Parse(appTemplate))
 	return s
 }
@@ -265,13 +265,13 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}", s.updateTask)
 	mux.HandleFunc("POST /tasks/{id}/archive", s.archiveTask)
 	mux.HandleFunc("POST /tasks/{id}/reopen", s.reopenTask)
-	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setTaskPersonalReminderTimes)
-	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedTaskReminderTimes)
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setPersonalReminderTimes("/tasks"))
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/tasks"))
 	mux.HandleFunc("POST /tasks", s.createTask)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
-	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setAppointmentPersonalReminderTimes)
-	mux.HandleFunc("POST /events/{id}/personal-reminder-times/shared", s.useSharedAppointmentReminderTimes)
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setPersonalReminderTimes("/events"))
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/events"))
 	mux.HandleFunc("POST /events/{id}/delete", s.deleteEvent)
 	mux.HandleFunc("POST /events", s.createEvent)
 	mux.HandleFunc("GET /routines", s.routineIndex)
@@ -1245,70 +1245,6 @@ func (s *webServer) archiveTask(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/tasks", http.StatusSeeOther)
 }
 
-// setTaskPersonalReminderTimes forwards "Use my own": the caller's Personal
-// Reminder Times on a Task. Clearing every row sends an empty list, meaning
-// no Reminders for them.
-func (s *webServer) setTaskPersonalReminderTimes(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error=form", http.StatusSeeOther)
-		return
-	}
-	times, ok := taskReminderTimesFromForm(r)
-	if !ok {
-		times = []store.ReminderTime{}
-	}
-	payload := map[string]any{"reminder_times": times}
-	if err := s.apiJSON(r, http.MethodPut, "/api/v1/tasks/"+url.PathEscape(id)+"/personal-reminder-times", payload, nil); err != nil {
-		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
-}
-
-// useSharedTaskReminderTimes forwards "Use shared": the caller goes back to
-// the Task's shared Reminder Times.
-func (s *webServer) useSharedTaskReminderTimes(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/tasks/"+url.PathEscape(id)+"/personal-reminder-times", nil, nil); err != nil {
-		http.Redirect(w, r, "/tasks/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, "/tasks/"+url.PathEscape(id), http.StatusSeeOther)
-}
-
-// setAppointmentPersonalReminderTimes forwards "Use my own": the caller's
-// Personal Reminder Times on an Appointment. Clearing every row sends an
-// empty list, meaning no Reminders for them.
-func (s *webServer) setAppointmentPersonalReminderTimes(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error=form", http.StatusSeeOther)
-		return
-	}
-	times, ok := appointmentReminderTimesFromForm(r)
-	if !ok {
-		times = []store.ReminderTime{}
-	}
-	payload := map[string]any{"reminder_times": times}
-	if err := s.apiJSON(r, http.MethodPut, "/api/v1/events/"+url.PathEscape(id)+"/personal-reminder-times", payload, nil); err != nil {
-		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, "/events/"+url.PathEscape(id), http.StatusSeeOther)
-}
-
-// useSharedAppointmentReminderTimes forwards "Use shared": the caller goes
-// back to the Appointment's shared Reminder Times.
-func (s *webServer) useSharedAppointmentReminderTimes(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.apiJSON(r, http.MethodDelete, "/api/v1/events/"+url.PathEscape(id)+"/personal-reminder-times", nil, nil); err != nil {
-		http.Redirect(w, r, "/events/"+url.PathEscape(id)+"?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, "/events/"+url.PathEscape(id), http.StatusSeeOther)
-}
-
 func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Redirect(w, r, "/?error=form", http.StatusSeeOther)
@@ -1322,7 +1258,7 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	if times, ok := appointmentReminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r); ok {
 		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
@@ -1367,7 +1303,7 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	if times, ok := appointmentReminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r); ok {
 		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
@@ -1441,6 +1377,8 @@ func (s *webServer) routineDetail(w http.ResponseWriter, r *http.Request) {
 		Dashboard: dashboard,
 		Members:   dashboard.Members,
 		Now:       time.Now(),
+
+		ReminderTimeDefaults: s.reminderTimeDefaults(r),
 	})
 }
 
@@ -2976,7 +2914,7 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
-	if times, ok := taskReminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r); ok {
 		payload["reminder_times"] = times
 	}
 	return payload
@@ -3051,7 +2989,7 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
-	if times, ok := taskReminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r); ok {
 		payload["reminder_times"] = times
 	}
 	return payload
@@ -3104,7 +3042,7 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
 		payload["due_at"] = formTime(due)
 	}
-	if times, ok := taskReminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r); ok {
 		payload["reminder_times"] = times
 	}
 	return payload
