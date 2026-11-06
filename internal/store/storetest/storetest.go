@@ -48,15 +48,7 @@ func Open(t testing.TB) *store.Store {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	serverURL := os.Getenv("TEST_DATABASE_URL")
-	if serverURL == "" {
-		serverURL = defaultServerURL
-	}
-	testURL, err := withDatabase(serverURL, DatabaseName)
-	if err != nil {
-		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
-	}
-
+	serverURL, testURL := urls(t)
 	if err := createTestDatabase(ctx, serverURL); err != nil {
 		t.Skipf("test database unreachable at %s: %v (start it with: docker compose up -d db)", redact(serverURL), err)
 	}
@@ -122,6 +114,36 @@ func createTestDatabase(ctx context.Context, serverURL string) error {
 		result.err = err
 	})
 	return result.err
+}
+
+// urls returns the database server's URL and the test database's.
+func urls(t testing.TB) (serverURL, testURL string) {
+	t.Helper()
+	serverURL = os.Getenv("TEST_DATABASE_URL")
+	if serverURL == "" {
+		serverURL = defaultServerURL
+	}
+	testURL, err := withDatabase(serverURL, DatabaseName)
+	if err != nil {
+		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+	}
+	return serverURL, testURL
+}
+
+// Migrate runs st's migrations again, under the lock Open takes. Calling
+// st.Migrate directly would race other test processes' migrations: some
+// migrations inspect the catalog, which spans every test schema.
+func Migrate(t testing.TB, st *store.Store) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	_, testURL := urls(t)
+	admin, err := sql.Open("pgx", testURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = admin.Close() }()
+	return migrateLocked(ctx, admin, st)
 }
 
 func migrateLocked(ctx context.Context, admin *sql.DB, st *store.Store) error {

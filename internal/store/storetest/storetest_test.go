@@ -27,7 +27,7 @@ func TestMigrationsCanRunAgain(t *testing.T) {
 	t.Parallel()
 	st := storetest.Open(t)
 
-	if err := st.Migrate(context.Background()); err != nil {
+	if err := storetest.Migrate(t, st); err != nil {
 		t.Fatalf("second Migrate() error = %v", err)
 	}
 }
