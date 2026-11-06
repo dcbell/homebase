@@ -34,7 +34,7 @@ func TestAddAppointmentFormShowsTheAPIsDefaultReminderTimes(t *testing.T) {
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/", "")).Body.String()
 
 	sets, _ := reminderSetsIn(t, page, "add-appointment-form")
-	if want := map[string][]string{"timed": {"2 days before", "3 hours before", "45 minutes before", "0 minutes at", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+	if want := map[string][]string{"timed": {"2 days before the start | 2 days before", "3 hours before the start | 3 hours before", "45 minutes before the start | 45 minutes before", "At the start | 0 minutes at"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Reminder Time rows = %q, want %q", sets, want)
 	}
 	// An Appointment's Reminder Times are only ever before or at the start.
@@ -53,7 +53,7 @@ func TestAppointmentEditFormShowsItsReminderTimes(t *testing.T) {
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/events/5", "")).Body.String()
 
 	sets, _ := reminderSetsIn(t, page, "event-edit")
-	if want := map[string][]string{"timed": {"90 minutes before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+	if want := map[string][]string{"timed": {"90 minutes before the start | 90 minutes before"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Reminder Time rows = %q, want %q", sets, want)
 	}
 }

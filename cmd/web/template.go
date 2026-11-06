@@ -1719,8 +1719,7 @@ const appTemplate = `
 {{ if .Known }}
 <div class="reminder-times-editor" data-reminder-times>
 	<input type="hidden" name="reminder_times" value="1">
-	{{ if .Timed }}{{ template "reminderTimeRows" (dict "Kind" "timed" "Shown" (eq .Kind "timed") "Rows" .Timed "Appointment" .Appointment) }}{{ end }}
-	{{ if .DateOnly }}{{ template "reminderTimeRows" (dict "Kind" "date_only" "Shown" (eq .Kind "date_only") "Rows" .DateOnly "Appointment" false) }}{{ end }}
+	{{ range .Sets }}{{ template "reminderTimeSet" . }}{{ end }}
 </div>
 {{ else }}
 <fieldset class="reminder-times">
@@ -1730,31 +1729,58 @@ const appTemplate = `
 {{ end }}
 {{ end }}
 
-{{ define "reminderTimeRows" }}
-<fieldset class="reminder-times" data-reminder-kind="{{ .Kind }}"{{ if not .Shown }} disabled hidden{{ end }}>
+{{/* A set of Reminder Time frames. The server renders each frame open with
+its controls, so the form works without the script, which closes them to
+their summaries and adds, edits and removes frames. */}}
+{{ define "reminderTimeSet" }}
+<fieldset class="reminder-times" data-reminder-kind="{{ .Kind }}"{{ if .Appointment }} data-reminder-appointment{{ end }}{{ if not .Shown }} disabled hidden{{ end }}>
 	<legend>Reminders</legend>
-	{{ $dateOnly := eq .Kind "date_only" }}
-	{{ $appointment := .Appointment }}
-	{{ range .Rows }}
-	<div class="form-row reminder-time">
-		<input name="reminder_amount" type="number" min="0" step="1" value="{{ .Amount }}" aria-label="How long">
-		<select name="reminder_unit" aria-label="Unit">
-			{{ if not $dateOnly }}
-			<option value="minutes"{{ if eq .Unit "minutes" }} selected{{ end }}>minutes</option>
-			<option value="hours"{{ if eq .Unit "hours" }} selected{{ end }}>hours</option>
-			{{ end }}
-			<option value="days"{{ if eq .Unit "days" }} selected{{ end }}>days</option>
-		</select>
-		<select name="reminder_direction" aria-label="{{ if $appointment }}Before or at the start{{ else }}Before or after{{ end }}">
+	{{ range .Rows }}{{ template "reminderTimeFrame" (dict "Kind" $.Kind "Appointment" $.Appointment "Row" .) }}{{ end }}
+	<div class="rt-empty" data-reminder-empty{{ if .Rows }} hidden{{ end }}>No reminders</div>
+	<button class="rt-add rt-js" type="button" data-reminder-add{{ if not .CanAdd }} hidden{{ end }}>+ Add reminder</button>
+	<template data-reminder-new>{{ template "reminderTimeFrame" (dict "Kind" .Kind "Appointment" .Appointment "Row" .New) }}</template>
+</fieldset>
+{{ end }}
+
+{{ define "reminderTimeFrame" }}
+{{ $dateOnly := eq .Kind "date_only" }}
+{{ $appointment := .Appointment }}
+{{ with .Row }}
+<div class="rt-frame" data-reminder-frame>
+	<div class="rt-head">
+		<span class="rt-summary" data-reminder-summary>{{ .Summary }}</span>
+		<button class="secondary compact rt-js" type="button" data-reminder-edit>Edit</button>
+		<button class="compact rt-js" type="button" data-reminder-done>Done</button>
+		<button class="rt-x rt-js" type="button" data-reminder-remove aria-label="Remove reminder">×</button>
+	</div>
+	<div class="rt-controls">
+		<div class="seg rt-js" role="group" aria-label="When">
+			<button type="button" data-reminder-pick="before"{{ if eq .Direction "before" }} class="on"{{ end }}>Before</button>
+			<button type="button" data-reminder-pick="at"{{ if eq .Direction "at" }} class="on"{{ end }}>{{ if $appointment }}At the start{{ else if $dateOnly }}On the day{{ else }}At due time{{ end }}</button>
+			{{ if not $appointment }}<button type="button" data-reminder-pick="after"{{ if eq .Direction "after" }} class="on"{{ end }}>After</button>{{ end }}
+		</div>
+		<select class="rt-direction" name="reminder_direction" aria-label="When">
 			<option value="before"{{ if eq .Direction "before" }} selected{{ end }}>before</option>
-			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $appointment }}at the start{{ else if $dateOnly }}on the day{{ else }}at the time{{ end }}</option>
+			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $appointment }}at the start{{ else if $dateOnly }}on the day{{ else }}at the due time{{ end }}</option>
 			{{ if not $appointment }}<option value="after"{{ if eq .Direction "after" }} selected{{ end }}>after</option>{{ end }}
 		</select>
-		{{ if not $appointment }}<input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day">{{ end }}
+		<span class="rt-amount" data-reminder-amount>
+			<input name="reminder_amount" type="number" min="0" step="1" value="{{ .Amount }}" aria-label="How long">
+			{{ if $dateOnly }}
+			<input name="reminder_unit" type="hidden" value="days">
+			<span class="word" data-reminder-days>{{ if eq .Amount "1" }}day{{ else }}days{{ end }}</span>
+			{{ else }}
+			<select name="reminder_unit" aria-label="Unit">
+				<option value="minutes"{{ if eq .Unit "minutes" }} selected{{ end }}>minutes</option>
+				<option value="hours"{{ if eq .Unit "hours" }} selected{{ end }}>hours</option>
+				<option value="days"{{ if eq .Unit "days" }} selected{{ end }}>days</option>
+			</select>
+			{{ end }}
+		</span>
+		{{ if not $appointment }}<label class="rt-at" data-reminder-at><span class="word">at</span><input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day"></label>{{ end }}
 	</div>
-	{{ end }}
-	<span class="hint">{{ if $appointment }}Before the start, or 0 at the start.{{ else if $dateOnly }}Days before or after the due date, at a time of day; 0 on the day.{{ else }}Before or after the due time, or 0 at it; set a time of day for days at that time.{{ end }} Clear a row's number to drop it; clear them all for no reminders.</span>
-</fieldset>
+</div>
+{{ end }}
 {{ end }}
 
 {{ define "personalReminderTimes" }}

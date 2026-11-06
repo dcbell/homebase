@@ -36,7 +36,7 @@ func TestPersonalReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing.T) {
 	// Using the shared ones: "Use your own Reminder Times" starts from them.
 	page := taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":true,"reminder_times":[]}}`)
 	sets, _ := reminderSetsIn(t, page, "task-personal-reminders")
-	if want := map[string][]string{"timed": {"2 hours before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+	if want := map[string][]string{"timed": {"2 hours before | 2 hours before"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Personal Reminder Times rows = %q, want the shared ones %q", sets, want)
 	}
 	if !strings.Contains(page, "Use your own Reminder Times") || strings.Contains(page, "task-use-shared-reminders") {
@@ -46,7 +46,7 @@ func TestPersonalReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing.T) {
 	// With their own: those show, and "Use shared" goes back.
 	page = taskPageWith(t, `{`+task+`,"personal_reminder_times":{"using_shared":false,"reminder_times":[{"minutes":-30}]}}`)
 	sets, _ = reminderSetsIn(t, page, "task-personal-reminders")
-	if want := map[string][]string{"timed": {"30 minutes before", "", "", "", ""}}; fmt.Sprint(sets) != fmt.Sprint(want) {
+	if want := map[string][]string{"timed": {"30 minutes before | 30 minutes before"}}; fmt.Sprint(sets) != fmt.Sprint(want) {
 		t.Errorf("Personal Reminder Times rows = %q, want %q", sets, want)
 	}
 	if !strings.Contains(page, `id="task-use-shared-reminders"`) || !strings.Contains(page, "Use shared") {

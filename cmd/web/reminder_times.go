@@ -25,14 +25,28 @@ const (
 // reminderUnitMinutes is how many minutes each form unit stands for.
 var reminderUnitMinutes = map[string]int{"minutes": 1, "hours": 60, "days": 24 * 60}
 
-// reminderTimeRow is one row of Reminder Times on a form: an amount of
-// minutes, hours or days before or after the due time, or 0 at it, and for
-// days optionally a time of day. A row with no amount is unused.
+// reminderTimeRow is one Reminder Time on a form, shown in a frame: an
+// amount of minutes, hours or days before or after the due time, or 0 at it,
+// and for days optionally a time of day. A row with no amount is unused.
 type reminderTimeRow struct {
 	Amount    string
 	Unit      string
 	Direction string
 	At        string
+	// Summary says the row in plain language, as its closed frame shows it.
+	Summary string
+}
+
+// reminderTimeSet is the frames of one kind of due date in an editor.
+type reminderTimeSet struct {
+	Kind        string
+	Shown       bool
+	Appointment bool
+	Rows        []reminderTimeRow
+	// New is the frame "Add reminder" adds.
+	New reminderTimeRow
+	// CanAdd is whether the list has room for another Reminder Time.
+	CanAdd bool
 }
 
 // reminderTimesForm is the Reminder Times editor of a form: one set of rows
@@ -47,6 +61,75 @@ type reminderTimesForm struct {
 	Appointment bool
 	Timed       []reminderTimeRow
 	DateOnly    []reminderTimeRow
+}
+
+// Sets are the editor's sets of frames, the timed one first, leaving out a
+// kind the form has none for.
+func (f reminderTimesForm) Sets() []reminderTimeSet {
+	sets := []reminderTimeSet{}
+	if f.Timed != nil {
+		sets = append(sets, f.set(reminderKindTimed, f.Timed))
+	}
+	if f.DateOnly != nil {
+		sets = append(sets, f.set(reminderKindDateOnly, f.DateOnly))
+	}
+	return sets
+}
+
+// Shown is the set the editor shows.
+func (f reminderTimesForm) Shown() reminderTimeSet {
+	for _, set := range f.Sets() {
+		if set.Shown {
+			return set
+		}
+	}
+	return reminderTimeSet{}
+}
+
+func (f reminderTimesForm) set(kind string, rows []reminderTimeRow) reminderTimeSet {
+	appointment := f.Appointment && kind == reminderKindTimed
+	set := reminderTimeSet{Kind: kind, Shown: f.Kind == kind, Appointment: appointment, CanAdd: len(rows) < store.MaxReminderTimes}
+	set.New = reminderTimeRow{Amount: "1", Unit: "hours", Direction: reminderBefore}
+	if kind == reminderKindDateOnly {
+		set.New = reminderTimeRow{Amount: "1", Unit: "days", Direction: reminderBefore, At: "08:00"}
+	}
+	set.New.Summary = set.New.summary(kind, appointment)
+	set.Rows = make([]reminderTimeRow, len(rows))
+	for i, row := range rows {
+		row.Summary = row.summary(kind, appointment)
+		set.Rows[i] = row
+	}
+	return set
+}
+
+// summary says a row in plain language, such as "24 hours before", "1 day
+// after at 08:00" or "At the start". The editor's script words it the same
+// way as the row changes.
+func (row reminderTimeRow) summary(kind string, appointment bool) string {
+	if row.Direction == reminderAt {
+		switch {
+		case appointment:
+			return "At the start"
+		case row.At != "":
+			return "On the due date at " + row.At
+		case kind == reminderKindDateOnly:
+			return "On the due date"
+		}
+		return "At the due time"
+	}
+	amount, _ := strconv.Atoi(row.Amount)
+	unit := row.Unit
+	if amount == 1 {
+		unit = strings.TrimSuffix(unit, "s")
+	}
+	text := strconv.Itoa(amount) + " " + unit + " " + row.Direction
+	switch {
+	case appointment:
+		text += " the start"
+	case row.At != "":
+		text += " at " + row.At
+	}
+	return text
 }
 
 // taskReminderCreateForm prefills a create form with the API's defaults:
@@ -127,10 +210,9 @@ func personalOrShared(personal *store.PersonalReminderTimes, shared []store.Remi
 }
 
 // reminderTimeRows lays out Reminder Times as form rows, the timed form in
-// the largest unit that divides it and at the due time as 0, with blank rows
-// after them up to the most a list may have.
+// the largest unit that divides it and at the due time as 0.
 func reminderTimeRows(times []store.ReminderTime) []reminderTimeRow {
-	rows := make([]reminderTimeRow, 0, store.MaxReminderTimes)
+	rows := make([]reminderTimeRow, 0, len(times))
 	for _, r := range times {
 		offset, row := r.Minutes, reminderTimeRow{Unit: "minutes"}
 		if r.IsDateOnly() {
@@ -154,9 +236,6 @@ func reminderTimeRows(times []store.ReminderTime) []reminderTimeRow {
 		}
 		row.Amount = strconv.Itoa(offset)
 		rows = append(rows, row)
-	}
-	for len(rows) < store.MaxReminderTimes {
-		rows = append(rows, reminderTimeRow{})
 	}
 	return rows
 }

@@ -29,7 +29,7 @@ func TestPersonalAppointmentReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing
 
 	// Using the shared ones: "Use your own Reminder Times" starts from them.
 	page := appointmentPageWith(t, `{`+event+`,"personal_reminder_times":{"using_shared":true,"reminder_times":[]}}`)
-	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"2 hours before", "", "", "", ""}}) {
+	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"2 hours before the start | 2 hours before"}}) {
 		t.Errorf("Personal Reminder Times rows = %q, want the shared ones", got)
 	}
 	if !strings.Contains(page, "Use your own Reminder Times") || strings.Contains(page, "event-use-shared-reminders") {
@@ -38,7 +38,7 @@ func TestPersonalAppointmentReminderTimesShowOnlyWhenTheAPIOffersThem(t *testing
 
 	// With their own: those show, and "Use shared" goes back.
 	page = appointmentPageWith(t, `{`+event+`,"personal_reminder_times":{"using_shared":false,"reminder_times":[{"minutes":-30}]}}`)
-	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"30 minutes before", "", "", "", ""}}) {
+	if got, _ := reminderSetsIn(t, page, "event-personal-reminders"); fmt.Sprint(got) != fmt.Sprint(map[string][]string{"timed": {"30 minutes before the start | 30 minutes before"}}) {
 		t.Errorf("Personal Reminder Times rows = %q, want their own", got)
 	}
 	if !strings.Contains(page, `id="event-use-shared-reminders"`) || !strings.Contains(page, "Use shared") {

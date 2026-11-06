@@ -14,9 +14,10 @@ const taskReminderDefaults = `{
 	"date_only_task": [{"days": -2, "at": "07:30"}, {"days": 0, "at": "07:30"}]
 }`
 
-// reminderSetsIn returns the Reminder Time rows of the form with the
+// reminderSetsIn returns the Reminder Time frames of the form with the
 // given id, keyed by the kind of due date each set is for, and which set is
-// shown. Rows read as "amount unit direction at", empty rows included.
+// shown. Frames read as "summary | amount unit direction at", from the
+// summary the frame shows and the fields it submits.
 func reminderSetsIn(t *testing.T, page, id string) (sets map[string][]string, shown string) {
 	t.Helper()
 	form := regexp.MustCompile(`(?s)id="` + id + `".*?</form>`).FindString(page)
@@ -25,21 +26,17 @@ func reminderSetsIn(t *testing.T, page, id string) (sets map[string][]string, sh
 	}
 	sets = map[string][]string{}
 	fieldset := regexp.MustCompile(`(?s)<fieldset class="reminder-times" data-reminder-kind="(\w+)"([^>]*)>(.*?)</fieldset>`)
-	row := regexp.MustCompile(`(?s)<div class="form-row reminder-time">(.*?)</div>`)
+	newFrame := regexp.MustCompile(`(?s)<template.*?</template>`)
+	summary := regexp.MustCompile(`<span class="rt-summary"[^>]*>([^<]*)</span>`)
 	value := func(html, name string) string {
-		m := regexp.MustCompile(`name="` + name + `"[^>]*value="([^"]*)"`).FindStringSubmatch(html)
-		if m == nil {
+		if m := regexp.MustCompile(`(?s)<select [^>]*name="` + name + `"[^>]*>(.*?)</select>`).FindStringSubmatch(html); m != nil {
+			if s := regexp.MustCompile(`<option value="(\w+)" selected>`).FindStringSubmatch(m[1]); s != nil {
+				return s[1]
+			}
 			return ""
 		}
-		return m[1]
-	}
-	selected := func(html, name string) string {
-		m := regexp.MustCompile(`(?s)<select name="` + name + `"[^>]*>(.*?)</select>`).FindStringSubmatch(html)
-		if m == nil {
-			return ""
-		}
-		if s := regexp.MustCompile(`<option value="(\w+)" selected>`).FindStringSubmatch(m[1]); s != nil {
-			return s[1]
+		if m := regexp.MustCompile(`name="` + name + `"[^>]*value="([^"]*)"`).FindStringSubmatch(html); m != nil {
+			return m[1]
 		}
 		return ""
 	}
@@ -47,15 +44,20 @@ func reminderSetsIn(t *testing.T, page, id string) (sets map[string][]string, sh
 		if !strings.Contains(f[2], "disabled") {
 			shown = f[1]
 		}
+		frames := strings.Split(newFrame.ReplaceAllString(f[3], ""), `<div class="rt-frame"`)[1:]
 		rows := []string{}
-		for _, r := range row.FindAllStringSubmatch(f[3], -1) {
+		for _, frame := range frames {
 			parts := []string{}
-			for _, p := range []string{value(r[1], "reminder_amount"), selected(r[1], "reminder_unit"), selected(r[1], "reminder_direction"), value(r[1], "reminder_at")} {
+			for _, p := range []string{value(frame, "reminder_amount"), value(frame, "reminder_unit"), value(frame, "reminder_direction"), value(frame, "reminder_at")} {
 				if p != "" {
 					parts = append(parts, p)
 				}
 			}
-			rows = append(rows, strings.Join(parts, " "))
+			text := ""
+			if m := summary.FindStringSubmatch(frame); m != nil {
+				text = m[1]
+			}
+			rows = append(rows, text+" | "+strings.Join(parts, " "))
 		}
 		sets[f[1]] = rows
 	}
@@ -75,8 +77,8 @@ func TestAddTaskFormsShowTheAPIsDefaultReminderTimes(t *testing.T) {
 		"GET /api/v1/related-contacts":        {http.StatusOK, `[]`},
 		"GET /api/v1/related-assets":          {http.StatusOK, `[]`},
 	})
-	timed := []string{"2 days before", "90 minutes before", "0 minutes at", "1 days after 09:00", ""}
-	dateOnly := []string{"2 days before 07:30", "0 days at 07:30", "", "", ""}
+	timed := []string{"2 days before | 2 days before", "90 minutes before | 90 minutes before", "At the due time | 0 minutes at", "1 day after at 09:00 | 1 days after 09:00"}
+	dateOnly := []string{"2 days before at 07:30 | 2 days before 07:30", "On the due date at 07:30 | 0 days at 07:30"}
 
 	// A due time of day is picked on these forms, so the timed defaults
 	// show, and the date-only ones are ready for a due time of midnight.
@@ -115,8 +117,8 @@ func TestTaskEditFormShowsItsReminderTimes(t *testing.T) {
 	// as the API resets them on that switch.
 	sets, shown := reminderSetsIn(t, page, "task-edit")
 	want := map[string][]string{
-		"timed":     {"2 hours before", "3 days after 08:00", "", "", ""},
-		"date_only": {"2 days before 07:30", "0 days at 07:30", "", "", ""},
+		"timed":     {"2 hours before | 2 hours before", "3 days after at 08:00 | 3 days after 08:00"},
+		"date_only": {"2 days before at 07:30 | 2 days before 07:30", "On the due date at 07:30 | 0 days at 07:30"},
 	}
 	if fmt.Sprint(sets) != fmt.Sprint(want) || shown != "timed" {
 		t.Errorf("Reminder Times = %q, showing %q; want %q, showing timed", sets, shown, want)
@@ -185,7 +187,7 @@ func TestTaskEditFormFollowsTheAPIOnWhetherTheDueDateIsDateOnly(t *testing.T) {
 	page := serve(web.routes(), browserRequest(http.MethodGet, "/tasks/7", "")).Body.String()
 
 	sets, shown := reminderSetsIn(t, page, "task-edit")
-	if want := []string{"1 days before 18:00", "", "", "", ""}; fmt.Sprint(sets["date_only"]) != fmt.Sprint(want) || shown != "date_only" {
+	if want := []string{"1 day before at 18:00 | 1 days before 18:00"}; fmt.Sprint(sets["date_only"]) != fmt.Sprint(want) || shown != "date_only" {
 		t.Errorf("Reminder Times = %q, showing %q; want date-only %q shown", sets, shown, want)
 	}
 }
