@@ -79,13 +79,13 @@ func TestPersonalAppointmentReminderTimesChoicesAreSentToTheAPI(t *testing.T) {
 		t.Fatalf("API calls = %+v, want two sets and a Use shared", calls)
 	}
 	if calls[0].Method != http.MethodPut || calls[0].Path != "/api/v1/events/5/personal-reminder-times" {
-		t.Errorf("Use my own called %s %s, want PUT /api/v1/events/5/personal-reminder-times", calls[0].Method, calls[0].Path)
+		t.Errorf("Use your own Reminder Times called %s %s, want PUT /api/v1/events/5/personal-reminder-times", calls[0].Method, calls[0].Path)
 	}
 	if got, want := sentReminderTimes(t, calls[0].Body), `[{"minutes":-120},{"minutes":-30}]`; got != want {
-		t.Errorf("Use my own sent reminder_times %s, want %s", got, want)
+		t.Errorf("Use your own Reminder Times sent reminder_times %s, want %s", got, want)
 	}
 	if got := sentReminderTimes(t, calls[1].Body); got != `[]` {
-		t.Errorf("Use my own with every row cleared sent reminder_times %s, want [] for no Reminders", got)
+		t.Errorf("Use your own Reminder Times with every row cleared sent reminder_times %s, want [] for no Reminders", got)
 	}
 	if calls[2].Method != http.MethodDelete || calls[2].Path != "/api/v1/events/5/personal-reminder-times" {
 		t.Errorf("Use shared called %s %s, want DELETE /api/v1/events/5/personal-reminder-times", calls[2].Method, calls[2].Path)
