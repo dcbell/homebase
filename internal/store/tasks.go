@@ -221,12 +221,15 @@ func (s *Store) UpdateTask(ctx context.Context, householdID, id int64, input Tas
 	if err != nil {
 		return Task{}, Task{}, err
 	}
-	if t.RoutineID != nil && t.Status == "done" {
+	// Only the open→done transition advances the Task's source; saving a Task
+	// that was already done must not advance it again.
+	completed := t.Status == "done" && p.Status != "done"
+	if t.RoutineID != nil && completed {
 		if advanceErr := s.CompleteRoutine(ctx, householdID, *t.RoutineID); advanceErr != nil {
 			return Task{}, Task{}, advanceErr
 		}
 	}
-	if t.AssetMaintenanceItemID != nil && t.Status == "done" {
+	if t.AssetMaintenanceItemID != nil && completed {
 		if advanceErr := s.CompleteAssetMaintenance(ctx, householdID, *t.AssetMaintenanceItemID); advanceErr != nil {
 			return Task{}, Task{}, advanceErr
 		}
