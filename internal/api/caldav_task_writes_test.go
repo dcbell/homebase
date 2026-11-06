@@ -79,6 +79,48 @@ func TestTickingAGeneratedTaskOnThePhoneCompletesItAndAdvancesItsRoutine(t *test
 	}
 }
 
+func TestEditingADoneGeneratedTaskOnThePhoneKeepsItDoneAndAdvancesItsRoutineOnce(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	routine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
+		"title":       "Feed the sourdough starter",
+		"cadence":     "daily",
+		"next_due_at": "2030-01-15T08:00:00Z",
+		"assigned_to": household.Member.User.ID,
+	}).Expect(http.StatusCreated))
+	if err := h.Server.GenerateDueTasks(context.Background()); err != nil {
+		t.Fatalf("GenerateDueTasks: %v", err)
+	}
+	cal := household.Member.ConnectCalendar()
+	generated, ok := taskTitled(t, household.Owner, "Feed the sourdough starter")
+	if !ok || generated.RoutineID == nil {
+		t.Fatalf("no Generated Task: %+v", generated)
+	}
+	uid := caldavpkg.TaskUID(generated.ID)
+	path := cal.CollectionPath("tasks") + uid + ".ics"
+	ticked := func(summary, stamp string) string {
+		return vtodo("UID:"+uid, "DTSTAMP:"+stamp, "SUMMARY:"+summary, "DUE:20300115T080000Z",
+			"STATUS:COMPLETED", "COMPLETED:20300115T120000Z")
+	}
+
+	putObject(cal, "tasks", uid, http.Header{"If-Match": {currentETag(t, cal, path)}},
+		ticked("Feed the sourdough starter", "20300115T120000Z")).Expect(http.StatusCreated)
+	once := apitest.Decode[store.Routine](t, household.Owner.Get(fmt.Sprintf("/api/v1/routines/%d", routine.ID)).Expect(http.StatusOK))
+	// Homebase answered with no ETag, so the phone edits the ticked to-do without one.
+	putObject(cal, "tasks", uid, nil,
+		ticked("Feed the sourdough starter (rye)", "20300115T120100Z")).Expect(http.StatusCreated)
+
+	got := getTask(t, household.Owner, generated.ID)
+	if got.Title != "Feed the sourdough starter (rye)" || got.Status != "done" {
+		t.Errorf("title, status = %q, %q after editing the ticked to-do, want the new title and done", got.Title, got.Status)
+	}
+	after := apitest.Decode[store.Routine](t, household.Owner.Get(fmt.Sprintf("/api/v1/routines/%d", routine.ID)).Expect(http.StatusOK))
+	if after.NextDueAt == nil || once.NextDueAt == nil || !after.NextDueAt.Equal(*once.NextDueAt) {
+		t.Errorf("Routine next due %v after editing its done Task, want it to stay %v", after.NextDueAt, once.NextDueAt)
+	}
+}
+
 func TestUntickingAToDoOnThePhoneReopensTheTask(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)
