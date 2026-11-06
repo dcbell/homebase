@@ -28,18 +28,7 @@ func reminderSetsIn(t *testing.T, page, id string) (sets map[string][]string, sh
 	fieldset := regexp.MustCompile(`(?s)<fieldset class="reminder-times" data-reminder-kind="(\w+)"([^>]*)>(.*?)</fieldset>`)
 	newFrame := regexp.MustCompile(`(?s)<template.*?</template>`)
 	summary := regexp.MustCompile(`<span class="rt-summary"[^>]*>([^<]*)</span>`)
-	value := func(html, name string) string {
-		if m := regexp.MustCompile(`(?s)<select [^>]*name="` + name + `"[^>]*>(.*?)</select>`).FindStringSubmatch(html); m != nil {
-			if s := regexp.MustCompile(`<option value="(\w+)" selected>`).FindStringSubmatch(m[1]); s != nil {
-				return s[1]
-			}
-			return ""
-		}
-		if m := regexp.MustCompile(`name="` + name + `"[^>]*value="([^"]*)"`).FindStringSubmatch(html); m != nil {
-			return m[1]
-		}
-		return ""
-	}
+	value := reminderFieldValue
 	for _, f := range fieldset.FindAllStringSubmatch(form, -1) {
 		if !strings.Contains(f[2], "disabled") {
 			shown = f[1]
@@ -62,6 +51,21 @@ func reminderSetsIn(t *testing.T, page, id string) (sets map[string][]string, sh
 		sets[f[1]] = rows
 	}
 	return sets, shown
+}
+
+// reminderFieldValue is the value a frame's markup submits for the field
+// name, the selected option of a select, or "" when it has none.
+func reminderFieldValue(html, name string) string {
+	if m := regexp.MustCompile(`(?s)<select [^>]*name="` + name + `"[^>]*>(.*?)</select>`).FindStringSubmatch(html); m != nil {
+		if s := regexp.MustCompile(`<option value="(\w+)" selected>`).FindStringSubmatch(m[1]); s != nil {
+			return s[1]
+		}
+		return ""
+	}
+	if m := regexp.MustCompile(`name="` + name + `"[^>]*value="([^"]*)"`).FindStringSubmatch(html); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 func TestAddTaskFormsShowTheAPIsDefaultReminderTimes(t *testing.T) {
@@ -214,5 +218,152 @@ func TestClearingTheNumberOfTheAtTheTimeRowDropsIt(t *testing.T) {
 	}
 	if got, want := sentReminderTimes(t, calls[0].Body), `[{"minutes":-60}]`; got != want {
 		t.Errorf("edit sent reminder_times %s, want %s without the cleared row", got, want)
+	}
+}
+
+// editorPage serves the page at path with the API returning record there.
+func editorPage(t *testing.T, path, record string) string {
+	t.Helper()
+	_, web := newRecordingAPI(t, map[string]cannedResponse{
+		"GET /api/v1/dashboard":               {http.StatusOK, `{"current_user":{"id":1,"name":"Owner"}}`},
+		"GET /api/v1/reminder-times/defaults": {http.StatusOK, taskReminderDefaults},
+		"GET /api/v1" + path:                  {http.StatusOK, record},
+		"GET /api/v1/documents":               {http.StatusOK, `[]`},
+		"GET /api/v1/contacts":                {http.StatusOK, `[]`},
+		"GET /api/v1/assets":                  {http.StatusOK, `[]`},
+		"GET /api/v1/related-documents":       {http.StatusOK, `[]`},
+		"GET /api/v1/related-contacts":        {http.StatusOK, `[]`},
+		"GET /api/v1/related-assets":          {http.StatusOK, `[]`},
+	})
+	return serve(web.routes(), browserRequest(http.MethodGet, path, "")).Body.String()
+}
+
+// reminderFramesIn returns the markup of each frame in the set for kind on
+// the form with the given id.
+func reminderFramesIn(t *testing.T, page, id, kind string) []string {
+	t.Helper()
+	form := regexp.MustCompile(`(?s)id="` + id + `".*?</form>`).FindString(page)
+	set := regexp.MustCompile(`(?s)data-reminder-kind="` + kind + `".*?</fieldset>`).FindString(form)
+	set = regexp.MustCompile(`(?s)<template.*?</template>`).ReplaceAllString(set, "")
+	return strings.Split(set, `<div class="rt-frame"`)[1:]
+}
+
+func TestReminderTimesEditorSendsBackWhatItLoadedOrNoneOnceAllAreRemoved(t *testing.T) {
+	const times = `[{"minutes":-1440},{"minutes":-90},{"minutes":0},{"days":1,"at":"08:00"}]`
+	page := editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":`+times+`}`)
+	api, web := newRecordingAPI(t, map[string]cannedResponse{
+		"PATCH /api/v1/tasks/7": {http.StatusOK, `{"id":7}`},
+	})
+	post := func(form url.Values) {
+		req := browserRequest(http.MethodPost, "/tasks/7", form.Encode())
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		serve(web.routes(), req)
+	}
+
+	// The frames as the server renders them, unedited.
+	unedited := url.Values{"title": {"Mow"}, "due_at": {"2030-01-20T18:00"}, "reminder_times": {"1"}}
+	for _, frame := range reminderFramesIn(t, page, "task-edit", "timed") {
+		for _, name := range []string{"reminder_amount", "reminder_unit", "reminder_direction", "reminder_at"} {
+			unedited.Add(name, reminderFieldValue(frame, name))
+		}
+	}
+	post(unedited)
+	// Every frame removed leaves only the editor's marker.
+	post(url.Values{"title": {"Mow"}, "due_at": {"2030-01-20T18:00"}, "reminder_times": {"1"}})
+
+	calls := api.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("API calls = %+v, want two edits", calls)
+	}
+	if got := sentReminderTimes(t, calls[0].Body); got != times {
+		t.Errorf("unedited form sent reminder_times %s, want the ones it loaded %s", got, times)
+	}
+	if got := sentReminderTimes(t, calls[1].Body); got != `[]` {
+		t.Errorf("form with every frame removed sent reminder_times %s, want [] for no Reminders", got)
+	}
+}
+
+func TestReminderTimeSummariesSayEachKindInPlainLanguage(t *testing.T) {
+	summaries := func(page, id, kind string) []string {
+		sets, _ := reminderSetsIn(t, page, id)
+		got := []string{}
+		for _, frame := range sets[kind] {
+			got = append(got, strings.Split(frame, " | ")[0])
+		}
+		return got
+	}
+
+	page := editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-1440},{"minutes":-60},{"minutes":-1},{"minutes":2880},{"days":1,"at":"08:00"}]}`)
+	if got, want := summaries(page, "task-edit", "timed"), []string{"1 day before", "1 hour before", "1 minute before", "2 days after", "1 day after at 08:00"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("timed Task summaries = %q, want %q", got, want)
+	}
+
+	page = editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T06:00:00Z","date_only":true,"reminder_times":[{"days":-1,"at":"18:00"},{"days":0,"at":"08:00"},{"days":2,"at":"08:00"}]}`)
+	if got, want := summaries(page, "task-edit", "date_only"), []string{"1 day before at 18:00", "On the due date at 08:00", "2 days after at 08:00"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("date-only Task summaries = %q, want %q", got, want)
+	}
+
+	page = editorPage(t, "/events/5", `{"id":5,"title":"Dentist","reminder_times":[{"minutes":-60},{"minutes":-120},{"minutes":0}]}`)
+	if got, want := summaries(page, "event-edit", "timed"), []string{"1 hour before the start", "2 hours before the start", "At the start"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Appointment summaries = %q, want %q", got, want)
+	}
+}
+
+func TestReminderTimeFramesOfferOnlyTheControlsForTheirKind(t *testing.T) {
+	pills := func(frame string) []string {
+		got := []string{}
+		for _, m := range regexp.MustCompile(`data-reminder-pick="(\w+)"[^>]*>([^<]*)<`).FindAllStringSubmatch(frame, -1) {
+			got = append(got, m[1]+"="+m[2])
+		}
+		return got
+	}
+
+	page := editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-60}]}`)
+	timed := reminderFramesIn(t, page, "task-edit", "timed")[0]
+	if got, want := pills(timed), []string{"before=Before", "at=At due time", "after=After"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("timed Task pills = %q, want %q", got, want)
+	}
+	if !strings.Contains(timed, `<select name="reminder_unit"`) || !strings.Contains(timed, `name="reminder_at"`) {
+		t.Errorf("timed Task frame should pick a unit, and a time of day for days:\n%s", timed)
+	}
+	dateOnly := reminderFramesIn(t, page, "task-edit", "date_only")[0]
+	if got, want := pills(dateOnly), []string{"before=Before", "at=On the day", "after=After"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("date-only Task pills = %q, want %q", got, want)
+	}
+	if strings.Contains(dateOnly, `<select name="reminder_unit"`) || !strings.Contains(dateOnly, `name="reminder_unit" type="hidden" value="days"`) || !strings.Contains(dateOnly, `name="reminder_at"`) {
+		t.Errorf("date-only Task frame should count days, with no unit picker, at a time of day:\n%s", dateOnly)
+	}
+
+	page = editorPage(t, "/events/5", `{"id":5,"title":"Dentist","reminder_times":[{"minutes":-60}]}`)
+	appointment := reminderFramesIn(t, page, "event-edit", "timed")[0]
+	if got, want := pills(appointment), []string{"before=Before", "at=At the start"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Appointment pills = %q, want %q", got, want)
+	}
+	if strings.Contains(appointment, `name="reminder_at"`) {
+		t.Errorf("Appointment frame offers a time of day:\n%s", appointment)
+	}
+}
+
+func TestReminderTimesEditorAddsUpToFiveAndSaysWhenThereAreNone(t *testing.T) {
+	set := func(page string) string {
+		form := regexp.MustCompile(`(?s)id="task-edit".*?</form>`).FindString(page)
+		return regexp.MustCompile(`(?s)data-reminder-kind="timed".*?</fieldset>`).FindString(form)
+	}
+	hidden := func(set, marker string) bool {
+		tag := regexp.MustCompile(`<[^>]*` + marker + `[^>]*>`).FindString(set)
+		if tag == "" {
+			t.Fatalf("set has no %s:\n%s", marker, set)
+		}
+		return strings.Contains(tag, " hidden")
+	}
+
+	none := set(editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[]}`))
+	if hidden(none, "data-reminder-empty") || hidden(none, "data-reminder-add") || !strings.Contains(none, "No reminders") {
+		t.Errorf("a Task with no Reminder Times should say No reminders and offer to add one:\n%s", none)
+	}
+
+	five := set(editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"minutes":-5},{"minutes":-4},{"minutes":-3},{"minutes":-2},{"minutes":-1}]}`))
+	if !hidden(five, "data-reminder-empty") || !hidden(five, "data-reminder-add") {
+		t.Errorf("a Task with five Reminder Times should hide No reminders and Add reminder:\n%s", five)
 	}
 }
