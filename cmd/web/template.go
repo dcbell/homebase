@@ -1306,7 +1306,6 @@ const appTemplate = `
 	<div class="action-menu-panel">
 		{{ if .EditModal }}<button class="secondary compact" type="button" data-modal-open="{{ .EditModal }}">Edit</button>{{ end }}
 		{{ if .ReopenForm }}<button class="secondary compact" type="submit" form="{{ .ReopenForm }}">Reopen</button>{{ end }}
-		{{ if .DeleteForm }}<button class="danger compact" type="submit" form="{{ .DeleteForm }}">{{ if .DeleteLabel }}{{ .DeleteLabel }}{{ else }}Delete{{ end }}</button>{{ end }}
 		{{ if .ArchiveForm }}<button class="danger compact" type="submit" form="{{ .ArchiveForm }}">Archive</button>{{ end }}
 	</div>
 </details>
@@ -3740,13 +3739,13 @@ const appTemplate = `
 				<div class="page-title-line">
 					<a class="button secondary back-icon" href="/" title="Back" aria-label="Back">‹</a>
 					<h1>{{ .Event.Title }}</h1>
-					{{ template "titleActionMenu" (dict "DeleteForm" "event-delete" "DeleteLabel" "Delete") }}
+					{{ template "titleActionMenu" (dict "ArchiveForm" "event-archive") }}
 				</div>
 				<p class="meta">For {{ attendeeNames .Event.Attendees }}</p>
 			</div>
 		</div>
 	</section>
-	<form id="event-delete" method="post" action="/events/{{ .Event.ID }}/delete"></form>
+	<form id="event-archive" method="post" action="/events/{{ .Event.ID }}/delete"></form>
 
 	{{ if .Error }}<p class="panel error">{{ .Error }}</p>{{ end }}
 

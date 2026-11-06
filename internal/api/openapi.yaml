@@ -785,7 +785,8 @@ paths:
           $ref: "#/components/responses/Event"
     delete:
       tags: [Events]
-      summary: Delete an appointment/event
+      summary: Archive an appointment
+      description: Archives the Appointment and cancels its pending Reminders. Archived Appointments are left out of every list and the calendar, but can still be fetched by id.
       operationId: deleteEvent
       responses:
         "200":
@@ -1815,9 +1816,7 @@ components:
           properties:
             id: { type: integer, format: int64 }
             household_id: { type: integer, format: int64 }
-            source: { type: string }
-            external_id: { type: string }
-            sync_status: { type: string }
+            status: { type: string, enum: [active, archived], example: active }
             attendees:
               type: array
               description: The Attendees ordered by name. Empty means the whole Household.

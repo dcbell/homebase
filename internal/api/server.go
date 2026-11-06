@@ -1120,7 +1120,7 @@ func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID strin
 	if !ok {
 		return
 	}
-	if err := s.store.DeleteEvent(r.Context(), householdFrom(r).ID, id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.ArchiveEvent(r.Context(), householdFrom(r).ID, id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
 	} else if err != nil {

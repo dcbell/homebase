@@ -25,7 +25,7 @@ type EventInput struct {
 // Household.
 var ErrAttendeeNotMember = errors.New("attendees must be members of the household")
 
-const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, source, external_id, sync_status, created_by, created_at, updated_at`
+const eventColumns = `id, household_id, title, description, starts_at, ends_at, location, status, created_by, created_at, updated_at`
 
 type eventScanner interface {
 	Scan(dest ...any) error
@@ -33,7 +33,7 @@ type eventScanner interface {
 
 func scanEvent(scanner eventScanner) (Event, error) {
 	var e Event
-	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Source, &e.ExternalID, &e.SyncStatus, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
+	err := scanner.Scan(&e.ID, &e.HouseholdID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.Location, &e.Status, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
 	return e, err
 }
 
@@ -49,6 +49,7 @@ func (s *Store) ListEvents(ctx context.Context, householdID int64) ([]Event, err
 		SELECT `+eventColumns+`
 		FROM events
 		WHERE household_id = $1
+		  AND status <> 'archived'
 		  AND starts_at >= now() - interval '1 day'
 		ORDER BY starts_at
 		LIMIT 50
@@ -77,13 +78,14 @@ func (s *Store) ListEvents(ctx context.Context, householdID int64) ([]Event, err
 	return events, nil
 }
 
-// ListWholeHouseholdEventsAfter returns the Household's Appointments with no
-// Attendees (so for every Member) that start after the given time.
+// ListWholeHouseholdEventsAfter returns the Household's active Appointments
+// with no Attendees (so for every Member) that start after the given time.
 func (s *Store) ListWholeHouseholdEventsAfter(ctx context.Context, householdID int64, after time.Time) ([]Event, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+eventColumns+`
 		FROM events
 		WHERE household_id = $1
+		  AND status <> 'archived'
 		  AND starts_at > $2
 		  AND NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = events.id)
 		ORDER BY starts_at, id
@@ -197,7 +199,6 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 			starts_at = $5,
 			ends_at = $6,
 			location = $7,
-			sync_status = 'local',
 			updated_at = now()
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id, input.Title, input.Description, input.StartsAt, input.EndsAt, input.Location); err != nil {
@@ -215,9 +216,11 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 	return updated, previous, tx.Commit()
 }
 
-func (s *Store) DeleteEvent(ctx context.Context, householdID, id int64) error {
+// ArchiveEvent archives an Appointment, which is how one is removed.
+func (s *Store) ArchiveEvent(ctx context.Context, householdID, id int64) error {
 	result, err := s.db.ExecContext(ctx, `
-		DELETE FROM events
+		UPDATE events
+		SET status = 'archived', updated_at = now()
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id)
 	if err != nil {

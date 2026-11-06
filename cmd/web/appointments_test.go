@@ -85,6 +85,26 @@ func TestAppointmentPageShowsAttendees(t *testing.T) {
 	}
 }
 
+func TestAppointmentPageArchivesRatherThanDeletes(t *testing.T) {
+	h, api := newAppointmentWebServer(t, store.Event{ID: 5, Title: "Dentist"})
+
+	body := get(t, h, "/events/5").Body.String()
+	if !strings.Contains(body, `form="event-archive">Archive</button>`) {
+		t.Errorf("Appointment page has no Archive action")
+	}
+	if strings.Contains(body, ">Delete</button>") {
+		t.Errorf("Appointment page still offers Delete")
+	}
+
+	rec := postForm(h, "/events/5/delete", url.Values{})
+	if _, ok := api.payloads["DELETE /api/v1/events/5"]; !ok {
+		t.Errorf("Archive did not forward to the API; sent %v", api.payloads)
+	}
+	if got := rec.Header().Get("Location"); got != "/?saved=1" {
+		t.Errorf("Archive redirected to %q, want /?saved=1", got)
+	}
+}
+
 func TestAddAppointmentFormOffersEveryMemberAsAttendee(t *testing.T) {
 	h, _ := newAppointmentWebServer(t, store.Event{})
 

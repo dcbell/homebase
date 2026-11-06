@@ -72,6 +72,7 @@ func (s *Store) addCalendarEvents(ctx context.Context, householdID int64, start,
 		SELECT id, title, starts_at, location
 		FROM events
 		WHERE household_id = $1
+			AND status <> 'archived'
 			AND starts_at >= $2
 			AND starts_at < $3
 		ORDER BY starts_at

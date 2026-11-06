@@ -96,9 +96,7 @@ type Event struct {
 	StartsAt    time.Time `json:"starts_at"`
 	EndsAt      time.Time `json:"ends_at"`
 	Location    string    `json:"location"`
-	Source      string    `json:"source"`
-	ExternalID  string    `json:"external_id"`
-	SyncStatus  string    `json:"sync_status"`
+	Status      string    `json:"status"` // active or archived
 	CreatedBy   int64     `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

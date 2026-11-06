@@ -21,6 +21,17 @@ func TestOpenReturnsMigratedStore(t *testing.T) {
 	}
 }
 
+// The server runs every migration on each start, so each must be safe to run
+// again on a schema that is already up to date.
+func TestMigrationsCanRunAgain(t *testing.T) {
+	t.Parallel()
+	st := storetest.Open(t)
+
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("second Migrate() error = %v", err)
+	}
+}
+
 func TestOpenIsolatesEachStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
