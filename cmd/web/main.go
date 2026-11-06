@@ -74,7 +74,7 @@ type pageData struct {
 	PushSettings          store.PushSettings
 	CreatedAPIToken       store.APITokenWithSecret
 	CalendarConnections   []store.CalendarConnection
-	CreatedCalendar       createdCalendarConnection
+	CreatedCalendar       store.CreatedCalendarConnection
 	RelatedItems          []store.RelatedItem
 	RelatedDocs           []store.RelatedDocument
 	RelatedContacts       []store.RelatedContact

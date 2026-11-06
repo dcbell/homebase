@@ -9,23 +9,6 @@ import (
 	"homebase/internal/store"
 )
 
-// createdCalendarConnection is the only response that ever carries a Calendar
-// Connection's secret.
-type createdCalendarConnection struct {
-	Connection store.CalendarConnection `json:"connection"`
-	ServerURL  string                   `json:"server_url"`
-	Username   string                   `json:"username"`
-	Secret     string                   `json:"secret"`
-}
-
-// createdIPhoneConnection answers creating an ios Calendar Connection. It
-// carries no secret: the secret exists only inside the setup profile served
-// once from ProfileURL.
-type createdIPhoneConnection struct {
-	Connection store.CalendarConnection `json:"connection"`
-	ProfileURL string                   `json:"profile_url"`
-}
-
 // calendarProfilePath is where setup profile links are served. It needs no
 // session: Safari fetches it, and the token is the credential.
 const calendarProfilePath = "/api/v1/calendar-profiles/"
@@ -63,7 +46,7 @@ func (s *Server) createCalendarConnection(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if input.Kind == store.CalendarConnectionIOS {
+	if input.Kind == store.CalendarConnectionIPhone {
 		s.createIPhoneConnection(w, r, input)
 		return
 	}
@@ -72,7 +55,7 @@ func (s *Server) createCalendarConnection(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, createdCalendarConnection{
+	writeJSON(w, http.StatusCreated, store.CreatedCalendarConnection{
 		Connection: created.CalendarConnection,
 		ServerURL:  s.cfg.WebBaseURL + caldav.Root,
 		Username:   userFrom(r).Email,
@@ -87,7 +70,7 @@ func (s *Server) createIPhoneConnection(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, createdIPhoneConnection{
+	writeJSON(w, http.StatusCreated, store.CreatedIPhoneConnection{
 		Connection: connection,
 		ProfileURL: s.cfg.WebBaseURL + calendarProfilePath + token,
 	})
@@ -125,7 +108,7 @@ func (s *Server) downloadCalendarProfile(w http.ResponseWriter, r *http.Request)
 	_, _ = w.Write(body)
 }
 
-func (s *Server) revokeCalendarConnection(w http.ResponseWriter, r *http.Request, rawID string) {
+func (s *Server) disconnectCalendarConnection(w http.ResponseWriter, r *http.Request, rawID string) {
 	if !s.requireBrowserSession(w, r) {
 		return
 	}
@@ -133,12 +116,12 @@ func (s *Server) revokeCalendarConnection(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if err := s.store.RevokeCalendarConnection(r.Context(), userFrom(r).ID, householdFrom(r).ID, id, s.clock.Now()); err != nil {
+	if err := s.store.DisconnectCalendarConnection(r.Context(), userFrom(r).ID, householdFrom(r).ID, id, s.clock.Now()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "Calendar Connection not found")
 			return
 		}
-		s.logger.Error("revoke calendar connection", "error", err)
+		s.logger.Error("disconnect calendar connection", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to disconnect Calendar Connection")
 		return
 	}

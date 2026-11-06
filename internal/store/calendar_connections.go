@@ -14,8 +14,8 @@ const calendarSecretPrefix = "hbcal_"
 
 // Calendar Connection kinds.
 const (
-	CalendarConnectionIOS   = "ios"
-	CalendarConnectionOther = "other"
+	CalendarConnectionIPhone = "ios"
+	CalendarConnectionOther  = "other"
 )
 
 // CalendarConnection is one device a Member has connected to Homebase over
@@ -43,6 +43,23 @@ type CalendarConnectionInput struct {
 type CalendarConnectionWithSecret struct {
 	CalendarConnection
 	Secret string
+}
+
+// CreatedCalendarConnection is the API's answer to creating an Other device
+// Calendar Connection, the only response that ever carries its secret.
+type CreatedCalendarConnection struct {
+	Connection CalendarConnection `json:"connection"`
+	ServerURL  string             `json:"server_url"`
+	Username   string             `json:"username"`
+	Secret     string             `json:"secret"`
+}
+
+// CreatedIPhoneConnection is the API's answer to creating an iPhone Calendar
+// Connection. It carries no secret: the secret exists only inside the setup
+// profile served once from ProfileURL.
+type CreatedIPhoneConnection struct {
+	Connection CalendarConnection `json:"connection"`
+	ProfileURL string             `json:"profile_url"`
 }
 
 // CalendarLogin is who a CalDAV request authenticated as.
@@ -109,7 +126,7 @@ func (s *Store) insertCalendarConnection(ctx context.Context, userID, householdI
 		return CalendarConnection{}, "", "", errors.New("name is required")
 	}
 	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
-	if input.Kind != CalendarConnectionIOS && input.Kind != CalendarConnectionOther {
+	if input.Kind != CalendarConnectionIPhone && input.Kind != CalendarConnectionOther {
 		return CalendarConnection{}, "", "", errors.New("kind must be ios or other")
 	}
 
@@ -184,9 +201,9 @@ func (s *Store) RedeemCalendarProfileLink(ctx context.Context, token string, now
 	return profile, nil
 }
 
-// RevokeCalendarConnection disconnects one of a Member's Calendar
+// DisconnectCalendarConnection disconnects one of a Member's Calendar
 // Connections. It returns ErrNotFound if there is no such active connection.
-func (s *Store) RevokeCalendarConnection(ctx context.Context, userID, householdID, id int64, now time.Time) error {
+func (s *Store) DisconnectCalendarConnection(ctx context.Context, userID, householdID, id int64, now time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE calendar_connections
 		SET revoked_at = $4

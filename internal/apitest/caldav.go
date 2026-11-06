@@ -41,12 +41,7 @@ type CalDAV struct {
 // Member through the JSON API and returns a CalDAV client logged in with it.
 func (c *Client) ConnectCalendar() *CalDAV {
 	c.h.t.Helper()
-	created := Decode[struct {
-		Connection store.CalendarConnection `json:"connection"`
-		ServerURL  string                   `json:"server_url"`
-		Username   string                   `json:"username"`
-		Secret     string                   `json:"secret"`
-	}](c.h.t, c.Post("/api/v1/calendar-connections", map[string]any{
+	created := Decode[store.CreatedCalendarConnection](c.h.t, c.Post("/api/v1/calendar-connections", map[string]any{
 		"name": fmt.Sprintf("Test device %d", c.User.ID),
 		"kind": "other",
 	}).Expect(http.StatusCreated))

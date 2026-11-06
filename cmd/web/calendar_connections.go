@@ -11,28 +11,12 @@ import (
 // page it renders.
 type settingsCreated struct {
 	APIToken store.APITokenWithSecret
-	Calendar createdCalendarConnection
-}
-
-// createdCalendarConnection is the API's answer to creating a Calendar
-// Connection: the only time its secret is available.
-type createdCalendarConnection struct {
-	Connection store.CalendarConnection `json:"connection"`
-	ServerURL  string                   `json:"server_url"`
-	Username   string                   `json:"username"`
-	Secret     string                   `json:"secret"`
+	Calendar store.CreatedCalendarConnection
 }
 
 func (s *webServer) calendarConnectionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /settings/calendar-connections", s.createCalendarConnection)
 	mux.HandleFunc("POST /settings/calendar-connections/{id}/disconnect", s.disconnectCalendarConnection)
-}
-
-// createdIPhoneConnection is the API's answer to creating an iPhone Calendar
-// Connection: a single-use link to its setup profile.
-type createdIPhoneConnection struct {
-	Connection store.CalendarConnection `json:"connection"`
-	ProfileURL string                   `json:"profile_url"`
 }
 
 // createCalendarConnection connects a device. For an Other device it renders
@@ -43,7 +27,7 @@ func (s *webServer) createCalendarConnection(w http.ResponseWriter, r *http.Requ
 		s.renderSettings(w, r, "The form could not be read.", settingsCreated{})
 		return
 	}
-	if r.FormValue("kind") == store.CalendarConnectionIOS {
+	if r.FormValue("kind") == store.CalendarConnectionIPhone {
 		s.setUpIPhone(w, r)
 		return
 	}
@@ -51,7 +35,7 @@ func (s *webServer) createCalendarConnection(w http.ResponseWriter, r *http.Requ
 		"name": r.FormValue("name"),
 		"kind": store.CalendarConnectionOther,
 	}
-	var created createdCalendarConnection
+	var created store.CreatedCalendarConnection
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/calendar-connections", payload, &created); err != nil {
 		s.renderSettings(w, r, err.Error(), settingsCreated{})
 		return
@@ -62,9 +46,9 @@ func (s *webServer) createCalendarConnection(w http.ResponseWriter, r *http.Requ
 func (s *webServer) setUpIPhone(w http.ResponseWriter, r *http.Request) {
 	payload := map[string]any{
 		"name": r.FormValue("name"),
-		"kind": store.CalendarConnectionIOS,
+		"kind": store.CalendarConnectionIPhone,
 	}
-	var created createdIPhoneConnection
+	var created store.CreatedIPhoneConnection
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/calendar-connections", payload, &created); err != nil {
 		s.renderSettings(w, r, err.Error(), settingsCreated{})
 		return

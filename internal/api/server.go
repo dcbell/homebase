@@ -162,7 +162,7 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && path == "/calendar-connections":
 		s.createCalendarConnection(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/calendar-connections/"):
-		s.revokeCalendarConnection(w, r, strings.TrimPrefix(path, "/calendar-connections/"))
+		s.disconnectCalendarConnection(w, r, strings.TrimPrefix(path, "/calendar-connections/"))
 	case r.Method == http.MethodGet && path == "/notifications":
 		s.listNotifications(w, r)
 	case r.Method == http.MethodPost && path == "/notifications/read-all":
