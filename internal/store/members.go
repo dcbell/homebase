@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 )
 
 func (s *Store) ListMembers(ctx context.Context, householdID int64) ([]User, error) {
@@ -157,7 +158,11 @@ func (s *Store) UpdateMember(ctx context.Context, householdID, memberID int64, i
 	return user, nil
 }
 
-func (s *Store) RemoveMember(ctx context.Context, householdID, memberID, actorID int64) error {
+// RemoveMember takes a Member out of a Household as of now. Their sessions,
+// Push Subscriptions, Notifications and pending Reminders go, and their
+// Calendar Connections are disconnected (pending setup profile links with
+// them), so adding the Member back doesn't revive old devices.
+func (s *Store) RemoveMember(ctx context.Context, householdID, memberID, actorID int64, now time.Time) error {
 	if memberID == actorID {
 		return ErrForbidden
 	}
@@ -207,6 +212,13 @@ func (s *Store) RemoveMember(ctx context.Context, householdID, memberID, actorID
 		if _, err := tx.ExecContext(ctx, query, householdID, memberID); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE calendar_connections
+		SET revoked_at = COALESCE(revoked_at, $3), profile_token_hash = NULL, profile_token_expires_at = NULL
+		WHERE household_id = $1 AND user_id = $2
+	`, householdID, memberID, now); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM household_members

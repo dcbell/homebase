@@ -133,3 +133,22 @@ func TestEachCalDAVLoginRecordsWhenTheConnectionWasLastUsed(t *testing.T) {
 		t.Errorf("last used = %s, want %s", *got[0].LastUsedAt, want)
 	}
 }
+
+func TestReaddingARemovedMemberDoesNotReviveTheirConnections(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	cal := household.Member.ConnectCalendar()
+	iPhone := setUpIPhone(t, household.Member, "iPhone")
+
+	household.Owner.Delete(fmt.Sprintf("/api/v1/members/%d", household.Member.User.ID)).Expect(http.StatusOK)
+	member := readd(t, h, household, household.Member.User)
+
+	cal.Do("PROPFIND", cal.HomePath(), http.Header{"Depth": {"0"}}, "").Expect(http.StatusUnauthorized)
+	downloadProfile(t, h, iPhone.ProfileURL).Expect(http.StatusNotFound)
+	for _, c := range apitest.Decode[[]calendarConnection](t, member.Get("/api/v1/calendar-connections").Expect(http.StatusOK)) {
+		if c.RevokedAt == nil {
+			t.Errorf("connection %q is still active after its Member was removed", c.Name)
+		}
+	}
+}

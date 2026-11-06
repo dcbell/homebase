@@ -726,7 +726,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	err = s.store.RemoveMember(r.Context(), householdFrom(r).ID, memberID, userFrom(r).ID)
+	err = s.store.RemoveMember(r.Context(), householdFrom(r).ID, memberID, userFrom(r).ID, s.clock.Now())
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "member not found")
 		return
