@@ -247,6 +247,12 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request) {
 		s.getTask(w, r, strings.TrimPrefix(path, "/tasks/"))
 	case r.Method == http.MethodPatch && strings.HasPrefix(path, "/tasks/"):
 		s.updateTask(w, r, strings.TrimPrefix(path, "/tasks/"))
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/events/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/events/"), "/personal-reminder-times")
+		s.setAppointmentPersonalReminderTimes(w, r, id)
+	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/events/") && strings.HasSuffix(path, "/personal-reminder-times"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/events/"), "/personal-reminder-times")
+		s.useSharedAppointmentReminderTimes(w, r, id)
 	case r.Method == http.MethodGet && path == "/events":
 		s.listEvents(w, r)
 	case r.Method == http.MethodPost && path == "/events":
@@ -1128,7 +1134,7 @@ func (s *Server) getEvent(w http.ResponseWriter, r *http.Request, rawID string) 
 	if !ok {
 		return
 	}
-	event, err := s.store.GetEvent(r.Context(), householdFrom(r).ID, id)
+	event, err := s.appointmentFor(r.Context(), householdFrom(r), userFrom(r), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
@@ -1159,6 +1165,45 @@ func (s *Server) updateEvent(w http.ResponseWriter, r *http.Request, rawID strin
 		return
 	}
 	writeJSON(w, http.StatusOK, event)
+}
+
+func (s *Server) setAppointmentPersonalReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	var input personalReminderTimesInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.ReminderTimes == nil {
+		writeError(w, http.StatusBadRequest, "reminder_times is required")
+		return
+	}
+	event, err := s.SetAppointmentPersonalReminderTimes(r.Context(), householdFrom(r), userFrom(r), id, input.ReminderTimes)
+	writeAppointmentPersonalReminderTimesResult(w, event, err)
+}
+
+func (s *Server) useSharedAppointmentReminderTimes(w http.ResponseWriter, r *http.Request, rawID string) {
+	id, ok := parseID(w, rawID)
+	if !ok {
+		return
+	}
+	event, err := s.UseSharedAppointmentReminderTimes(r.Context(), householdFrom(r), userFrom(r), id)
+	writeAppointmentPersonalReminderTimesResult(w, event, err)
+}
+
+func writeAppointmentPersonalReminderTimesResult(w http.ResponseWriter, event store.Event, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "event not found")
+	case errors.Is(err, store.ErrForbidden):
+		writeError(w, http.StatusForbidden, "only an attendee can set personal reminder times")
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, event)
+	}
 }
 
 func (s *Server) deleteEvent(w http.ResponseWriter, r *http.Request, rawID string) {

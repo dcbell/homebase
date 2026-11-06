@@ -298,6 +298,9 @@ func (s *Store) UpdateEvent(ctx context.Context, householdID, id int64, input Ev
 		if err := setAttendees(ctx, tx, householdID, id, input.AttendeeIDs); err != nil {
 			return Event{}, Event{}, err
 		}
+		if err := dropAppointmentPersonalReminderTimes(ctx, tx, householdID, id); err != nil {
+			return Event{}, Event{}, err
+		}
 	}
 	if input.ReminderTimes != nil {
 		reminderTimes, err := reminderTimesJSON(input.ReminderTimes)

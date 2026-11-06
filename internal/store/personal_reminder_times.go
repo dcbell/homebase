@@ -147,3 +147,94 @@ func dropTaskPersonalReminderTimes(ctx context.Context, tx *sql.Tx, householdID,
 	`, householdID, SubjectTask, taskID, kindSwitched, assignedTo)
 	return err
 }
+
+// SetAppointmentPersonalReminderTimes sets a Member's Personal Reminder Times
+// on an Appointment, replacing any they had; an empty list means no Reminders
+// for them. Only an Attendee may, or any Member when it has no Attendees:
+// anyone else gets ErrForbidden. The Reminder Times must fit an Appointment,
+// as its own do.
+func (s *Store) SetAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64, times []ReminderTime) error {
+	if times == nil {
+		times = []ReminderTime{}
+	}
+	if err := ValidateReminderTimes(times, SubjectAppointment, false); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(times)
+	if err != nil {
+		return err
+	}
+	return s.changeAppointmentPersonalReminderTimes(ctx, householdID, eventID, memberID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO personal_reminder_times (household_id, subject_type, subject_id, member_id, reminder_times)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (subject_type, subject_id, member_id)
+			DO UPDATE SET reminder_times = EXCLUDED.reminder_times, updated_at = now()
+		`, householdID, SubjectAppointment, eventID, memberID, string(encoded))
+		return err
+	})
+}
+
+// RemoveAppointmentPersonalReminderTimes removes a Member's Personal Reminder
+// Times on an Appointment, so its shared Reminder Times apply to them again.
+// Only an Attendee may, or any Member when it has no Attendees: anyone else
+// gets ErrForbidden.
+func (s *Store) RemoveAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64) error {
+	return s.changeAppointmentPersonalReminderTimes(ctx, householdID, eventID, memberID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			DELETE FROM personal_reminder_times
+			WHERE household_id = $1 AND subject_type = $2 AND subject_id = $3 AND member_id = $4
+		`, householdID, SubjectAppointment, eventID, memberID)
+		return err
+	})
+}
+
+// changeAppointmentPersonalReminderTimes runs change for a Member the
+// Appointment is for with the Appointment locked, so a concurrent change of
+// Attendees, which drops Personal Reminder Times, can't leave them behind for
+// someone it is no longer for.
+func (s *Store) changeAppointmentPersonalReminderTimes(ctx context.Context, householdID, eventID, memberID int64, change func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	appointment, err := getEvent(ctx, tx, householdID, eventID, true)
+	if err != nil {
+		return err
+	}
+	if !AppointmentIsFor(appointment, memberID) {
+		return ErrForbidden
+	}
+	if err := change(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AppointmentIsFor reports whether an Appointment is for a Member of its
+// Household: they are an Attendee, or it has none.
+func AppointmentIsFor(appointment Event, memberID int64) bool {
+	if len(appointment.AttendeeIDs) == 0 {
+		return true
+	}
+	for _, id := range appointment.AttendeeIDs {
+		if id == memberID {
+			return true
+		}
+	}
+	return false
+}
+
+// dropAppointmentPersonalReminderTimes deletes the Personal Reminder Times on
+// an Appointment of anyone it is no longer for after its Attendees changed.
+// With no Attendees it is for every Member, so all are kept.
+func dropAppointmentPersonalReminderTimes(ctx context.Context, tx *sql.Tx, householdID, eventID int64) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM personal_reminder_times p
+		WHERE p.household_id = $1 AND p.subject_type = $2 AND p.subject_id = $3
+			AND EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = $3)
+			AND NOT EXISTS (SELECT 1 FROM event_attendees ea WHERE ea.event_id = $3 AND ea.user_id = p.member_id)
+	`, householdID, SubjectAppointment, eventID)
+	return err
+}

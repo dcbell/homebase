@@ -117,6 +117,10 @@ type Event struct {
 	// ReminderTimes are when Attendees are reminded, each before or at the
 	// start. Empty means no Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// PersonalReminderTimes are the calling Member's own, set only when they
+	// are an Attendee, or any Member when there are no Attendees, as only
+	// they may set them. Other Members' are never returned.
+	PersonalReminderTimes *PersonalReminderTimes `json:"personal_reminder_times,omitempty"`
 	// CalendarUID is the UID a device chose when it created the Appointment
 	// over CalDAV; empty for Appointments made in Homebase.
 	CalendarUID string `json:"-"`
