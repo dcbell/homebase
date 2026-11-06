@@ -225,7 +225,7 @@ func (s *Store) CreateAssetMaintenanceItem(ctx context.Context, householdID, use
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 	`, householdID, assetID, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	return item, err
 }
@@ -237,7 +237,7 @@ func (s *Store) GetAssetMaintenanceItem(ctx context.Context, householdID, id int
 		FROM asset_maintenance_items
 		WHERE household_id = $1 AND id = $2
 	`, householdID, id).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
@@ -282,7 +282,7 @@ func (s *Store) UpdateAssetMaintenanceItem(ctx context.Context, householdID, id 
 		WHERE household_id = $1 AND id = $2
 		RETURNING id, household_id, asset_id, title, notes, cadence, status, next_due_at, last_completed_at, created_by, created_at, updated_at, reminder_times
 	`, householdID, id, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
-		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt},
+		&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AssetMaintenanceItem{}, ErrNotFound
@@ -578,5 +578,5 @@ func scanAsset(scanner assetScanner, asset *Asset) error {
 }
 
 func scanAssetMaintenanceItem(scanner assetScanner, item *AssetMaintenanceItem) error {
-	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt})
+	return scanner.Scan(&item.ID, &item.HouseholdID, &item.AssetID, &item.Title, &item.Notes, &item.Cadence, &item.Status, &item.NextDueAt, &item.LastCompletedAt, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt, sourceReminderTimes{&item.ReminderTimes, &item.NextDueAt, &item.DateOnly})
 }

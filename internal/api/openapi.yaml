@@ -2020,6 +2020,11 @@ components:
             household_id: { type: integer, format: int64 }
             assigned_name: { type: string }
             completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when the Task is due on a date with no time of day (local midnight in the
+                app timezone), so its Reminder Times take only the date-only form.
             personal_reminder_times:
               $ref: "#/components/schemas/PersonalReminderTimes"
     EventInput:
@@ -2142,6 +2147,11 @@ components:
             household_id: { type: integer, format: int64 }
             assigned_name: { type: string }
             last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when next_due_at is a date with no time of day, so the Reminder Times take
+                only the date-only form.
     HouseholdListInput:
       type: object
       properties:
@@ -2244,6 +2254,11 @@ components:
             household_id: { type: integer, format: int64 }
             asset_id: { type: integer, format: int64 }
             last_completed_at: { $ref: "#/components/schemas/Timestamp" }
+            date_only:
+              type: boolean
+              description: >-
+                True when next_due_at is a date with no time of day, so the Reminder Times take
+                only the date-only form.
     DocumentInput:
       type: object
       properties:

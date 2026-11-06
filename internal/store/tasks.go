@@ -433,13 +433,15 @@ type taskScanner interface {
 }
 
 // taskReminderTimes scans a Task's reminder_times column into its
-// ReminderTimes. NULL means the built-in defaults for the Task's due date, so
-// it must come after due_at in the Scan, which fills columns in order.
+// ReminderTimes, and sets its DateOnly. NULL means the built-in defaults for
+// the Task's due date, so it must come after due_at in the Scan, which fills
+// columns in order.
 type taskReminderTimes struct {
 	task *Task
 }
 
 func (s taskReminderTimes) Scan(src any) error {
+	s.task.DateOnly = taskDateOnly(s.task.DueAt)
 	switch v := src.(type) {
 	case nil:
 		s.task.ReminderTimes = defaultTaskReminderTimes(s.task.DueAt)

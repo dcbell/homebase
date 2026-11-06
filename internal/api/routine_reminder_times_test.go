@@ -199,6 +199,30 @@ func TestRoutineWithATimedNextDueDateUsesTheTimedForm(t *testing.T) {
 	expectTaskReminders(t, household.Member, "due_now: Task due now", "overdue: Task overdue by 1 day")
 }
 
+func TestTasksAndTheirSourcesSayWhetherTheirDueDateIsDateOnly(t *testing.T) {
+	t.Parallel()
+	h := apitest.New(t)
+	household := h.SeedHousehold()
+	timedTask := createDueTask(t, household.Owner, household.Member, at(17, 18, 0))
+	datedTask := createDueTask(t, household.Owner, household.Member, localAt(17, 0, 0))
+	if getTask(t, household.Owner, timedTask.ID).DateOnly || !getTask(t, household.Owner, datedTask.ID).DateOnly {
+		t.Errorf("Task date_only = %v (timed), %v (date-only), want false, true", timedTask.DateOnly, datedTask.DateOnly)
+	}
+
+	timedRoutine := apitest.Decode[store.Routine](t, household.Owner.Post("/api/v1/routines", map[string]any{
+		"title": "Take the bins out", "next_due_at": at(20, 19, 0).Format(time.RFC3339),
+	}).Expect(http.StatusCreated))
+	asset := apitest.Decode[store.Asset](t, household.Owner.Post("/api/v1/assets", map[string]any{
+		"name": "Boiler",
+	}).Expect(http.StatusCreated))
+	datedItem := apitest.Decode[store.AssetMaintenanceItem](t, household.Owner.Post(fmt.Sprintf("/api/v1/assets/%d/maintenance", asset.ID), map[string]any{
+		"title": "Service the boiler", "next_due_at": localAt(20, 0, 0).Format(time.RFC3339),
+	}).Expect(http.StatusCreated))
+	if timedRoutine.DateOnly || !datedItem.DateOnly {
+		t.Errorf("date_only = %v (timed Routine), %v (date-only Maintenance Schedule), want false, true", timedRoutine.DateOnly, datedItem.DateOnly)
+	}
+}
+
 func TestSwitchingARoutinesNextDueDateBetweenTimedAndDateOnlyResetsItsReminderTimes(t *testing.T) {
 	t.Parallel()
 	h := apitest.New(t)

@@ -42,7 +42,7 @@ func (s *Store) GetRoutine(ctx context.Context, householdID, id int64) (Routine,
 		LEFT JOIN users assigned ON assigned.id = r.assigned_to
 		WHERE r.household_id = $1 AND r.id = $2
 	`, householdID, id).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt, &routine.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, ErrNotFound
@@ -70,7 +70,7 @@ func (s *Store) CreateRoutine(ctx context.Context, householdID, userID int64, in
 		FROM inserted
 		LEFT JOIN users assigned ON assigned.id = inserted.assigned_to
 	`, householdID, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, userID, reminderTimes).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt, &routine.DateOnly},
 	)
 	return routine, err
 }
@@ -127,8 +127,8 @@ func (s *Store) UpdateRoutine(ctx context.Context, householdID, id int64, input 
 		LEFT JOIN users assigned ON assigned.id = updated.assigned_to
 		LEFT JOIN users previous_assigned ON previous_assigned.id = previous.assigned_to
 	`, householdID, id, input.AssignedTo, input.Title, input.Notes, input.Cadence, input.Status, input.NextDueAt, reminderTimes).Scan(
-		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt},
-		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt, sourceReminderTimes{&prev.ReminderTimes, &prev.NextDueAt},
+		&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt, &routine.DateOnly},
+		&prev.ID, &prev.HouseholdID, &prev.AssignedTo, &prev.AssignedName, &prev.Title, &prev.Notes, &prev.Cadence, &prev.Status, &prev.NextDueAt, &prev.LastCompletedAt, &prev.CreatedBy, &prev.CreatedAt, &prev.UpdatedAt, sourceReminderTimes{&prev.ReminderTimes, &prev.NextDueAt, &prev.DateOnly},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Routine{}, Routine{}, ErrNotFound
@@ -375,19 +375,22 @@ type routineScanner interface {
 }
 
 func scanRoutine(scanner routineScanner, routine *Routine) error {
-	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt})
+	return scanner.Scan(&routine.ID, &routine.HouseholdID, &routine.AssignedTo, &routine.AssignedName, &routine.Title, &routine.Notes, &routine.Cadence, &routine.Status, &routine.NextDueAt, &routine.LastCompletedAt, &routine.CreatedBy, &routine.CreatedAt, &routine.UpdatedAt, sourceReminderTimes{&routine.ReminderTimes, &routine.NextDueAt, &routine.DateOnly})
 }
 
 // sourceReminderTimes scans the reminder_times column of a Routine or
-// Maintenance Schedule into its ReminderTimes. NULL means the built-in
+// Maintenance Schedule into its ReminderTimes, and sets dateOnly to whether
+// its next due date has no time of day. NULL means the built-in
 // defaults for its next due date, so it must come after next_due_at in the
 // Scan, which fills columns in order.
 type sourceReminderTimes struct {
-	times   *[]ReminderTime
-	nextDue **time.Time
+	times    *[]ReminderTime
+	nextDue  **time.Time
+	dateOnly *bool
 }
 
 func (s sourceReminderTimes) Scan(src any) error {
+	*s.dateOnly = taskDateOnly(*s.nextDue)
 	switch v := src.(type) {
 	case nil:
 		*s.times = defaultTaskReminderTimes(*s.nextDue)

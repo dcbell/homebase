@@ -89,6 +89,9 @@ type Task struct {
 	// ReminderTimes are when the assignee is reminded of the Task. An empty
 	// list means no Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when the Task is due on a date with no time of day,
+	// so its Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
 	// PersonalReminderTimes are the calling Member's own, set only when they
 	// are the assignee, who alone may set them. Other Members' are never
 	// returned.
@@ -150,6 +153,9 @@ type Routine struct {
 	// form that matches its next due date. Empty means its Tasks get no
 	// Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when its next due date has no time of day, so its
+	// Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
 }
 
 type HouseholdList struct {
@@ -232,6 +238,9 @@ type AssetMaintenanceItem struct {
 	// form that matches its next due date. Empty means its Tasks get no
 	// Reminders.
 	ReminderTimes []ReminderTime `json:"reminder_times"`
+	// DateOnly is true when its next due date has no time of day, so its
+	// Reminder Times take only the date-only form.
+	DateOnly bool `json:"date_only"`
 }
 
 type Document struct {
