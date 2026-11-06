@@ -208,7 +208,7 @@ func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) 
 	}
 	input.HouseholdID = r.HouseholdID
 	input.RecipientID = r.RecipientID
-	input.Stage = r.ReminderTime.Stage()
+	input.Stage = r.ReminderTime.Stage(r.DueAt)
 	input.SubjectType = r.SubjectType
 	input.SubjectID = r.SubjectID
 	return n.notify(ctx, input)
@@ -216,14 +216,14 @@ func (n *Notifier) sendReminder(ctx context.Context, r store.ScheduledReminder) 
 
 // taskReminderTitle says how far a Task's due time is from its Reminder,
 // such as "Task due in 24 hours", "Task due now" or "Task overdue by 1 day".
-func taskReminderTitle(r store.ReminderTime) string {
-	switch r.Stage() {
+func taskReminderTitle(r store.ReminderTime, due time.Time) string {
+	switch r.Stage(due) {
 	case store.ReminderDueSoon:
-		return "Task due in " + reminderDistance(r)
+		return "Task due in " + reminderDistance(r, due)
 	case store.ReminderOverdue:
-		return "Task overdue by " + reminderDistance(r)
+		return "Task overdue by " + reminderDistance(r, due)
 	}
-	if r.IsDateOnly() {
+	if store.DateOnly(due) {
 		return "Task due today"
 	}
 	return "Task due now"
@@ -231,22 +231,27 @@ func taskReminderTitle(r store.ReminderTime) string {
 
 // appointmentReminderTitle says how soon an Appointment starts, such as
 // "Appointment in 1 hour" or "Appointment starting now".
-func appointmentReminderTitle(r store.ReminderTime) string {
-	if r.Stage() == store.ReminderDueNow {
+func appointmentReminderTitle(r store.ReminderTime, due time.Time) string {
+	if r.Stage(due) == store.ReminderDueNow {
 		return "Appointment starting now"
 	}
-	return "Appointment in " + reminderDistance(r)
+	return "Appointment in " + reminderDistance(r, due)
 }
 
-// reminderDistance is how far a Reminder Time is from the due time, before or
-// after: whole days for the date-only form; for the timed form, days when it
-// is a whole number of them beyond one, otherwise hours and minutes, so 24
+// reminderDistance is how far a Reminder Time is from due, before or after:
+// whole days for the date-only form, except a time of day on a timed due
+// date, which is as far as that time is from the due time; otherwise days
+// when it is a whole number of them beyond one, else hours and minutes, so 24
 // hours stays "24 hours".
-func reminderDistance(r store.ReminderTime) string {
+func reminderDistance(r store.ReminderTime, due time.Time) string {
+	minutes := r.Minutes
 	if r.IsDateOnly() {
-		return plural(abs(r.Days), "day")
+		if r.Days != 0 || store.DateOnly(due) {
+			return plural(abs(r.Days), "day")
+		}
+		minutes = int(r.SendAt(due).Sub(due.Truncate(time.Minute)) / time.Minute)
 	}
-	minutes := abs(r.Minutes)
+	minutes = abs(minutes)
 	const day = 24 * 60
 	switch {
 	case minutes > day && minutes%day == 0:
@@ -293,7 +298,7 @@ func (n *Notifier) renderTaskReminder(ctx context.Context, r store.ScheduledRemi
 	}
 	return store.NotificationInput{
 		Kind:  store.NotificationTaskReminder,
-		Title: taskReminderTitle(r.ReminderTime),
+		Title: taskReminderTitle(r.ReminderTime, r.DueAt),
 		Body:  task.Title,
 	}, true, nil
 }
@@ -378,7 +383,7 @@ func (n *Notifier) renderAppointmentReminder(ctx context.Context, r store.Schedu
 	}
 	return store.NotificationInput{
 		Kind:  store.NotificationAppointmentReminder,
-		Title: appointmentReminderTitle(r.ReminderTime),
+		Title: appointmentReminderTitle(r.ReminderTime, r.DueAt),
 		Body:  appointment.Title,
 	}, true, nil
 }

@@ -99,12 +99,17 @@ func (r ReminderTime) IsDateOnly() bool {
 	return r.At != ""
 }
 
-// Stage is the Reminder's stage: Due Soon before the due time, Due Now at it,
-// Overdue after it.
-func (r ReminderTime) Stage() string {
+// Stage is the stage of the Reminder for something due at due: Due Soon
+// before the due time, Due Now at it, Overdue after it. A date with no time of
+// day is due all of that date, so any time of day on it is Due Now; on a
+// timed due date, a time of day on it is compared with the due time.
+func (r ReminderTime) Stage(due time.Time) string {
 	offset := r.Minutes
 	if r.IsDateOnly() {
 		offset = r.Days
+		if offset == 0 && !DateOnly(due) {
+			offset = r.SendAt(due).Compare(due.Truncate(time.Minute))
+		}
 	}
 	switch {
 	case offset < 0:
@@ -173,7 +178,7 @@ func validateReminderTime(r ReminderTime, subject string, dateOnly bool) error {
 			return fmt.Errorf("reminder times must be within %d days of the due time", maxReminderOffsetDays)
 		}
 	}
-	if subject == SubjectAppointment && r.Stage() == ReminderOverdue {
+	if subject == SubjectAppointment && r.Minutes > 0 {
 		return errors.New("appointment reminder times must be before or at the start")
 	}
 	return nil

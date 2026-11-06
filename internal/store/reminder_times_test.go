@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"homebase/internal/store"
 )
@@ -26,6 +27,36 @@ func TestBuiltInReminderTimesAreValid(t *testing.T) {
 	for _, c := range cases {
 		if err := store.ValidateReminderTimes(c.times, c.subject, c.dateOnly); err != nil {
 			t.Errorf("%s defaults: %v", c.name, err)
+		}
+	}
+}
+
+func TestReminderStageFollowsWhenItIsSent(t *testing.T) {
+	timed := time.Date(2030, time.January, 17, 15, 0, 0, 0, time.Local)
+	dateOnly := time.Date(2030, time.January, 17, 0, 0, 0, 0, time.Local)
+	cases := []struct {
+		name string
+		r    store.ReminderTime
+		due  time.Time
+		want string
+	}{
+		{"a minute before the due time", minutes(-1), timed, store.ReminderDueSoon},
+		{"at the due time", minutes(0), timed, store.ReminderDueNow},
+		{"a minute after the due time", minutes(1), timed, store.ReminderOverdue},
+		{"on a timed due date, a minute before its time", daysAt(0, "14:59"), timed, store.ReminderDueSoon},
+		{"on a timed due date, at its time", daysAt(0, "15:00"), timed, store.ReminderDueNow},
+		{"on a timed due date, at its time, due part way through the minute", daysAt(0, "15:00"), timed.Add(30 * time.Second), store.ReminderDueNow},
+		{"on a timed due date, a minute after its time", daysAt(0, "15:01"), timed, store.ReminderOverdue},
+		{"the day before a timed due date, after its time", daysAt(-1, "23:59"), timed, store.ReminderDueSoon},
+		{"the day after a timed due date, before its time", daysAt(1, "00:00"), timed, store.ReminderOverdue},
+		{"first minute of a date-only due date", daysAt(0, "00:00"), dateOnly, store.ReminderDueNow},
+		{"last minute of a date-only due date", daysAt(0, "23:59"), dateOnly, store.ReminderDueNow},
+		{"the day before a date-only due date", daysAt(-1, "23:59"), dateOnly, store.ReminderDueSoon},
+		{"the day after a date-only due date", daysAt(1, "00:00"), dateOnly, store.ReminderOverdue},
+	}
+	for _, c := range cases {
+		if got := c.r.Stage(c.due); got != c.want {
+			t.Errorf("%s: Stage = %s, want %s", c.name, got, c.want)
 		}
 	}
 }
