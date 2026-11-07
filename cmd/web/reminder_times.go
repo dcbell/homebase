@@ -41,8 +41,13 @@ type reminderTimeRow struct {
 }
 
 // rendered is row as a frame in a set of kind, of an Appointment or not,
-// shows it: with its summary, and which of its controls apply.
+// shows it: with its summary, and which of its controls apply. An "at" row
+// with no amount gets 0, since a row with none is dropped when saved; only
+// rendering fills it, so blanking it on a form still drops the row.
 func (row reminderTimeRow) rendered(kind string, appointment bool) reminderTimeRow {
+	if row.Direction == reminderAt && row.Amount == "" {
+		row.Amount = "0"
+	}
 	row.Summary = row.summary(kind, appointment)
 	row.Controls = row.controls(kind, appointment)
 	return row

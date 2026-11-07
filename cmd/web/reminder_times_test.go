@@ -674,3 +674,67 @@ func TestReminderTimeRowRouteShowsARowAsItIsNowShaped(t *testing.T) {
 		}
 	}
 }
+
+func TestReminderTimeDirectionPillsSayWhichIsPicked(t *testing.T) {
+	for _, c := range []struct {
+		kind        string
+		appointment bool
+		direction   string
+		want        string
+	}{
+		{"timed", false, "before", "before=true at=false after=false"},
+		{"timed", false, "at", "before=false at=true after=false"},
+		{"date_only", false, "after", "before=false at=false after=true"},
+		{"timed", true, "at", "before=false at=true"},
+	} {
+		frame := reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, [4]string{"1", "days", c.direction, "08:00"}))
+		pills := []string{}
+		for _, m := range regexp.MustCompile(`<button [^>]*data-reminder-pick="(\w+)"[^>]*>`).FindAllStringSubmatch(frame, -1) {
+			pressed := regexp.MustCompile(`aria-pressed="(\w+)"`).FindStringSubmatch(m[0])
+			if pressed == nil {
+				pressed = []string{"", "missing"}
+			}
+			pills = append(pills, m[1]+"="+pressed[1])
+		}
+		if got := strings.Join(pills, " "); got != c.want {
+			t.Errorf("%s appointment=%v %s pills = %q, want %q", c.kind, c.appointment, c.direction, got, c.want)
+		}
+	}
+}
+
+// The page's script swaps in frames the server renders: it never words a
+// summary itself, nor decides which controls apply to a row (ADR-0005).
+func TestReminderTimesEditorScriptLeavesWordingAndControlsToTheServer(t *testing.T) {
+	page := editorPage(t, "/tasks/7", `{"id":7,"title":"Mow","due_at":"2030-01-20T18:00:00Z","reminder_times":[{"days":0,"at":"08:00"}]}`)
+	scripts := strings.Join(regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`).FindAllString(page, -1), "\n")
+	if !strings.Contains(scripts, "/reminder-times/row") {
+		t.Fatalf("page script never asks the row route for a frame")
+	}
+	for _, wording := range []string{"At the due time", "On the due date", "At the start", "the start", "data-applies", "data-reminder-summary", "data-reminder-amount", "data-reminder-at"} {
+		if strings.Contains(scripts, wording) {
+			t.Errorf("page script contains %q, want the server alone to word frames and say which controls apply", wording)
+		}
+	}
+}
+
+// A blank amount drops a row when the form is saved, so a row picked to be
+// on the due date (or at the start) before any amount was typed comes back
+// with 0, and is kept.
+func TestPickingTheDueDateForARowWithNoAmountGivesItZero(t *testing.T) {
+	for _, c := range []struct {
+		kind        string
+		appointment bool
+		row         [4]string
+		amount      string
+	}{
+		{"timed", false, [4]string{"", "hours", "at", "08:00"}, "0"},
+		{"date_only", false, [4]string{"", "days", "at", "08:00"}, "0"},
+		{"timed", true, [4]string{"", "minutes", "at", ""}, "0"},
+		{"timed", false, [4]string{"", "hours", "before", ""}, ""},
+	} {
+		frame := reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, c.row))
+		if got := reminderFieldValue(frame, "reminder_amount"); got != c.amount {
+			t.Errorf("row %s appointment=%v %v has amount %q, want %q", c.kind, c.appointment, c.row, got, c.amount)
+		}
+	}
+}

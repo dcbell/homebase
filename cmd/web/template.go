@@ -877,7 +877,9 @@ const appTemplate = `
 			});
 			// A Reminder Times editor's frames close to their summaries, and
 			// one at a time opens to edit; the server renders them all open,
-			// so the form works without this.
+			// so the form works without this. The server words each frame and
+			// says which of its controls apply, so a frame that changes shape
+			// is fetched afresh rather than worked out here (ADR-0005).
 			function initReminderTimes(editor) {
 				editor.classList.add("live");
 				var open = function (frame) {
@@ -891,7 +893,6 @@ const appTemplate = `
 					set.querySelector("[data-reminder-empty]").hidden = count > 0;
 					set.querySelector("[data-reminder-add]").hidden = count >= 5;
 				};
-				editor.querySelectorAll("[data-reminder-frame]").forEach(syncReminderFrame);
 				editor.addEventListener("click", function (event) {
 					var button = event.target.closest("button");
 					if (!button) return;
@@ -901,68 +902,77 @@ const appTemplate = `
 						open(frame);
 					} else if (button.hasAttribute("data-reminder-done")) {
 						open(null);
+						renderReminderFrame(frame);
 					} else if (button.hasAttribute("data-reminder-remove")) {
 						frame.remove();
 						refresh(set);
 					} else if (button.hasAttribute("data-reminder-pick")) {
 						frame.querySelector("[name='reminder_direction']").value = button.getAttribute("data-reminder-pick");
-						reminderFrameChanged(frame);
+						renderReminderFrame(frame);
 					} else if (button.hasAttribute("data-reminder-add")) {
 						var added = set.querySelector("template[data-reminder-new]").content.firstElementChild.cloneNode(true);
 						set.insertBefore(added, set.querySelector("[data-reminder-empty]"));
-						syncReminderFrame(added);
 						open(added);
 						refresh(set);
 					}
 				});
-				["input", "change"].forEach(function (type) {
-					editor.addEventListener(type, function (event) {
-						var frame = event.target.closest("[data-reminder-frame]");
-						if (frame) reminderFrameChanged(frame);
-					});
+				editor.addEventListener("change", function (event) {
+					var frame = event.target.closest("[data-reminder-frame]");
+					if (frame && event.target.name === "reminder_unit") renderReminderFrame(frame);
 				});
+				// A closed frame hides a time of day the browser won't submit
+				// blank, so open the first such frame for it to point at.
+				var opening = false;
+				editor.addEventListener("invalid", function (event) {
+					var frame = event.target.closest("[data-reminder-frame]");
+					if (!frame || opening) return;
+					opening = true;
+					window.setTimeout(function () { opening = false; });
+					open(frame);
+				}, true);
 			}
-			// A frame's time of day is only sent where it shows, and an
-			// amount must be sent for the row to count.
-			function reminderFrameChanged(frame) {
-				syncReminderFrame(frame);
-				var at = frame.querySelector("[data-reminder-at]");
-				if (at && at.hidden) at.querySelector("input").value = "";
-				var amount = frame.querySelector("[name='reminder_amount']");
-				if (frame.querySelector("[name='reminder_direction']").value === "at" && amount.value === "") amount.value = "0";
-			}
-			// syncReminderFrame shows only the controls for a frame's direction
-			// and unit, and its summary, worded as the server words it.
-			function syncReminderFrame(frame) {
+			// reminderFrameQuery is what a frame would submit, with its set's
+			// kind, as the server's row route reads it.
+			function reminderFrameQuery(frame) {
 				var set = frame.closest("[data-reminder-kind]");
-				var kind = set.getAttribute("data-reminder-kind");
-				var appointment = set.hasAttribute("data-reminder-appointment");
-				var value = function (name) {
+				var query = new URLSearchParams();
+				query.set("reminder_kind", set.getAttribute("data-reminder-kind"));
+				if (set.hasAttribute("data-reminder-appointment")) query.set("appointment", "1");
+				["reminder_direction", "reminder_amount", "reminder_unit", "reminder_at"].forEach(function (name) {
 					var field = frame.querySelector("[name='" + name + "']");
-					return field ? field.value : "";
-				};
-				var direction = value("reminder_direction");
-				var amount = parseInt(value("reminder_amount"), 10) || 0;
-				frame.querySelectorAll("[data-reminder-pick]").forEach(function (pill) {
-					var on = pill.getAttribute("data-reminder-pick") === direction;
-					pill.classList.toggle("on", on);
-					pill.setAttribute("aria-pressed", on ? "true" : "false");
+					if (field) query.set(name, field.value);
 				});
-				frame.querySelector("[data-reminder-amount]").hidden = direction === "at";
-				var days = frame.querySelector("[data-reminder-days]");
-				if (days) days.textContent = amount === 1 ? "day" : "days";
-				var atBox = frame.querySelector("[data-reminder-at]");
-				if (atBox) atBox.hidden = kind === "timed" && (direction === "at" || value("reminder_unit") !== "days");
-				var at = atBox && !atBox.hidden ? value("reminder_at") : "";
-				var summary;
-				if (direction === "at") {
-					summary = appointment ? "At the start" : at ? "On the due date at " + at : kind === "date_only" ? "On the due date" : "At the due time";
-				} else {
-					var unit = value("reminder_unit");
-					if (amount === 1) unit = unit.replace(/s$/, "");
-					summary = amount + " " + unit + " " + direction + (appointment ? " the start" : at ? " at " + at : "");
-				}
-				frame.querySelector("[data-reminder-summary]").textContent = summary;
+				return query.toString();
+			}
+			// renderReminderFrame swaps in the server's copy of a frame as it
+			// now stands. A newer request cancels one still in flight; a reply
+			// that no longer matches what the frame holds, or a failed one,
+			// leaves the frame as it is, and saving still sends what it holds.
+			function renderReminderFrame(frame) {
+				if (frame.reminderRequest) frame.reminderRequest.abort();
+				var request = new AbortController();
+				frame.reminderRequest = request;
+				var query = reminderFrameQuery(frame);
+				fetch("/reminder-times/row?" + query, { signal: request.signal }).then(function (response) {
+					if (!response.ok) throw new Error("Reminder Time load failed");
+					return response.text();
+				}).then(function (html) {
+					if (frame.reminderRequest !== request || !frame.isConnected || reminderFrameQuery(frame) !== query) return;
+					var holder = document.createElement("template");
+					holder.innerHTML = html;
+					var fresh = holder.content.querySelector("[data-reminder-frame]");
+					if (!fresh) return;
+					fresh.classList.toggle("open", frame.classList.contains("open"));
+					var focused = frame.contains(document.activeElement) ? document.activeElement : null;
+					frame.replaceWith(fresh);
+					if (focused && focused.name) {
+						var field = fresh.querySelector("[name='" + focused.name + "']");
+						if (field) field.focus();
+					} else if (focused && focused.hasAttribute("data-reminder-pick")) {
+						var pill = fresh.querySelector("[data-reminder-pick='" + focused.getAttribute("data-reminder-pick") + "']");
+						if (pill) pill.focus();
+					}
+				}).catch(function () {});
 			}
 			document.querySelectorAll("[data-reminder-times]").forEach(function (editor) {
 				var form = editor.closest("form");
@@ -1900,9 +1910,9 @@ their summaries and adds, edits and removes frames. */}}
 	</div>
 	<div class="rt-controls">
 		<div class="seg rt-js" role="group" aria-label="When">
-			<button type="button" data-reminder-pick="before"{{ if eq .Direction "before" }} class="on"{{ end }}>Before</button>
-			<button type="button" data-reminder-pick="at"{{ if eq .Direction "at" }} class="on"{{ end }}>{{ if $appointment }}At the start{{ else if $dateOnly }}On the day{{ else }}On the due date{{ end }}</button>
-			{{ if not $appointment }}<button type="button" data-reminder-pick="after"{{ if eq .Direction "after" }} class="on"{{ end }}>After</button>{{ end }}
+			<button type="button" data-reminder-pick="before"{{ if eq .Direction "before" }} class="on" aria-pressed="true"{{ else }} aria-pressed="false"{{ end }}>Before</button>
+			<button type="button" data-reminder-pick="at"{{ if eq .Direction "at" }} class="on" aria-pressed="true"{{ else }} aria-pressed="false"{{ end }}>{{ if $appointment }}At the start{{ else if $dateOnly }}On the day{{ else }}On the due date{{ end }}</button>
+			{{ if not $appointment }}<button type="button" data-reminder-pick="after"{{ if eq .Direction "after" }} class="on" aria-pressed="true"{{ else }} aria-pressed="false"{{ end }}>After</button>{{ end }}
 		</div>
 		<select class="rt-direction" name="reminder_direction" aria-label="When">
 			<option value="before"{{ if eq .Direction "before" }} selected{{ end }}>before</option>
