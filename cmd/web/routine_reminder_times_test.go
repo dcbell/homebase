@@ -105,3 +105,28 @@ func TestRoutineAndMaintenanceFormsSendReminderTimesToTheAPI(t *testing.T) {
 		t.Errorf("save without the editor sent reminder_times %s, want them left out", got)
 	}
 }
+
+func TestRoutineAndMaintenanceFormsSaveOnlyTheTimeOfDayThatAppliesToEachReminderTime(t *testing.T) {
+	rows := [][4]string{
+		{"1", "hours", "before", "08:00"},
+		{"1", "days", "before", "08:00"},
+		{"1", "days", "before", ""},
+		{"0", "days", "at", "08:00"},
+		{"0", "days", "at", ""},
+	}
+	want := `[{"minutes":-60},{"days":-1,"at":"08:00"},{"minutes":-1440},{"days":0,"at":"08:00"},{"minutes":0}]`
+	timed := func() url.Values {
+		return url.Values{"title": {"Take the bins out"}, "next_due_at": {"2030-01-20T19:00"}}
+	}
+
+	for _, post := range []struct{ path, apiRoute string }{
+		{"/routines", "POST /api/v1/routines"},
+		{"/routines/5", "PATCH /api/v1/routines/5"},
+		{"/assets/4/maintenance", "POST /api/v1/assets/4/maintenance"},
+		{"/assets/4/maintenance/6", "PATCH /api/v1/asset-maintenance/6"},
+	} {
+		if got := postReminderTimes(t, post.path, post.apiRoute, timed(), "timed", rows...); got != want {
+			t.Errorf("POST %s sent reminder_times %s, want %s", post.path, got, want)
+		}
+	}
+}

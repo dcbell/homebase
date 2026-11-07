@@ -221,6 +221,7 @@ func (s *webServer) routes() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /favicon.svg", favicon)
+	mux.HandleFunc("GET /reminder-times/row", s.reminderTimeRowFrame)
 	s.pwaRoutes(mux)
 	s.pushRoutes(mux)
 	s.calendarConnectionRoutes(mux)
@@ -265,12 +266,12 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}", s.updateTask)
 	mux.HandleFunc("POST /tasks/{id}/archive", s.archiveTask)
 	mux.HandleFunc("POST /tasks/{id}/reopen", s.reopenTask)
-	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setPersonalReminderTimes("/tasks"))
+	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setPersonalReminderTimes("/tasks", false))
 	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/tasks"))
 	mux.HandleFunc("POST /tasks", s.createTask)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
-	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setPersonalReminderTimes("/events"))
+	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setPersonalReminderTimes("/events", true))
 	mux.HandleFunc("POST /events/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/events"))
 	mux.HandleFunc("POST /events/{id}/delete", s.deleteEvent)
 	mux.HandleFunc("POST /events", s.createEvent)
@@ -1258,7 +1259,7 @@ func (s *webServer) createEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	if times, ok := reminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r, true); ok {
 		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPost, "/api/v1/events", payload, nil); err != nil {
@@ -1303,7 +1304,7 @@ func (s *webServer) updateEvent(w http.ResponseWriter, r *http.Request) {
 		"ends_at":      formTime(r.FormValue("ends_at")),
 		"attendee_ids": attendeeIDsFromForm(r),
 	}
-	if times, ok := reminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r, true); ok {
 		payload["reminder_times"] = times
 	}
 	if err := s.apiJSON(r, http.MethodPatch, "/api/v1/events/"+url.PathEscape(id), payload, nil); err != nil {
@@ -2914,7 +2915,7 @@ func routinePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
-	if times, ok := reminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r, false); ok {
 		payload["reminder_times"] = times
 	}
 	return payload
@@ -2989,7 +2990,7 @@ func assetMaintenancePayloadFromForm(r *http.Request) map[string]any {
 	if nextDue := strings.TrimSpace(r.FormValue("next_due_at")); nextDue != "" {
 		payload["next_due_at"] = formTime(nextDue)
 	}
-	if times, ok := reminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r, false); ok {
 		payload["reminder_times"] = times
 	}
 	return payload
@@ -3042,7 +3043,7 @@ func taskPayloadFromForm(r *http.Request) map[string]any {
 	if due := strings.TrimSpace(r.FormValue("due_at")); due != "" {
 		payload["due_at"] = formTime(due)
 	}
-	if times, ok := reminderTimesFromForm(r); ok {
+	if times, ok := reminderTimesFromForm(r, false); ok {
 		payload["reminder_times"] = times
 	}
 	return payload

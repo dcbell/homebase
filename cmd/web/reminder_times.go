@@ -22,6 +22,30 @@ const (
 	reminderAfter  = "after"
 )
 
+// reminderSetKind is what a Reminder Time row's set says about it: the kind
+// of due date, and whether it is an Appointment's.
+type reminderSetKind struct {
+	Kind        string
+	Appointment bool
+}
+
+// reminderSetKindOf is the set a form or query names by its reminder_kind,
+// timed unless it says date-only. Only a timed set is an Appointment's.
+func reminderSetKindOf(kind string, appointment bool) reminderSetKind {
+	if kind != reminderKindDateOnly {
+		kind = reminderKindTimed
+	}
+	return reminderSetKind{Kind: kind, Appointment: appointment && kind == reminderKindTimed}
+}
+
+// newRow is the frame "Add reminder" adds to a set of this kind.
+func (set reminderSetKind) newRow() reminderTimeRow {
+	if set.Kind == reminderKindDateOnly {
+		return reminderTimeRow{Amount: "1", Unit: "days", Direction: reminderBefore, At: "08:00"}
+	}
+	return reminderTimeRow{Amount: "1", Unit: "hours", Direction: reminderBefore}
+}
+
 // reminderUnitMinutes is how many minutes each form unit stands for.
 var reminderUnitMinutes = map[string]int{"minutes": 1, "hours": 60, "days": 24 * 60}
 
@@ -35,6 +59,22 @@ type reminderTimeRow struct {
 	At        string
 	// Summary says the row in plain language, as its closed frame shows it.
 	Summary string
+	// Controls are which of the frame's controls apply to the row as it
+	// stands; the frame marks each, and keeps the value of one that doesn't.
+	Controls reminderControls
+}
+
+// rendered is row as a frame in set shows it: with which of its controls
+// apply, and its summary. An "at" row with no amount gets 0, since a row
+// with none is dropped when saved; only rendering fills it, so blanking it on
+// a form still drops the row.
+func (row reminderTimeRow) rendered(set reminderSetKind) reminderTimeRow {
+	if row.Direction == reminderAt && row.Amount == "" {
+		row.Amount = "0"
+	}
+	row.Controls = row.controls(set)
+	row.Summary = row.summary(set)
+	return row
 }
 
 // reminderTimeSet is the frames of one kind of due date in an editor.
@@ -87,32 +127,31 @@ func (f reminderTimesForm) Shown() reminderTimeSet {
 }
 
 func (f reminderTimesForm) set(kind string, rows []reminderTimeRow) reminderTimeSet {
-	appointment := f.Appointment && kind == reminderKindTimed
-	set := reminderTimeSet{Kind: kind, Shown: f.Kind == kind, Appointment: appointment, CanAdd: len(rows) < store.MaxReminderTimes}
-	set.New = reminderTimeRow{Amount: "1", Unit: "hours", Direction: reminderBefore}
-	if kind == reminderKindDateOnly {
-		set.New = reminderTimeRow{Amount: "1", Unit: "days", Direction: reminderBefore, At: "08:00"}
-	}
-	set.New.Summary = set.New.summary(kind, appointment)
+	of := reminderSetKindOf(kind, f.Appointment)
+	set := reminderTimeSet{Kind: kind, Shown: f.Kind == kind, Appointment: of.Appointment, CanAdd: len(rows) < store.MaxReminderTimes}
+	set.New = of.newRow().rendered(of)
 	set.Rows = make([]reminderTimeRow, len(rows))
 	for i, row := range rows {
-		row.Summary = row.summary(kind, appointment)
-		set.Rows[i] = row
+		set.Rows[i] = row.rendered(of)
 	}
 	return set
 }
 
 // summary says a row in plain language, such as "24 hours before", "1 day
-// after at 08:00" or "At the start". The editor's script words it the same
-// way as the row changes.
-func (row reminderTimeRow) summary(kind string, appointment bool) string {
-	if row.Direction == reminderAt {
+// after at 08:00" or "At the start", leaving out any control that doesn't
+// apply to it as its Controls say.
+func (row reminderTimeRow) summary(set reminderSetKind) string {
+	at := ""
+	if row.Controls.At {
+		at = row.At
+	}
+	if !row.Controls.Amount {
 		switch {
-		case appointment:
+		case set.Appointment:
 			return "At the start"
-		case row.At != "":
-			return "On the due date at " + row.At
-		case kind == reminderKindDateOnly:
+		case at != "":
+			return "On the due date at " + at
+		case set.Kind == reminderKindDateOnly:
 			return "On the due date"
 		}
 		return "At the due time"
@@ -124,10 +163,10 @@ func (row reminderTimeRow) summary(kind string, appointment bool) string {
 	}
 	text := strconv.Itoa(amount) + " " + unit + " " + row.Direction
 	switch {
-	case appointment:
+	case set.Appointment:
 		text += " the start"
-	case row.At != "":
-		text += " at " + row.At
+	case at != "":
+		text += " at " + at
 	}
 	return text
 }
@@ -240,16 +279,86 @@ func reminderTimeRows(times []store.ReminderTime) []reminderTimeRow {
 	return rows
 }
 
-// reminderTimesFromForm reads a form's Reminder Time rows, skipping those
-// with no amount, so clearing every row sends an empty list. A row at the due
-// time is 0 whatever its amount. A row with a time of day is days at that
-// time; otherwise it is minutes from the due time. ok is false when the form
+// reminderTimeRowFrame renders one Reminder Time frame from the query, as
+// the editor's pages render it, so the editor's script can ask for a fresh
+// copy of a row as it changes. The query names the set's kind
+// (reminder_kind), whether it is an Appointment's (appointment=1), and the
+// row's fields as the frame submits them; a unit or direction the set
+// doesn't offer, such as after the start of an Appointment, is the one a new
+// row has. It needs no record, calls no API and changes nothing.
+func (s *webServer) reminderTimeRowFrame(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	set := reminderSetKindOf(q.Get("reminder_kind"), q.Get("appointment") == "1")
+	row := reminderTimeRow{
+		Amount:    strings.TrimSpace(q.Get("reminder_amount")),
+		Unit:      strings.TrimSpace(q.Get("reminder_unit")),
+		Direction: strings.TrimSpace(q.Get("reminder_direction")),
+		At:        strings.TrimSpace(q.Get("reminder_at")),
+	}
+	if _, known := reminderUnitMinutes[row.Unit]; !known || set.Kind == reminderKindDateOnly {
+		row.Unit = set.newRow().Unit
+	}
+	switch row.Direction {
+	case reminderBefore, reminderAt:
+	case reminderAfter:
+		if set.Appointment {
+			row.Direction = set.newRow().Direction
+		}
+	default:
+		row.Direction = set.newRow().Direction
+	}
+	frame := map[string]any{"Kind": set.Kind, "Appointment": set.Appointment, "Row": row.rendered(set)}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, "reminderTimeFrame", frame); err != nil {
+		s.logger.Error("render Reminder Time frame", "error", err)
+	}
+}
+
+// reminderControls are which of a Reminder Time row's controls apply to it,
+// following its set and its direction and unit. A control that doesn't apply
+// never counts: whatever value it holds is left out of the row's summary and
+// of what is saved.
+type reminderControls struct {
+	// Amount is how long before or after; a row at the due time has none.
+	Amount bool
+	// At is the time of day the Reminder is sent on its day.
+	At bool
+	// AtRequired is whether the row can't be saved without its time of
+	// day, as a date-only Reminder Time can't.
+	AtRequired bool
+}
+
+// controls says which controls apply to row in set:
+//
+//   - an Appointment's rows never have a time of day;
+//   - a timed row may have one at the due date, or when it counts days;
+//   - a date-only row always counts days, and needs one.
+func (row reminderTimeRow) controls(set reminderSetKind) reminderControls {
+	c := reminderControls{Amount: row.Direction != reminderAt}
+	switch {
+	case set.Appointment:
+	case set.Kind == reminderKindDateOnly:
+		c.At, c.AtRequired = true, true
+	default:
+		c.At = row.Direction == reminderAt || row.Unit == "days"
+	}
+	return c
+}
+
+// reminderTimesFromForm reads a form's Reminder Time rows as the set of the
+// kind the form names would have them, of an Appointment or not, skipping
+// rows with no amount, so clearing every row sends an empty list, and an
+// Appointment's rows after the start, which it never has. A row at
+// the due time is 0 whatever its amount. A row with a time of day that
+// applies to it is days at that time; otherwise it is minutes from the due
+// time. A form naming no kind is read as timed. ok is false when the form
 // carried no rows, so the field is left out for the API to apply or keep its
 // own.
-func reminderTimesFromForm(r *http.Request) (times []store.ReminderTime, ok bool) {
+func reminderTimesFromForm(r *http.Request, appointment bool) (times []store.ReminderTime, ok bool) {
 	if r.FormValue("reminder_times") == "" {
 		return nil, false
 	}
+	set := reminderSetKindOf(r.FormValue("reminder_kind"), appointment)
 	field := func(name string, i int) string {
 		if values := r.Form[name]; i < len(values) {
 			return strings.TrimSpace(values[i])
@@ -262,18 +371,23 @@ func reminderTimesFromForm(r *http.Request) (times []store.ReminderTime, ok bool
 		if err != nil {
 			continue
 		}
-		switch field("reminder_direction", i) {
-		case reminderAt:
+		row := reminderTimeRow{Unit: field("reminder_unit", i), Direction: field("reminder_direction", i), At: field("reminder_at", i)}
+		if set.Appointment && row.Direction == reminderAfter {
+			continue
+		}
+		controls := row.controls(set)
+		switch {
+		case !controls.Amount:
 			amount = 0
-		case reminderBefore:
+		case row.Direction == reminderBefore:
 			amount = -amount
 		}
-		if at := field("reminder_at", i); at != "" {
-			times = append(times, store.ReminderTime{Days: amount, At: at})
+		if controls.At && row.At != "" {
+			times = append(times, store.ReminderTime{Days: amount, At: row.At})
 			continue
 		}
 		perUnit := 1
-		if minutes, known := reminderUnitMinutes[field("reminder_unit", i)]; known {
+		if minutes, known := reminderUnitMinutes[row.Unit]; known {
 			perUnit = minutes
 		}
 		times = append(times, store.ReminderTime{Minutes: amount * perUnit})
@@ -283,16 +397,16 @@ func reminderTimesFromForm(r *http.Request) (times []store.ReminderTime, ok bool
 
 // setPersonalReminderTimes forwards "Use your own Reminder Times": the
 // caller's Personal Reminder Times on the Task or Appointment under prefix,
-// "/tasks" or "/events". Clearing every row sends an empty list, meaning no
-// Reminders for them.
-func (s *webServer) setPersonalReminderTimes(prefix string) http.HandlerFunc {
+// "/tasks" or "/events", as appointment says. Clearing every row sends an
+// empty list, meaning no Reminders for them.
+func (s *webServer) setPersonalReminderTimes(prefix string, appointment bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		page := prefix + "/" + url.PathEscape(r.PathValue("id"))
 		if err := r.ParseForm(); err != nil {
 			http.Redirect(w, r, page+"?error=form", http.StatusSeeOther)
 			return
 		}
-		times, ok := reminderTimesFromForm(r)
+		times, ok := reminderTimesFromForm(r, appointment)
 		if !ok {
 			times = []store.ReminderTime{}
 		}
