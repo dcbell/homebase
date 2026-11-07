@@ -597,10 +597,10 @@ func TestControlsThatDoNotApplyAreHiddenOnlyWhileTheScriptRuns(t *testing.T) {
 	}
 }
 
-// reminderTimeRowFrame gets one Reminder Time frame from the web server's
+// rowRouteFrame gets one Reminder Time frame from the web server's
 // row route with the given query, failing unless it is served without
 // calling the API.
-func reminderTimeRowFrame(t *testing.T, query url.Values) string {
+func rowRouteFrame(t *testing.T, query url.Values) string {
 	t.Helper()
 	api, web := newRecordingAPI(t, map[string]cannedResponse{})
 	rec := serve(web.routes(), browserRequest(http.MethodGet, "/reminder-times/row?"+query.Encode(), ""))
@@ -639,7 +639,7 @@ func TestReminderTimeRowRouteRendersTheFrameThePageDoes(t *testing.T) {
 	} {
 		page := editorPage(t, c.path, c.record)
 		want := trim(reminderFramesIn(t, page, c.id, c.kind)[0])
-		if got := trim(reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, c.row))); got != want {
+		if got := trim(rowRouteFrame(t, rowQuery(c.kind, c.appointment, c.row))); got != want {
 			t.Errorf("row %s %v =\n%s\nwant the %s page's frame\n%s", c.kind, c.row, got, c.path, want)
 		}
 	}
@@ -662,8 +662,12 @@ func TestReminderTimeRowRouteShowsARowAsItIsNowShaped(t *testing.T) {
 		{"date_only", false, [4]string{"0", "days", "at", "07:30"}, "On the due date at 07:30 | -amount +at required"},
 		{"timed", true, [4]string{"2", "hours", "before", ""}, "2 hours before the start | +amount"},
 		{"timed", true, [4]string{"0", "minutes", "at", ""}, "At the start | -amount"},
+		// An Appointment's Reminder Times are never after the start.
+		{"timed", true, [4]string{"2", "hours", "after", ""}, "2 hours before the start | +amount"},
+		// A unit or direction the set doesn't offer is a new row's.
+		{"timed", false, [4]string{"1", "weeks", "sideways", ""}, "1 hour before | +amount -at"},
 	} {
-		frame := reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, c.row))
+		frame := rowRouteFrame(t, rowQuery(c.kind, c.appointment, c.row))
 		if got := reminderFrameShape(t, frame); got != c.want {
 			t.Errorf("row %s appointment=%v %v = %q, want %q", c.kind, c.appointment, c.row, got, c.want)
 		}
@@ -686,8 +690,9 @@ func TestReminderTimeDirectionPillsSayWhichIsPicked(t *testing.T) {
 		{"timed", false, "at", "before=false at=true after=false"},
 		{"date_only", false, "after", "before=false at=false after=true"},
 		{"timed", true, "at", "before=false at=true"},
+		{"timed", true, "after", "before=true at=false"},
 	} {
-		frame := reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, [4]string{"1", "days", c.direction, "08:00"}))
+		frame := rowRouteFrame(t, rowQuery(c.kind, c.appointment, [4]string{"1", "days", c.direction, "08:00"}))
 		pills := []string{}
 		for _, m := range regexp.MustCompile(`<button [^>]*data-reminder-pick="(\w+)"[^>]*>`).FindAllStringSubmatch(frame, -1) {
 			pressed := regexp.MustCompile(`aria-pressed="(\w+)"`).FindStringSubmatch(m[0])
@@ -732,9 +737,36 @@ func TestPickingTheDueDateForARowWithNoAmountGivesItZero(t *testing.T) {
 		{"timed", true, [4]string{"", "minutes", "at", ""}, "0"},
 		{"timed", false, [4]string{"", "hours", "before", ""}, ""},
 	} {
-		frame := reminderTimeRowFrame(t, rowQuery(c.kind, c.appointment, c.row))
+		frame := rowRouteFrame(t, rowQuery(c.kind, c.appointment, c.row))
 		if got := reminderFieldValue(frame, "reminder_amount"); got != c.amount {
 			t.Errorf("row %s appointment=%v %v has amount %q, want %q", c.kind, c.appointment, c.row, got, c.amount)
+		}
+	}
+}
+
+// A blank time of day means at the due time only for a row on the due date
+// of a timed set; on a row that counts days it would mean no time of day.
+func TestBlankTimeOfDayHintAppliesOnlyOnTheDueDate(t *testing.T) {
+	for _, c := range []struct {
+		kind string
+		row  [4]string
+		want string
+	}{
+		{"timed", [4]string{"0", "hours", "at", ""}, `data-applies="true"`},
+		{"timed", [4]string{"1", "days", "before", "08:00"}, `data-applies="false"`},
+		{"timed", [4]string{"1", "days", "after", ""}, `data-applies="false"`},
+		{"date_only", [4]string{"0", "days", "at", "08:00"}, "no hint"},
+	} {
+		frame := rowRouteFrame(t, rowQuery(c.kind, false, c.row))
+		got := "no hint"
+		if hint := regexp.MustCompile(`<span class="hint"[^>]*>blank = at the due time`).FindString(frame); hint != "" {
+			got = "no marker"
+			if m := regexp.MustCompile(`data-applies="\w+"`).FindString(hint); m != "" {
+				got = m
+			}
+		}
+		if got != c.want {
+			t.Errorf("row %s %v hint = %s, want %s", c.kind, c.row, got, c.want)
 		}
 	}
 }

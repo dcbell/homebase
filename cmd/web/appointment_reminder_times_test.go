@@ -110,3 +110,27 @@ func TestAppointmentFormsNeverSendATimeOfDay(t *testing.T) {
 		t.Errorf("edit sent reminder_times %s, want %s", got, want)
 	}
 }
+
+// An Appointment's Reminder Times are never after the start, so a row that
+// says so is dropped rather than sent.
+func TestAppointmentFormsNeverSendAReminderTimeAfterTheStart(t *testing.T) {
+	rows := [][4]string{
+		{"1", "hours", "before", ""},
+		{"2", "hours", "after", ""},
+		{"0", "minutes", "at", ""},
+	}
+	want := `[{"minutes":-60},{"minutes":0}]`
+	appointment := func() url.Values {
+		return url.Values{"title": {"Dentist"}, "starts_at": {"2030-01-20T09:00"}, "ends_at": {"2030-01-20T10:00"}}
+	}
+
+	if got := postReminderTimes(t, "/events", "POST /api/v1/events", appointment(), "timed", rows...); got != want {
+		t.Errorf("create sent reminder_times %s, want %s", got, want)
+	}
+	if got := postReminderTimes(t, "/events/5", "PATCH /api/v1/events/5", appointment(), "timed", rows...); got != want {
+		t.Errorf("edit sent reminder_times %s, want %s", got, want)
+	}
+	if got := postReminderTimes(t, "/events/5/personal-reminder-times", "PUT /api/v1/events/5/personal-reminder-times", url.Values{}, "timed", rows...); got != want {
+		t.Errorf("Personal Reminder Times sent %s, want %s", got, want)
+	}
+}

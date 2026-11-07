@@ -907,8 +907,7 @@ const appTemplate = `
 						frame.remove();
 						refresh(set);
 					} else if (button.hasAttribute("data-reminder-pick")) {
-						frame.querySelector("[name='reminder_direction']").value = button.getAttribute("data-reminder-pick");
-						renderReminderFrame(frame);
+						renderReminderFrame(frame, button.getAttribute("data-reminder-pick"));
 					} else if (button.hasAttribute("data-reminder-add")) {
 						var added = set.querySelector("template[data-reminder-new]").content.firstElementChild.cloneNode(true);
 						set.insertBefore(added, set.querySelector("[data-reminder-empty]"));
@@ -932,7 +931,8 @@ const appTemplate = `
 				}, true);
 			}
 			// reminderFrameQuery is what a frame would submit, with its set's
-			// kind, as the server's row route reads it.
+			// kind, as the server's row route reads it, and with the direction
+			// picked for it while that is still being fetched.
 			function reminderFrameQuery(frame) {
 				var set = frame.closest("[data-reminder-kind]");
 				var query = new URLSearchParams();
@@ -942,16 +942,19 @@ const appTemplate = `
 					var field = frame.querySelector("[name='" + name + "']");
 					if (field) query.set(name, field.value);
 				});
+				if (frame.reminderDirection) query.set("reminder_direction", frame.reminderDirection);
 				return query.toString();
 			}
 			// renderReminderFrame swaps in the server's copy of a frame as it
-			// now stands. A newer request cancels one still in flight; a reply
-			// that no longer matches what the frame holds, or a failed one,
-			// leaves the frame as it is, and saving still sends what it holds.
-			function renderReminderFrame(frame) {
+			// now stands, or with direction picked. Nothing in the frame changes
+			// until then, so a failed request leaves it as it is, and saving
+			// still sends what it shows. A newer request cancels one still in
+			// flight, and a reply that no longer matches the frame is dropped.
+			function renderReminderFrame(frame, direction) {
 				if (frame.reminderRequest) frame.reminderRequest.abort();
 				var request = new AbortController();
 				frame.reminderRequest = request;
+				if (direction) frame.reminderDirection = direction;
 				var query = reminderFrameQuery(frame);
 				fetch("/reminder-times/row?" + query, { signal: request.signal }).then(function (response) {
 					if (!response.ok) throw new Error("Reminder Time load failed");
@@ -972,7 +975,9 @@ const appTemplate = `
 						var pill = fresh.querySelector("[data-reminder-pick='" + focused.getAttribute("data-reminder-pick") + "']");
 						if (pill) pill.focus();
 					}
-				}).catch(function () {});
+				}).catch(function () {
+					if (frame.reminderRequest === request) frame.reminderDirection = null;
+				});
 			}
 			document.querySelectorAll("[data-reminder-times]").forEach(function (editor) {
 				var form = editor.closest("form");
@@ -1932,7 +1937,7 @@ their summaries and adds, edits and removes frames. */}}
 			</select>
 			{{ end }}
 		</span>
-		{{ if not $appointment }}<label class="rt-at" data-reminder-at data-applies="{{ .Controls.At }}"><span class="word">at</span><input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day"{{ if .Controls.AtRequired }} required{{ end }}>{{ if not $dateOnly }}<span class="hint">blank = at the due time</span>{{ end }}</label>{{ end }}
+		{{ if not $appointment }}<label class="rt-at" data-reminder-at data-applies="{{ .Controls.At }}"><span class="word">at</span><input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day"{{ if .Controls.AtRequired }} required{{ end }}>{{ if not $dateOnly }}<span class="hint" data-applies="{{ eq .Direction "at" }}">blank = at the due time</span>{{ end }}</label>{{ end }}
 	</div>
 </div>
 {{ end }}
