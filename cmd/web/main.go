@@ -268,6 +268,7 @@ func (s *webServer) routes() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times", s.setPersonalReminderTimes("/tasks"))
 	mux.HandleFunc("POST /tasks/{id}/personal-reminder-times/shared", s.useSharedReminderTimes("/tasks"))
 	mux.HandleFunc("POST /tasks", s.createTask)
+	mux.HandleFunc("GET /reminder-times/row", s.reminderTimeRowFrame)
 	mux.HandleFunc("GET /events/{id}", s.eventDetail)
 	mux.HandleFunc("POST /events/{id}", s.updateEvent)
 	mux.HandleFunc("POST /events/{id}/personal-reminder-times", s.setPersonalReminderTimes("/events"))

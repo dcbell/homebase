@@ -226,6 +226,7 @@ const appTemplate = `
 		.rt-controls input, .rt-controls select { width:auto; }
 		.rt-amount input { width:72px; }
 		.rt-controls .word { color:var(--ink); font-size:14px; }
+		.rt-at .hint { color:var(--muted); font-size:12px; }
 		.rt-x { width:36px; height:36px; min-height:36px; padding:0; border:1px solid transparent; border-radius:999px; background:transparent; color:var(--muted); font-size:18px; }
 		.rt-x:hover { border-color:var(--line); background:var(--panel); color:var(--danger); }
 		.rt-add { align-self:flex-start; border:1px dashed var(--line); background:transparent; color:var(--accent); }
@@ -240,7 +241,7 @@ const appTemplate = `
 		.rt-actions { display:flex; flex-wrap:wrap; gap:8px; }
 		.personal-reminder-times .hint { margin:0; color:var(--muted); font-size:13px; }
 		/* Without the script, frames stay open and the direction is a list. */
-		[data-reminder-times]:not(.live) .rt-js, .live .rt-direction, .live .rt-frame:not(.open) .rt-controls, .live .rt-frame.open [data-reminder-edit], .live .rt-frame:not(.open) [data-reminder-done] { display:none; }
+		[data-reminder-times]:not(.live) .rt-js, .live .rt-direction, .live .rt-frame:not(.open) .rt-controls, .live .rt-frame.open [data-reminder-edit], .live .rt-frame:not(.open) [data-reminder-done], .live [data-applies="false"] { display:none; }
 		.filter-row { margin-bottom:14px; grid-template-columns:minmax(0, 1fr) minmax(160px, 220px) minmax(160px, 220px); align-items:end; }
 		.modules { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:10px; }
 		.module { border:1px solid var(--line); border-radius:6px; padding:12px; background:var(--panel-soft); min-width:0; color:var(--ink); text-decoration:none; }
@@ -1900,15 +1901,15 @@ their summaries and adds, edits and removes frames. */}}
 	<div class="rt-controls">
 		<div class="seg rt-js" role="group" aria-label="When">
 			<button type="button" data-reminder-pick="before"{{ if eq .Direction "before" }} class="on"{{ end }}>Before</button>
-			<button type="button" data-reminder-pick="at"{{ if eq .Direction "at" }} class="on"{{ end }}>{{ if $appointment }}At the start{{ else if $dateOnly }}On the day{{ else }}At due time{{ end }}</button>
+			<button type="button" data-reminder-pick="at"{{ if eq .Direction "at" }} class="on"{{ end }}>{{ if $appointment }}At the start{{ else if $dateOnly }}On the day{{ else }}On the due date{{ end }}</button>
 			{{ if not $appointment }}<button type="button" data-reminder-pick="after"{{ if eq .Direction "after" }} class="on"{{ end }}>After</button>{{ end }}
 		</div>
 		<select class="rt-direction" name="reminder_direction" aria-label="When">
 			<option value="before"{{ if eq .Direction "before" }} selected{{ end }}>before</option>
-			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $appointment }}at the start{{ else if $dateOnly }}on the day{{ else }}at the due time{{ end }}</option>
+			<option value="at"{{ if eq .Direction "at" }} selected{{ end }}>{{ if $appointment }}at the start{{ else if $dateOnly }}on the day{{ else }}on the due date{{ end }}</option>
 			{{ if not $appointment }}<option value="after"{{ if eq .Direction "after" }} selected{{ end }}>after</option>{{ end }}
 		</select>
-		<span class="rt-amount" data-reminder-amount>
+		<span class="rt-amount" data-reminder-amount data-applies="{{ .Controls.Amount }}">
 			<input name="reminder_amount" type="number" min="0" step="1" value="{{ .Amount }}" aria-label="How long">
 			{{ if $dateOnly }}
 			<input name="reminder_unit" type="hidden" value="days">
@@ -1921,7 +1922,7 @@ their summaries and adds, edits and removes frames. */}}
 			</select>
 			{{ end }}
 		</span>
-		{{ if not $appointment }}<label class="rt-at" data-reminder-at><span class="word">at</span><input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day"></label>{{ end }}
+		{{ if not $appointment }}<label class="rt-at" data-reminder-at data-applies="{{ .Controls.At }}"><span class="word">at</span><input name="reminder_at" type="time" value="{{ .At }}" aria-label="At a time of day"{{ if .Controls.AtRequired }} required{{ end }}>{{ if not $dateOnly }}<span class="hint">blank = at the due time</span>{{ end }}</label>{{ end }}
 	</div>
 </div>
 {{ end }}

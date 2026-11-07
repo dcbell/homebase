@@ -35,6 +35,17 @@ type reminderTimeRow struct {
 	At        string
 	// Summary says the row in plain language, as its closed frame shows it.
 	Summary string
+	// Controls are which of the frame's controls apply to the row as it
+	// stands; the frame marks each, and keeps the value of one that doesn't.
+	Controls reminderControls
+}
+
+// rendered is row as a frame in a set of kind, of an Appointment or not,
+// shows it: with its summary, and which of its controls apply.
+func (row reminderTimeRow) rendered(kind string, appointment bool) reminderTimeRow {
+	row.Summary = row.summary(kind, appointment)
+	row.Controls = row.controls(kind, appointment)
+	return row
 }
 
 // reminderTimeSet is the frames of one kind of due date in an editor.
@@ -93,25 +104,29 @@ func (f reminderTimesForm) set(kind string, rows []reminderTimeRow) reminderTime
 	if kind == reminderKindDateOnly {
 		set.New = reminderTimeRow{Amount: "1", Unit: "days", Direction: reminderBefore, At: "08:00"}
 	}
-	set.New.Summary = set.New.summary(kind, appointment)
+	set.New = set.New.rendered(kind, appointment)
 	set.Rows = make([]reminderTimeRow, len(rows))
 	for i, row := range rows {
-		row.Summary = row.summary(kind, appointment)
-		set.Rows[i] = row
+		set.Rows[i] = row.rendered(kind, appointment)
 	}
 	return set
 }
 
 // summary says a row in plain language, such as "24 hours before", "1 day
-// after at 08:00" or "At the start". The editor's script words it the same
-// way as the row changes.
+// after at 08:00" or "At the start", leaving out any control that doesn't
+// apply to it.
 func (row reminderTimeRow) summary(kind string, appointment bool) string {
-	if row.Direction == reminderAt {
+	controls := row.controls(kind, appointment)
+	at := ""
+	if controls.At {
+		at = row.At
+	}
+	if !controls.Amount {
 		switch {
 		case appointment:
 			return "At the start"
-		case row.At != "":
-			return "On the due date at " + row.At
+		case at != "":
+			return "On the due date at " + at
 		case kind == reminderKindDateOnly:
 			return "On the due date"
 		}
@@ -126,8 +141,8 @@ func (row reminderTimeRow) summary(kind string, appointment bool) string {
 	switch {
 	case appointment:
 		text += " the start"
-	case row.At != "":
-		text += " at " + row.At
+	case at != "":
+		text += " at " + at
 	}
 	return text
 }
@@ -238,6 +253,35 @@ func reminderTimeRows(times []store.ReminderTime) []reminderTimeRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// reminderTimeRowFrame renders one Reminder Time frame from the query, as
+// the editor's pages render it, so the editor's script can ask for a fresh
+// copy of a row as it changes. The query names the set's kind
+// (reminder_kind), whether it is an Appointment's (appointment=1), and the
+// row's fields as the frame submits them. It needs no record and changes
+// nothing.
+func (s *webServer) reminderTimeRowFrame(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	kind := reminderKindTimed
+	if q.Get("reminder_kind") == reminderKindDateOnly {
+		kind = reminderKindDateOnly
+	}
+	appointment := q.Get("appointment") == "1" && kind == reminderKindTimed
+	row := reminderTimeRow{
+		Amount:    strings.TrimSpace(q.Get("reminder_amount")),
+		Unit:      strings.TrimSpace(q.Get("reminder_unit")),
+		Direction: strings.TrimSpace(q.Get("reminder_direction")),
+		At:        strings.TrimSpace(q.Get("reminder_at")),
+	}
+	if kind == reminderKindDateOnly {
+		row.Unit = "days"
+	}
+	frame := map[string]any{"Kind": kind, "Appointment": appointment, "Row": row.rendered(kind, appointment)}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, "reminderTimeFrame", frame); err != nil {
+		s.logger.Error("render Reminder Time frame", "error", err)
+	}
 }
 
 // reminderControls are which of a Reminder Time row's controls apply to it,
